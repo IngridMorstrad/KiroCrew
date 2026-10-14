@@ -76,6 +76,16 @@ function createIpcRegistrar({
   let shellRegistered = false;
   let updaterRegistered = false;
   let updater = null;
+  // True when the gateway reports that a security policy provider owns this
+  // install's updates and the Electron feed lane must stand down. Set by the
+  // renderer via update:notify-policy-governed once the gateway status lands.
+  let policyGoverned = false;
+  // Set of webContents IDs currently reporting governance=true. Governance is
+  // active as long as at least one sender is in the set; removing a sender's id
+  // (on explicit false or on destroyed) clears governance only when the set
+  // empties, so a second window closing does not re-enable the feed lane while
+  // another window on the same bundled gateway is still governed.
+  const governanceSenders = new Set();
   // True while a native folder chooser is on screen, so a second request
   // answers "no choice" instead of stacking another dialog.
   let folderPickOpen = false;
@@ -610,6 +620,7 @@ function createIpcRegistrar({
         // electron-updater's AppUpdater, NOT Electron's built-in autoUpdater:
         // it generates/verifies feed metadata and also supports Linux.
         autoUpdater: require("electron-updater").autoUpdater,
+        isPolicyGoverned: () => policyGoverned,
         dialog: electron.dialog,
         Notification,
         getFlavor: () => "stable",
@@ -685,6 +696,68 @@ function createIpcRegistrar({
       disabled: updater.disabled,
     });
 
+    // One-way notification from the renderer: the gateway status reported that
+    // a security policy provider governs this install's updates. The feed lane
+    // stands down until notified the opposite. Fire-and-forget: no response
+    // expected; the lane reads policyGoverned on its next scheduled check.
+    //
+    // Three-gate guard (mirrors assertLocalDashboard in registerShell):
+    //   1. Origin — the sender must be served from the bundled gateway's URL.
+    //   2. Window ownership — the window's gateway must be local to this machine.
+    //   3. Port ownership — the primary port must be held by this app's own gateway.
+    //      Gate 3 catches a manual SSH tunnel: it holds the primary port but the
+    //      probePrimaryPortOwner probe returns "ssh" or similar, not "kirocrew".
+    ipcMain.on("update:notify-policy-governed", async (_event, governed) => {
+      // Gate 1 — origin.
+      let senderOrigin = "";
+      try {
+        senderOrigin = new URL(_event?.senderFrame?.url ?? "").origin;
+      } catch { /* unreadable */ }
+      if (senderOrigin !== backendUrl) {
+        log(`update:notify-policy-governed ignored: sender origin ${senderOrigin || "(unreadable)"} is not the bundled gateway`);
+        return;
+      }
+      // Gate 2 — window's gateway is local to this machine.
+      const senderWindow = windows.windowForWebContents(_event.sender);
+      if (!windows.security.isGatewayLocalForWindow(senderWindow)) {
+        log("update:notify-policy-governed ignored: sender window has no local gateway");
+        return;
+      }
+      // Gate 3 — port is held by this app's own gateway (not an SSH tunnel).
+      const portOwner = await gateway.probePrimaryPortOwner();
+      if (portOwner !== "kirocrew" && portOwner !== "service") {
+        log(`update:notify-policy-governed ignored: :${port} held by ${portOwner}, not this shell's gateway`);
+        return;
+      }
+      const prev = policyGoverned;
+      const srcId = _event?.sender?.id ?? null;
+      if (governed) {
+        if (srcId !== null) {
+          governanceSenders.add(srcId);
+          // Remove from the set when the window is destroyed so governance is
+          // lifted automatically once all governing windows close.
+          // Uses the captured srcId (not a live sender reference) because the
+          // sender object is gone by the time destroyed fires.
+          if (_event?.sender) {
+            _event.sender.once("destroyed", () => {
+              governanceSenders.delete(srcId);
+              policyGoverned = governanceSenders.size > 0;
+            });
+          }
+        }
+        policyGoverned = srcId !== null ? governanceSenders.size > 0 : true;
+        if (!prev) {
+          // Governance just became active: trigger a check immediately so the
+          // feed lane emits not-available and clears any stale "found" state.
+          updater?.check?.();
+        }
+      } else {
+        // Lift governance for this sender. Other windows may still be governed.
+        if (srcId !== null) governanceSenders.delete(srcId);
+        else governanceSenders.clear();
+        policyGoverned = governanceSenders.size > 0;
+      }
+    });
     ipcMain.handle("update:get-info", () => updaterInfo());
     ipcMain.handle("update:check", () => {
       updater.check();

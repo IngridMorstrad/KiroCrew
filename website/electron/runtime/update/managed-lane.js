@@ -29,6 +29,10 @@ function createManagedLane({
   managedPath,
   launchCheckDelayMs,
   checkIntervalMs,
+  // When a security policy provider governs this install's updates, the managed
+  // lane must also stand down: the policy provider and the EXTERNALLY-MANAGED
+  // command would otherwise both try to apply updates on the same install.
+  isPolicyGoverned = () => false,
   log,
 }) {
   // MANAGED AUTO-UPDATE (marker-driven): the marker carries the very
@@ -261,6 +265,12 @@ function createManagedLane({
       log.info("[update] managed quit handler fired with no pending update — not applying");
       return;
     }
+    // If policy governance became active since the check found a pending update,
+    // the policy provider owns the install. Do not apply the managed command.
+    if (isPolicyGoverned()) {
+      log.info("[update] policy governed: skipping managed deferred install on quit");
+      return;
+    }
     let stillOn = false;
     try { stillOn = !!getAutoDownloadPreference(); } catch (err) {
       log.error("[update] getAutoDownloadPreference threw on quit — not installing", err);
@@ -314,6 +324,15 @@ function createManagedLane({
 
   async function managedCheck() {
     emit("checking");
+    // Policy stand-down: if a security policy provider governs this install,
+    // the managed lane's own check/apply must not run — both would otherwise
+    // try to apply updates on the same install.
+    if (isPolicyGoverned()) {
+      log.info("[update] policy governed: managed check suppressed");
+      disarmManagedQuit();
+      emit("not-available");
+      return;
+    }
     if (!managed.checkCommand) {
       // The marker says how to APPLY an update but gives no way to DISCOVER
       // one. This is a check error, NOT a green "up to date": a silent
