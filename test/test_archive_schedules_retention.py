@@ -69,6 +69,22 @@ async def test_archiving_hands_the_session_key_to_retention(tmp_path, scheduled,
     assert key in scheduled[0]
 
 
+async def test_a_history_resume_hands_the_session_key_to_retention(
+    tmp_path, scheduled, monkeypatch
+):
+    # Reopening keeps the workspace even when no message ever starts it.
+    from kiro_crew.dashboard.chat_handlers import resume_slot_from_history
+
+    reopened: list[tuple[str, ...]] = []
+    monkeypatch.setattr(retention, "schedule_reopened", lambda keys: reopened.append(tuple(keys)))
+    state, slot, key = _state(tmp_path)
+    await _archive(state, slot, "tab_close")
+    assert reopened == []
+    outcome = await resume_slot_from_history(state, name=slot.key, history_key=key)
+    assert outcome.refusal is None and outcome.slot is not None
+    assert len(reopened) == 1 and key in reopened[0]
+
+
 async def test_a_close_whose_key_a_replacement_took_schedules_nothing(
     tmp_path, scheduled, monkeypatch
 ):

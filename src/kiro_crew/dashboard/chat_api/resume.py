@@ -1729,4 +1729,9 @@ async def resume_slot_from_history(
     state.end_slot_construction(slot.key)
     _sync_dashboard_slots(state)
     state.push_slots_update()
+    # Cancel the archived session's remote-workspace retention: background, best
+    # effort, a no-op without one, and it never creates or wakes the workspace.
+    from kiro_crew.coder.retention import schedule_reopened
+
+    schedule_reopened((history_key, effective_session_key(slot)))
     return ResumeOutcome(slot=slot, total=total)
