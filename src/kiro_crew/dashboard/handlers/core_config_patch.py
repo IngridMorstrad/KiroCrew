@@ -109,14 +109,18 @@ def _session_environment_key_validators() -> dict[str, Any]:
     only once it has a validator here: an unvalidated saved value is never kept.
     """
     from kiro_crew.config.session_environments import (
+        validate_boxd_profiles,
         validate_default_profile,
         validate_kiro_cloud_profiles,
+        validate_sprites_profiles,
         validate_stop_on_shutdown,
     )
 
     return {
         "default_profile": validate_default_profile,
         "kiro_cloud_profiles": validate_kiro_cloud_profiles,
+        "sprites_profiles": validate_sprites_profiles,
+        "boxd_profiles": validate_boxd_profiles,
         "stop_on_shutdown": validate_stop_on_shutdown,
     }
 
