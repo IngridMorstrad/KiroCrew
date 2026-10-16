@@ -127,15 +127,20 @@ async def _handle_stop_confirm(payload: dict, channel: str, msg_ts: str, user_id
         # thread queues under its one session key, the way ``!stop`` scopes it.
         # The hold keeps the others' kept entries from starting until the stop,
         # and the cancel of the task it ended, have settled.
-        async with slack_stop_in_flight(_orch, thread_ts):
+        _owner = _entry_owner(user_id, channel)
+        async with slack_stop_in_flight(_orch, thread_ts, owner=_owner) as went_through:
             outcome = await _orch.sessions.stop_turn(
                 thread_ts,
-                owned_by=entries_queued_by(_entry_owner(user_id, channel)),
+                owned_by=entries_queued_by(_owner),
                 on_soft=_on_soft,
                 on_hard=_on_hard,
                 **_kw,
             )
             if outcome != "compacting":
+                if not (_force and outcome == "hard"):
+                    # The presser's entries an overlapping Stop already detached
+                    # are theirs too (a forced reset drops nobody's).
+                    went_through()
                 # Pop only the task this Stop ended. A successor dispatched from
                 # a message admitted mid-await is the user's newer intent: left
                 # running and tracked.
@@ -604,14 +609,18 @@ async def _handle_inline_stop(
 
     # The presser's queued messages only, held until the stop settles, for the
     # reasons the confirm button gives.
-    async with slack_stop_in_flight(_orch, session_key):
+    _owner = _entry_owner(user_id, channel)
+    async with slack_stop_in_flight(_orch, session_key, owner=_owner) as went_through:
         outcome = await _orch.sessions.stop_turn(
             session_key,
-            owned_by=entries_queued_by(_entry_owner(user_id, channel)),
+            owned_by=entries_queued_by(_owner),
             on_soft=_on_soft,
             on_hard=_on_hard,
             **_kw,
         )
+        if outcome != "compacting" and not (_force and outcome == "hard"):
+            # As the confirm button: what an overlapping Stop detached is covered.
+            went_through()
     if outcome == "compacting":
         # The reply promises that a repeat forces, so arm the marker -- and only
         # once the reply landed. This update is conditional on a client and a
