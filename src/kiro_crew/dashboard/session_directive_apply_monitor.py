@@ -584,7 +584,9 @@ async def _monitor_update(
         # speak the same vocabulary (``success``/``blocked``, matching
         # ``MonitorOutcome``), so one reading covers either source.
         settled = getattr(monitor, "outcome", None) if monitor else None
-        decided = str(getattr(settled, "value", settled) or owed or "")
+        # A legacy loop with no monitor records its settlement on the loop itself.
+        own = str(getattr(loop, "subject_outcome", "") or "")
+        decided = str(getattr(settled, "value", settled) or own or owed or "")
         revivable = not terminal and (
             (stopped_at_cap and raising_cap) or (stopped_at_budget and raising_budget)
         )

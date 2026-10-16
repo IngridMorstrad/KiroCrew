@@ -846,6 +846,34 @@ def test_applier_settled_terminal_loop_is_not_reported_as_a_manual_pause(monkeyp
     assert "merged" in result
 
 
+def test_applier_a_settled_legacy_loop_reads_its_own_outcome(monkeypatch):
+    """An ungated loop that settled while held has no monitor; its outcome is on
+    the loop itself, so a merge must not be worded as a close without merging."""
+    loop = _FakeLoop(
+        "loop-legacy-settled",
+        cycle_count=7,
+        max_cycles=24,
+        active=False,
+        stopped_reason=MONITOR_TERMINAL_REASON,
+    )
+    loop.subject_outcome = "success"
+    svc = _FakeSvc(loop)
+    _install_svc(monkeypatch, svc)
+    update_calls = _record_update(monkeypatch)
+    result = asyncio.run(
+        apply_session_directive(
+            _fake_state(),
+            _fake_slot(),
+            _SESSION,
+            "monitor_update",
+            {"patch": {"max_cycles": 48}},
+        )
+    )
+    assert not update_calls
+    assert "already merged" in result, result
+    assert "without merging" not in result, result
+
+
 def test_applier_a_settled_outcome_outranks_a_stale_owed_turn(monkeypatch):
     """The settled ``outcome`` is authoritative; the debt is only the fallback.
 
