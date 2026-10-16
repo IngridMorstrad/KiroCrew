@@ -520,6 +520,14 @@ def _load(self: AutoNudgeService) -> None:
                     loop_values["gate"],
                 )
                 loop_values["gate"] = False
+            # Read by the expiry wording only; anything but the two outcomes a
+            # settlement writes is not a fact about the subject.
+            if "subject_outcome" in loop_values and loop_values["subject_outcome"] not in (
+                "",
+                "success",
+                "blocked",
+            ):
+                loop_values["subject_outcome"] = ""
             # The judge fields come out of the same agent-writable store, so they
             # are normalised HERE rather than at each read site, for the reason
             # ``gate`` is: a stored ``"judge": "yes"`` would otherwise reach a
