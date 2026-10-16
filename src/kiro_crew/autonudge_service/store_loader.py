@@ -528,6 +528,15 @@ def _load(self: AutoNudgeService) -> None:
                 "blocked",
             ):
                 loop_values["subject_outcome"] = ""
+            # Model-authored and agent-writable on disk: cleaned the way every
+            # write cleans it (``autonudge_stop_log.clean_stop_detail``). A value
+            # the clean changed is written back clean.
+            if "stopped_detail" in loop_values:
+                raw_detail = loop_values["stopped_detail"]
+                detail = autonudge_stop_log.clean_stop_detail(raw_detail)
+                if detail != raw_detail:
+                    self._store_dirty = True
+                loop_values["stopped_detail"] = detail
             # The judge fields come out of the same agent-writable store, so they
             # are normalised HERE rather than at each read site, for the reason
             # ``gate`` is: a stored ``"judge": "yes"`` would otherwise reach a
