@@ -101,10 +101,6 @@ from kiro_crew.skills import SkillsLoader
 from kiro_crew.slack.agent_sessions.session_events import AGENT_SESSION_EVENTS
 from kiro_crew.slack.agent_sessions.session_events import dispatch as dispatch_agent_session_event
 from kiro_crew.slack.allowlist import prompt_track_channel, send_dashboard_link
-from kiro_crew.slack.code_channels import install as install_code_channels
-from kiro_crew.slack.code_channels.routing import Gate as CodeChannelGate
-from kiro_crew.slack.code_channels.routing import dispatch as code_channel_dispatch
-from kiro_crew.slack.code_channels.routing import inbound_gate as code_channel_gate
 from kiro_crew.slack.blocks import (
     build_stopping_blocks,
     channels_modal,
@@ -112,6 +108,11 @@ from kiro_crew.slack.blocks import (
     dashboard_link_block,
     voice_config_modal,
 )
+from kiro_crew.slack.code_channels import install as install_code_channels
+from kiro_crew.slack.code_channels.routing import Gate as CodeChannelGate
+from kiro_crew.slack.code_channels.routing import dispatch as code_channel_dispatch
+from kiro_crew.slack.code_channels.routing import inbound_gate as code_channel_gate
+from kiro_crew.slack.code_channels.store import store as code_channel_store
 from kiro_crew.slack.enterprise import trusted_bot_admission, validated_self_user_id
 from kiro_crew.slack.files import (
     VOICE_MEMO_DURATION_UNVERIFIED,
@@ -250,9 +251,11 @@ async def init_socket_mode(orch: GatewayOrchestrator, seen: SeenCache) -> None:
     set_orch_cfg(orch._cfg)
     if orch.dashboard_state:
         set_dashboard_state(orch.dashboard_state)
-    # Slack Code channels: registers the channel-status turn hooks. Inert while
-    # slack.code_channels is off (the hooks fire only for a bound code channel).
+    # Slack Code channels: registers the channel-status turn hooks and loads the
+    # code-channel store off the loop. Inert while slack.code_channels is off
+    # (the hooks fire only for a bound code channel).
     install_code_channels(lambda: orch.slack)
+    await asyncio.to_thread(code_channel_store().load)
 
     # ── Enterprise Grid workspace validation ──
     # Blocks data exfiltration via personal/external Slack workspaces.
@@ -1242,6 +1245,7 @@ async def _route_message(
         clean_text=clean_text,
         sender_id=sender_id,
         was_mention=_was_mention,
+        attachment_paths=_attachment_temp_paths,
     ):
         return
 

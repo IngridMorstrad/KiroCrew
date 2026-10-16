@@ -896,9 +896,7 @@ from kiro_crew.session_agent_selection import (  # noqa: F401
 )
 from kiro_crew.session_capabilities import CapabilityStartupError
 from kiro_crew.slack.code_channels.binding import mirror_post_thread as code_channel_post_thread
-from kiro_crew.slack.code_channels.binding import (
-    notify_turn_end as notify_code_channel_turn_end,
-)
+from kiro_crew.slack.code_channels.binding import notify_turn_end as notify_code_channel_turn_end
 from kiro_crew.slack.code_channels.binding import (
     notify_turn_start as notify_code_channel_turn_start,
 )
