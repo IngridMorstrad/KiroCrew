@@ -24,6 +24,7 @@ from slack_gateway_coverage_helpers import (
 )
 
 from kiro_crew.autonudge import MANUAL_STOP_REASON, MONITOR_TERMINAL_REASON, NudgeLoop
+from kiro_crew.dashboard.handlers import autonudge as autonudge_handler
 from kiro_crew.monitoring import models as monitor_models
 from kiro_crew.monitoring.models import MonitorOutcome, MonitorState
 from kiro_crew.slack import gateway as gw
@@ -234,6 +235,35 @@ class TestAutonudgeRouterAndObserver:
         assert payload["loop"]["monitor_outcome"] == "blocked"
         assert payload["loop"]["monitor_kind"] == "gh-pr"
         assert "monitor" not in payload["loop"]
+
+    @pytest.mark.asyncio
+    async def test_settled_legacy_subject_outcome_matches_rest_projection(self):
+        """Reloading a settled held PR preserves the websocket terminal wording."""
+        orch = _make_orchestrator()
+        orch.dashboard_state = _mock_dashboard_state()
+        _on_fire, observer, _inst = await self._wire(orch)
+        settled = _loop(
+            "chat-1-1721",
+            active=False,
+            stopped_reason=MONITOR_TERMINAL_REASON,
+            subject_outcome="merged",
+        )
+
+        observer("expired", settled)
+
+        _topic, websocket = orch.dashboard_state.broadcast_ws.call_args.args
+        rest = autonudge_handler._serialize(settled)
+        expected = ("merged", "gh-pr")
+        assert (
+            rest.get("monitor_outcome"),
+            rest.get("monitor_kind"),
+        ) == expected, "REST must project a settled legacy pull-request outcome"
+        assert (
+            websocket["loop"]["monitor_outcome"],
+            websocket["loop"]["monitor_kind"],
+        ) == expected
+        assert websocket["loop"]["monitor_outcome"] == rest["monitor_outcome"]
+        assert websocket["loop"]["monitor_kind"] == rest["monitor_kind"]
 
     @pytest.mark.asyncio
     async def test_observer_frame_redacts_the_watch_kind_it_broadcasts(self, monkeypatch):

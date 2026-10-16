@@ -35,6 +35,10 @@ if TYPE_CHECKING:
 #: a cap would bring back a watch with nothing to watch.
 MONITOR_TERMINAL_REASON = "monitor_terminal"
 
+#: How often a sleeping ungated loop, or a held loop, reads its pull request
+#: (``subject_reads``); the reconciler rescues a held loop at the same cadence.
+SUBJECT_READ_SECS = 300.0
+
 #: ``stopped_reason`` for a loop whose own kill switch fired: the stop file at
 #: ``stop_sentinel_path`` existed when the timer woke. The file is how the agent
 #: declares the goal reached on a goal whose text carries ``{{STOP_FILE}}`` (the
@@ -558,6 +562,11 @@ class NudgeLoop:
     # indistinguishable from a budget-stopped one, and a budget raise would
     # resume unattended execution against the user's explicit pause.
     stopped_reason: str = ""
+    # How the watched pull request ended, for a loop settled by a read that had no
+    # monitor to record it on: an ungated loop found merged ("success") or closed
+    # unmerged ("blocked") while it was held for approval (``subject_reads``). "" for
+    # every other row; a gated loop records the same fact on ``monitor.outcome``.
+    subject_outcome: str = ""
     # Evidence that a cycle in this loop's session asked for tool approval and
     # nobody answered within the window. Set by ``notify_approval_stalled`` and
     # read by ``_timer`` as a HOLD on every later wake: the loop stays active but
