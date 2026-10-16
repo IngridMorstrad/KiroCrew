@@ -105,6 +105,13 @@ class PostureControl:
 # Where a sink runs only ONE of the two scanners, its detail text says so.
 _REDACTION_SINKS: tuple[tuple[str, str, str], ...] = (
     (
+        "Remote session Git views",
+        "coder/session_browse.py",
+        "Git status, log and diff output and error text pass the shared "
+        "exfiltration-URL and credential redactor at the gateway before reaching "
+        "the dashboard, preserving record separators and patch framing.",
+    ),
+    (
         "Interrupted work in a mate reply",
         "dashboard/responsive_chat.py",
         "The bounded interrupted-turn reference passed to the next model prompt. "
