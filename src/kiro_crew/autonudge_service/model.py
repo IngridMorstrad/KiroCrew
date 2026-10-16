@@ -39,6 +39,17 @@ MONITOR_TERMINAL_REASON = "monitor_terminal"
 #: (``subject_reads``); the reconciler rescues a held loop at the same cadence.
 SUBJECT_READ_SECS = 300.0
 
+#: The longest a declared person-wait hold lasts (``person_wait_expires_at``). A
+#: loop with a runtime budget expires sooner when less of that budget is left.
+PERSON_WAIT_MAX_SECS = 86400
+
+#: ``person_wait_release``: why the last declared person-wait hold ended -- its
+#: bound ran out, a person came back, or the agent ended it.
+PERSON_WAIT_EXPIRED = "expired"
+PERSON_WAIT_PERSON = "person"
+PERSON_WAIT_AGENT = "agent"
+PERSON_WAIT_RELEASES = frozenset({PERSON_WAIT_EXPIRED, PERSON_WAIT_PERSON, PERSON_WAIT_AGENT})
+
 #: ``stopped_reason`` for a loop whose own kill switch fired: the stop file at
 #: ``stop_sentinel_path`` existed when the timer woke. The file is how the agent
 #: declares the goal reached on a goal whose text carries ``{{STOP_FILE}}`` (the
@@ -612,6 +623,20 @@ class NudgeLoop:
     # time is added to ``created_ts``, so the hold spends neither the runtime budget
     # nor the backstop, the same credit ``approval_stalled_at`` gives.
     waiting_on_person_at: float = 0.0
+    # The loop's own agent DECLARED the person-wait hold (``monitor_update``'s
+    # ``waiting_on_person``, through ``declare_person_wait``) rather than a ledger
+    # read finding it. Set only together with ``waiting_on_person``. A declared hold
+    # fires no cycle; it reads the one pull request the loop names each held tick
+    # (``subject_reads.hold_tick``), and a loop naming none arms one tick at the
+    # hold's expiry. The ledger never releases it. A person does, on the same signs
+    # of presence that end the approval hold (``release_approval_hold``), and so does
+    # the agent passing ``false``. It also expires (``person_wait_expires_at``): a day
+    # at most, never past the runtime budget. Persisted, and cleared on every revival.
+    person_wait_declared: bool = False
+    # Why the last declared hold ended: ``PERSON_WAIT_EXPIRED``, ``PERSON_WAIT_PERSON``
+    # or ``PERSON_WAIT_AGENT``; "" when none has, or a merge or close settled it.
+    # Cleared by a new declaration and on every revival. Persisted.
+    person_wait_release: str = ""
     # How many of this loop's cycles in a row ended without ever getting a model
     # session (``session/new`` timed out or otherwise failed). Raised by
     # ``notify_cycle_start_failed`` and zeroed by ``notify_cycle_landed``, both
@@ -879,6 +904,29 @@ def hold_span(loop: "NudgeLoop", kind: str, since: float, now: float) -> tuple[f
     if isinstance(since, bool) or not isinstance(since, (int, float)) or not 0 < since <= now:
         return mono, 0.0
     return mono - (now - since), now - since
+
+
+def person_wait_expires_at(loop: "NudgeLoop") -> float | None:
+    """When *loop*'s declared person-wait hold expires (epoch seconds), or None.
+
+    None unless a declared hold is on. The hold lasts ``PERSON_WAIT_MAX_SECS`` from
+    ``waiting_on_person_at``, or the runtime budget left at that moment when that is
+    less (``created_ts + max_runtime_secs``, which a hold does not move while it is
+    on). Read from persisted fields only, so a restart reads the same instant. A
+    start stamp that is not a finite positive number expires at once: a hold whose
+    bound cannot be read does not hold.
+    """
+    if not (loop.person_wait_declared and loop.waiting_on_person):
+        return None
+    since = _positive_number(loop.waiting_on_person_at)
+    if not since:
+        return 0.0
+    bound = float(PERSON_WAIT_MAX_SECS)
+    budget = _positive_number(loop.max_runtime_secs)
+    created = _positive_number(loop.created_ts)
+    if budget and created:
+        bound = min(bound, max(0.0, created + budget - since))
+    return since + bound
 
 
 def credit_held_runtime(loop: "NudgeLoop", previous_created: float, held: float) -> None:
