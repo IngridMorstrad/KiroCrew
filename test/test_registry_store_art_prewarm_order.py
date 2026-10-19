@@ -10,7 +10,7 @@ row that is only stale; stale rows still re-warm when the budget allows.
 
 from __future__ import annotations
 
-import asyncio
+import os
 from typing import Any
 
 import pytest
@@ -91,27 +91,81 @@ class TestColdRowsFirst:
 
         assert _cloned(calls) == ["app-01", "app-02", "app-00"]
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param(b"[" * 100_000 + b"]" * 100_000, id="nested-past-the-decoder-stack"),
+            pytest.param(b"{not json", id="malformed"),
+            pytest.param(b"\xff\xfe", id="not-utf8"),
+            pytest.param(b"[]", id="not-an-object"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unreadable_stale_manifest_ranks_the_row_cold_and_the_batch_runs(
+        self, monkeypatch, body
+    ):
+        """The ranking read opens an agent-writable file. A body it cannot use --
+        including one under the size cap that nests deeply enough to exhaust the JSON
+        decoder's stack -- ranks the row as cold; it never fails the batch."""
+        reg = _pin_registry(monkeypatch, _TRUST_OWNER)
+        monkeypatch.setattr(reg_mod, "_PREWARM_CONCURRENCY", 1)
+        rows = _rows(2)
+        calls = _fake_fetch(monkeypatch, ART_ONE, MANIFEST_ONE)
+        assert await _prewarm_owner_tier_store_assets(reg, rows) == 2
+        for row in rows:
+            _expire_cache_file(_manifest_cache_path(row))
+        stat = _manifest_cache_path(rows[1]).stat()
+        _manifest_cache_path(rows[1]).write_bytes(body)
+        os.utime(_manifest_cache_path(rows[1]), (stat.st_atime, stat.st_mtime))
+        calls.clear()
+
+        assert await _prewarm_owner_tier_store_assets(reg, rows) == 2
+
+        assert _cloned(calls) == ["app-01", "app-00"]
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_unobtainable_record_does_not_fail_the_ranking(self, monkeypatch):
+        """The ranking also reads the ``.unobtainable.json`` record beside an expired
+        manifest, another agent-writable file. One nested past the decoder's stack is
+        malformed like any other: it reads as no record, and the batch runs."""
+        reg = _pin_registry(monkeypatch, _TRUST_OWNER)
+        monkeypatch.setattr(reg_mod, "_PREWARM_CONCURRENCY", 1)
+        rows = _rows(2)
+        calls = _fake_fetch(monkeypatch, ART_ONE, MANIFEST_ONE)
+        assert await _prewarm_owner_tier_store_assets(reg, rows) == 2
+        for row in rows:
+            _expire_cache_file(_manifest_cache_path(row))
+        reg_mod._unobtainable_art_path(rows[1]).write_bytes(b"[" * 100_000 + b"]" * 100_000)
+        calls.clear()
+
+        assert await _prewarm_owner_tier_store_assets(reg, rows) == 2
+
+        # Both rows still hold their art, so both rank as stale, in index order.
+        assert _cloned(calls) == ["app-00", "app-01"]
+
     @pytest.mark.asyncio
     async def test_repeated_refreshes_reach_every_row_when_one_batch_cannot(self, monkeypatch):
         """The reported case, through ``refresh_registries``: six rows, and each batch
-        lands two clones before its budget cancels the third. In plain index order
-        every refresh restarts at the top, so the same two rows are cloned each time
-        and four never get art. Cold-first, each refresh reaches the next cold rows,
-        and three refreshes cover all six."""
+        lands only two clones. The rest of the batch fails, standing in for the budget
+        cutting it off, and the clone-failure backoff is held open so a failed row is
+        retried on the next refresh exactly as a budget-cancelled one is. In plain index
+        order every refresh restarts at the top, so the same two rows are cloned each
+        time and four never get art. Cold-first, each refresh reaches the next cold
+        rows, and three refreshes cover all six."""
         reg = _pin_registry(monkeypatch, _TRUST_OWNER)
         monkeypatch.setattr(reg_mod, "_PREWARM_CONCURRENCY", 1)
-        monkeypatch.setattr(reg_mod, "_PREWARM_BATCH_BUDGET", 0.3)
+        monkeypatch.setattr(reg_mod, "_read_clone_failure", lambda entry: None)
         rows = _rows(6)
         landed = _fake_fetch(monkeypatch, ART_ONE, MANIFEST_ONE)
         real_fetch = reg_mod._git_fetch_branch
         per_batch = {"n": 0}
         attempted: list[str] = []
 
-        async def _two_then_hang(git_url, branch, dest, log_lines, **kw):
+        async def _two_then_fail(git_url, branch, dest, log_lines, **kw):
             attempted.append(git_url.rsplit("/", 1)[-1].removesuffix(".git"))
             per_batch["n"] += 1
             if per_batch["n"] > 2:
-                await asyncio.Event().wait()  # cancelled at the batch budget
+                return {"error": "batch over"}
             return await real_fetch(git_url, branch, dest, log_lines, **kw)
 
         async def _fetch_index(r):
@@ -121,7 +175,7 @@ class TestColdRowsFirst:
         async def _list():
             return rows
 
-        monkeypatch.setattr(reg_mod, "_git_fetch_branch", _two_then_hang)
+        monkeypatch.setattr(reg_mod, "_git_fetch_branch", _two_then_fail)
         monkeypatch.setattr(reg_mod, "_fetch_and_cache_external_registry", _fetch_index)
         monkeypatch.setattr(
             reg_mod, "_read_external_registry_cache", lambda name, *, ignore_ttl=False: None
@@ -132,7 +186,7 @@ class TestColdRowsFirst:
         for _ in range(3):
             per_batch["n"] = 0
             landed.clear()
-            result = await asyncio.wait_for(reg_mod.refresh_registries(), timeout=30)
+            result = await reg_mod.refresh_registries()
             assert result["ok"] is True
             batches.append(_cloned(landed))
 

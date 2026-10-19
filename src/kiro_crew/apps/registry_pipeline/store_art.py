@@ -506,7 +506,9 @@ def _read_unobtainable_art(entry: dict[str, Any], manifest_mtime: float) -> froz
         return frozenset()
     try:
         recorded = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        # RecursionError: a record under the size cap can still nest deeply enough
+        # to exhaust the decoder's stack; it is malformed like any other.
         return frozenset()
     if not isinstance(recorded, list):
         return frozenset()
@@ -713,7 +715,10 @@ def _stale_row_art_present(entry: dict[str, Any]) -> bool:
     data, mtime = result
     try:
         manifest = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        # RecursionError: a body under the size cap can still nest deeply enough
+        # to exhaust the decoder's stack. It is one more malformed file, so the row
+        # ranks as cold rather than failing the whole batch and the refresh.
         return False
     if not isinstance(manifest, dict) or not manifest:
         return False
