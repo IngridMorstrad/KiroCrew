@@ -36,6 +36,7 @@ from kiro_crew.hooks import HOOK_REPLY, TOOL_AUTO_APPROVE, TOOL_DENY, hook_gate_
 from kiro_crew.llm_helpers import save_conversation_turn_off_loop
 from kiro_crew.memory_stores import UnknownMemoryStore
 from kiro_crew.messaging import auto_title, turn_ceiling
+from kiro_crew.messaging.dashboard_live import DashboardLiveRenderer, TeeRenderer
 from kiro_crew.messaging.dispatch import (
     admit_inbound_callback,
     build_directive_consumer,
@@ -193,6 +194,45 @@ async def _refresh_dashboard_tab(session_key: str) -> None:
             session_key,
             exc_info=True,
         )
+
+
+def _dashboard_live_view(
+    session_key: str, conversation_log: ConversationLog | None
+) -> DashboardLiveRenderer | None:
+    """The live dashboard view for this turn, or ``None`` when there is none.
+
+    A thread whose conversation has a dashboard tab shows the turn there as it
+    runs: the tool steps and streamed text a dashboard turn shows, instead of
+    "Thinking..." until the reply lands. ``None`` -- the turn runs exactly as it
+    would without a dashboard -- when the gateway has no dashboard
+    (``--slack-only``), when nothing is persisted for this conversation (no
+    transcript, or an incognito/temporary thread), or when the dashboard half
+    cannot be loaded. Whether the conversation has an OPEN tab is asked per
+    event, so a tab that surfaces after the user's row is picked up mid-turn.
+    """
+    if conversation_log is None or _is_slack_restricted(session_key):
+        return None
+    try:
+        state = get_dashboard_state()
+        if state is None:
+            return None
+        # Function-local for the reason given in ``_refresh_dashboard_tab``.
+        from kiro_crew.dashboard.channel_live import ChannelLiveSink
+
+        sink = ChannelLiveSink(
+            state,
+            session_key,
+            conversation_log,
+            # Re-asked at each write, like the transport's own writes: an
+            # ``!incognito`` landing mid-turn stops the steps being recorded.
+            may_persist=lambda: not _is_slack_restricted(session_key),
+        )
+    except Exception:
+        logger.debug(
+            "transport_dispatch: no dashboard live view session=%s", session_key, exc_info=True
+        )
+        return None
+    return DashboardLiveRenderer(sink)
 
 
 def flat_dm_session_key(channel: str, thread_ts: str | None, *, enabled: bool) -> str | None:
@@ -907,9 +947,12 @@ async def handle_message_transport(
             return ""
 
         # ── Drive the turn (renderer already started above) ──
+        # The Slack renderer gets every event first and exactly as before; an open
+        # dashboard tab bound to this thread gets the same turn live behind it.
+        _live = _dashboard_live_view(session_key, conversation_log)
         driver = TurnDriver(
             client,
-            renderer,
+            TeeRenderer(renderer, _live) if _live is not None else renderer,
             approval_mode=approval_mode,
             decider=decider,
             # Preserve native handle_message's auto_approve_subagent_spawn hook:
@@ -938,6 +981,7 @@ async def handle_message_transport(
             audit_session_key=session_key,
             audit_agent=_agent or "kirocrew",
             closing_gate=turn_ceiling.gate(session_key, lambda: sessions.begin_turn(session_key)),
+            event_tap=_live.observe if _live is not None else None,
         )
         # The thread's owner as of the moment the turn starts producing output.
         # A dashboard link landing during the run moves the conversation to a
