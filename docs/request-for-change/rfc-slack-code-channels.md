@@ -343,6 +343,15 @@ Behind `code_channels_enabled(cfg)`, reusing `ae2545752c`, `8b243f0b1d` and
   Kiro Crew did not create is recognised through `conversations.info`
   (`record_type == "agent_channel"` and this bot among its agents), re-checked on
   every message.
+* **Sender attribution.** Every person's message a code channel hands to its
+  session -- the request that opened it, each later message, queued or not, and
+  each button answer clicked there --
+  stores `meta["slack_sender"] = {team_id, enterprise_id ("" outside Enterprise
+  Grid), user_id}` on the session's user row: raw Slack ids only, each checked
+  against its id shape, and the key left off for a bot copy, Slack's origin copy
+  or a malformed id. The team and org are the ones the gateway admitted the
+  message under. Shared Crew reads it to attribute a code channel's messages to
+  their Slack users; no access decision reads it.
 * **Worktree, diff and context bar.** When the project is a git repository the
   session works in its own worktree off the project's default branch. After each
   turn the gateway publishes the unified diff against the base as the channel's

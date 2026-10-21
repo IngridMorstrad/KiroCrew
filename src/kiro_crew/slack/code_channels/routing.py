@@ -51,6 +51,8 @@ from kiro_crew.slack.code_channels.creation import (
     is_directed_human_prompt,
     is_origin_echo,
     session_id_for,
+    slack_sender,
+    slack_sender_of_action,
 )
 from kiro_crew.slack.code_channels.models import ChannelInfo, CodeChannelApiError, CreateRequest
 from kiro_crew.slack.code_channels.recognition import ChannelKind
@@ -620,11 +622,50 @@ async def _bind_channel(
     return stored[0]
 
 
-async def _route_to_slot(orch: Any, binding: Binding, text: str, sender_id: str) -> bool:
+def action_user_meta(channel: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The user-row meta for a button answer clicked in code channel *channel*.
+
+    ``{"slack_sender": ...}`` (:func:`creation.slack_sender_of_action`) when
+    *channel* is a bound code channel, so an answer routed into its session is
+    attributed like a typed message; None anywhere else, and never raises: an
+    attribution must not cost the click.
+    """
+    try:
+        if not channel or not code_channels_on(live_config(None)):
+            return None
+        if store().get_binding(channel) is None:
+            return None
+        sender = slack_sender_of_action(payload)
+    except Exception:
+        logger.debug("code channel: button sender unavailable", exc_info=True)
+        return None
+    return {"slack_sender": sender} if sender else None
+
+
+async def _route_to_slot(
+    orch: Any,
+    binding: Binding,
+    text: str,
+    sender_id: str,
+    *,
+    sender: dict[str, str] | None = None,
+) -> bool:
+    """Deliver *text* to the bound session as a person's message.
+
+    *sender* is the message's Slack sender (:func:`creation.slack_sender`),
+    stored on the session's user row as ``meta["slack_sender"]`` for
+    attribution; None leaves the key off.
+    """
     from kiro_crew.slack.handler import maybe_route_linked_thread
 
     routed = await maybe_route_linked_thread(
-        text, binding.session_key, sender_id, binding.channel_id, orch.slack, binding.anchor_ts
+        text,
+        binding.session_key,
+        sender_id,
+        binding.channel_id,
+        orch.slack,
+        binding.anchor_ts,
+        user_meta={"slack_sender": dict(sender)} if sender else None,
     )
     if routed:
         _adopt_temps(binding.session_key)
@@ -709,7 +750,7 @@ async def _dispatch_directed(
         logger.exception("code channel %s: binding a session failed", channel)
         await _post(orch, channel, UNROUTED_TEXT, None)
         return True
-    if not await _route_to_slot(orch, binding, clean_text, sender_id):
+    if not await _route_to_slot(orch, binding, clean_text, sender_id, sender=slack_sender(event)):
         await _post(orch, channel, UNSUPPORTED_COMMAND_TEXT, None)
     return True
 
@@ -960,7 +1001,15 @@ async def maybe_open_code_channel(
             done = _creating[session_id] = asyncio.Event()
             try:
                 await _deliver_first_turn(
-                    orch, existing, session_id, clean_text, channel, thread_ts, msg_ts, sender_id
+                    orch,
+                    existing,
+                    session_id,
+                    clean_text,
+                    channel,
+                    thread_ts,
+                    msg_ts,
+                    sender_id,
+                    origin_sender=slack_sender(event),
                 )
             finally:
                 done.set()
@@ -1025,7 +1074,15 @@ async def maybe_open_code_channel(
             )
             return True
         await _deliver_first_turn(
-            orch, binding, session_id, clean_text, channel, thread_ts, msg_ts, sender_id
+            orch,
+            binding,
+            session_id,
+            clean_text,
+            channel,
+            thread_ts,
+            msg_ts,
+            sender_id,
+            origin_sender=slack_sender(event),
         )
     finally:
         done.set()
@@ -1105,6 +1162,8 @@ async def _deliver_first_turn(
     thread_ts: str,
     msg_ts: str,
     sender_id: str,
+    *,
+    origin_sender: dict[str, str] | None = None,
 ) -> None:
     """Hand the request to the bound session and record that it got there.
 
@@ -1130,8 +1189,11 @@ async def _deliver_first_turn(
     # cannot be queued it is sent inline instead of being dropped.
     message = request.strip()
     if not _queue_seed_context(binding, framing):
+        # The thread rides inline: the row then holds other people's words too,
+        # so it names no single sender.
         message = f"{message}\n\n{framing}"
-    if not await _route_to_slot(orch, binding, message, sender_id):
+        origin_sender = None
+    if not await _route_to_slot(orch, binding, message, sender_id, sender=origin_sender):
         logger.warning("code channel %s: first turn could not be routed", binding.channel_id)
         return
     await _record_seeded(session_id, binding)

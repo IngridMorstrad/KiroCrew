@@ -403,6 +403,9 @@ async def init_socket_mode(orch: GatewayOrchestrator, seen: SeenCache) -> None:
         # event["team"] may be the *sender's* workspace in shared channels.
         # Always prefer envelope to prevent cross-workspace bypass.
         outer_team = (req.payload or {}).get("team_id", "")
+        # The install's Enterprise Grid org ("" outside one), from the same
+        # envelope: a code channel's user rows name it with the sender.
+        event["enterprise"] = str((req.payload or {}).get("enterprise_id") or "")
         if outer_team:
             event["team"] = outer_team
         elif not event.get("team"):

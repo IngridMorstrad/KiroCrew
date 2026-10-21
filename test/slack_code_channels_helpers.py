@@ -151,6 +151,7 @@ class Env:
         self.decision = RouteDecision("code_channel", title="Fix flaky login test")
         self.classified: list[str] = []
         self.routed: list[tuple[str, str, str]] = []
+        self.senders: list[dict[str, str] | None] = []
         self.created_sessions: list[dict[str, Any]] = []
         self.folders_created: list[str] = []
         self.route_result = True
@@ -216,8 +217,11 @@ class Env:
 
         monkeypatch.setattr(binding_mod, "ensure_folder_path", ensure_folder_path)
 
-        async def route_to_slot(_orch: Any, binding: Any, text: str, sender: str) -> bool:
-            self.routed.append((binding.channel_id, text, sender))
+        async def route_to_slot(
+            _orch: Any, binding: Any, text: str, sender_id: str, **kw: Any
+        ) -> bool:
+            self.routed.append((binding.channel_id, text, sender_id))
+            self.senders.append(kw.get("sender"))
             if self.route_result:
                 routing._adopt_temps(binding.session_key)
             return self.route_result
