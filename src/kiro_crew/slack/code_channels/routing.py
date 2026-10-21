@@ -10,7 +10,8 @@ Three entry points, each a pass-through while ``slack.code_channels`` is off:
   bound session, and anything else is DIRECTED -- answered without a mention.
 * :func:`dispatch` -- at the point ``_route_message`` would start a turn. A
   DIRECTED message goes to the channel's bound dashboard session; a mention
-  outside a code channel may open one (:func:`maybe_open_code_channel`).
+  outside a code channel, or an unmentioned reply in a thread the bot already
+  answers, may open one (:func:`maybe_open_code_channel`).
 * :func:`handle_session_stopped` -- Slack's native Stop button
   (``agent_session_stopped``) for a code channel stops the bound session.
 
@@ -20,6 +21,7 @@ Every allow/deny decision here writes an SEL event.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import enum
 import logging
@@ -27,7 +29,7 @@ import os
 import re
 import time
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -353,8 +355,107 @@ async def _dispatch(
     self_user = _self_user_id()
     mentioned = bool(self_user) and self_user in _MENTION.findall(str(event.get("text") or ""))
     if was_mention or mentioned:
-        return await maybe_open_code_channel(orch, event, clean_text, sender_id)
+        async with _thread_turn(event):
+            return await maybe_open_code_channel(orch, event, clean_text, sender_id)
+    if code_channels_on(live_config(orch)) and _bot_thread_follow_up(orch, event, self_user):
+        return await _open_from_follow_up(orch, event, clean_text, sender_id)
     return False
+
+
+def _bot_holds_thread(orch: Any, thread_ts: str) -> bool:
+    """Whether this bot already answers *thread_ts*: the session, session link or
+    conversation log that thread-follow admits an unmentioned reply by."""
+    sessions = getattr(orch, "sessions", None)
+    readers = (
+        getattr(sessions, "has_session", None),
+        getattr(sessions, "get_session_for_thread", None),
+        getattr(getattr(orch, "conv_log", None), "has_log", None),
+    )
+    try:
+        return any(callable(read) and read(thread_ts) for read in readers)
+    except Exception:
+        logger.debug("code channel: thread session unreadable; not classifying", exc_info=True)
+        return False
+
+
+def _bot_thread_follow_up(orch: Any, event: dict[str, Any], self_user: str) -> bool:
+    """An unmentioned reply in a channel thread this bot answers, still worth classifying.
+
+    A person's own message (never a bot copy, an edit or a join) that names no
+    one else and is not a ``!`` command for the thread's session, in a thread of
+    an ordinary channel (not a DM) the bot already holds, which has not opened a
+    code channel yet: once it has, the thread points there and its later replies
+    are answered in place without another model call. The message that opened
+    the channel still counts when Slack delivers it again, so it finds its
+    channel instead of being answered in the thread as well.
+    """
+    channel = str(event.get("channel") or "")
+    thread_ts = str(event.get("thread_ts") or "")
+    msg_ts = str(event.get("ts") or "")
+    text = str(event.get("text") or "")
+    if not thread_ts or thread_ts == msg_ts:
+        return False
+    if channel.startswith("D") or event.get("channel_type") in ("im", "mpim"):
+        return False
+    if not is_directed_human_prompt(event):
+        return False
+    if text.lstrip().startswith("!") or not addressed_to_us(text, self_user):
+        return False
+    if _opened_a_channel(event):
+        return True  # a re-delivered opener: maybe_open_code_channel finds its channel
+    if store().thread_opened_channel(channel, thread_ts, except_ts=msg_ts):
+        return False
+    return _bot_holds_thread(orch, thread_ts)
+
+
+def _opened_a_channel(event: dict[str, Any]) -> bool:
+    """Whether this very message already decided to open a code channel."""
+    route = store().get_route(
+        session_id_for(
+            _self_bot_id(),
+            str(event.get("team") or ""),
+            str(event.get("channel") or ""),
+            str(event.get("ts") or ""),
+        )
+    )
+    return route is not None and route.decision == ROUTE_CODE_CHANNEL
+
+
+#: One routing decision at a time per origin thread, in arrival order: a later
+#: reply waits for the earlier one's decision, so it sees a channel the earlier
+#: one opened, and a stay-in-place answer keeps the thread's order. A mention in
+#: the thread takes its turn too, so a mention and a reply cannot open two.
+_follow_up_locks: dict[tuple[str, str], tuple[asyncio.Lock, list[int]]] = {}
+
+
+@contextlib.asynccontextmanager
+async def _thread_turn(event: dict[str, Any]) -> AsyncIterator[None]:
+    key = (str(event.get("channel") or ""), str(event.get("thread_ts") or event.get("ts") or ""))
+    entry = _follow_up_locks.get(key)
+    if entry is None:
+        entry = _follow_up_locks[key] = (asyncio.Lock(), [0])
+    lock, users = entry
+    users[0] += 1
+    try:
+        async with lock:
+            yield
+    finally:
+        users[0] -= 1
+        if users[0] == 0 and _follow_up_locks.get(key) is entry:
+            _follow_up_locks.pop(key, None)
+
+
+async def _open_from_follow_up(
+    orch: Any, event: dict[str, Any], clean_text: str, sender_id: str
+) -> bool:
+    channel = str(event.get("channel") or "")
+    thread_ts = str(event.get("thread_ts") or "")
+    async with _thread_turn(event):
+        if not _opened_a_channel(event) and store().thread_opened_channel(
+            channel, thread_ts, except_ts=str(event.get("ts") or "")
+        ):
+            return False
+        return await maybe_open_code_channel(orch, event, clean_text, sender_id)
 
 
 # ── Attachment temp files ─────────────────────────────────────────────────
@@ -504,6 +605,7 @@ async def _bind_channel(
             channel_name=channel_name or (existing.channel_name if existing else ""),
             archived_at=existing.archived_at if existing else 0.0,
             wrapped_up_at=existing.wrapped_up_at if existing else 0.0,
+            origin_thread_ts=origin_thread_ts or (existing.origin_thread_ts if existing else ""),
         )
         stored.append(await asyncio.to_thread(write, binding))
 
@@ -784,10 +886,13 @@ async def _acknowledge(orch: Any, cfg: Any, channel: str, msg_ts: str) -> None:
 async def maybe_open_code_channel(
     orch: Any, event: dict[str, Any], clean_text: str, sender_id: str
 ) -> bool:
-    """Open a code channel for a mention that asks for multi-step work.
+    """Open a code channel for a request that asks for multi-step work.
 
-    True when a channel was opened (or had already been opened for this very
-    message) and the work moved there; False to answer in place as usual.
+    The request is a mention, or a reply in a thread the bot already answers
+    (:func:`_bot_thread_follow_up`). True when a channel was opened (or had
+    already been opened for this very message) and the work moved there, so the
+    caller's thread session does not answer it too; False to answer in place
+    as usual.
     """
     cfg = live_config(orch)
     channel = str(event.get("channel") or "")
@@ -836,6 +941,7 @@ async def maybe_open_code_channel(
                     decision=decision.route,
                     title=decision.title,
                     created_at=time.time(),
+                    origin_thread_ts=thread_ts or msg_ts,
                 ),
             )
         except StoreWriteError:

@@ -7,6 +7,7 @@ recorded-payload fake; see ``slack_code_channels_helpers``.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +15,7 @@ from typing import Any
 import pytest
 from slack_code_channels_helpers import OWNER, SELF_USER, Env, FakeState, make_env, mention
 
-from kiro_crew.config.loader import ACTIVATION_OFF
+from kiro_crew.config.loader import ACTIVATION_OFF, ACTIVATION_REVIEW
 from kiro_crew.slack import features
 from kiro_crew.slack.code_channels import binding as binding_mod
 from kiro_crew.slack.code_channels import routing
@@ -861,3 +862,200 @@ async def test_a_lost_seed_receipt_is_reconciled_from_the_session_not_replayed(
     assert len(env.routed) == 1  # not replayed
     route = next(iter(env.store._routes.values()))
     assert route.seeded_at  # and the receipt is now recorded
+
+
+# ── Thread follow-ups: which unmentioned replies reach the classifier ───────
+
+_ROOT = "1700000000.000100"
+
+
+class _Sessions:
+    """The orchestrator's session index: the bot holds the *held* threads."""
+
+    def __init__(self, *held: str) -> None:
+        self.held = set(held)
+
+    def has_session(self, ts: str) -> bool:
+        return ts in self.held
+
+    def get_session_for_thread(self, ts: str) -> None:
+        return None
+
+
+def _reply(ts: str = "1700000000.000200", **extra: Any) -> dict[str, Any]:
+    event = {
+        "type": "message",
+        "user": OWNER,
+        "channel": "C0ORIGIN",
+        "ts": ts,
+        "thread_ts": _ROOT,
+        "text": "grab an issue from the backlog",
+        "team": "T1",
+    }
+    event.update(extra)
+    return event
+
+
+async def _dispatch_reply(env: Env, event: dict[str, Any]) -> bool:
+    return await routing.dispatch(
+        env.orch,
+        routing.PASS,
+        event=event,
+        clean_text=str(event["text"]),
+        sender_id=str(event["user"]),
+        was_mention=False,
+    )
+
+
+async def test_unmentioned_message_in_a_thread_the_bot_is_not_in_is_not_classified(
+    env: Env,
+) -> None:
+    env.orch.sessions = _Sessions()  # the bot holds no thread here
+    assert await _dispatch_reply(env, _reply()) is False
+    assert env.classified == [] and env.slack.reactions == [] and env.api.calls == []
+
+
+async def test_a_follow_up_is_classified_once_however_often_slack_delivers_it(env: Env) -> None:
+    env.orch.sessions = _Sessions(_ROOT)
+    env.decision = RouteDecision("stay")
+    assert await _dispatch_reply(env, _reply()) is False
+    assert await _dispatch_reply(env, _reply()) is False  # re-delivered
+    assert env.classified == ["grab an issue from the backlog"]
+    assert len(env.slack.reactions) == 1  # acknowledged once, before the decision
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"bot_id": "B0OTHER"},
+        {"subtype": "message_changed"},
+        {"subtype": "channel_join"},
+        {"text": "<@UALICE> can you take this one?"},
+        {"text": "!agent kirocrew-team-lead"},
+        {"channel": "D0DM"},
+        {"thread_ts": "1700000000.000200"},  # a thread's own root, not a reply
+    ],
+)
+async def test_only_a_persons_reply_addressed_to_us_is_classified(
+    env: Env, extra: dict[str, Any]
+) -> None:
+    env.orch.sessions = _Sessions(_ROOT, "1700000000.000200")
+    assert await _dispatch_reply(env, _reply(**extra)) is False
+    assert env.classified == []
+
+
+async def test_follow_ups_skip_the_classifier_with_code_channels_off(env: Env) -> None:
+    env.orch.sessions = _Sessions(_ROOT)
+    env.on = False
+    assert await _dispatch_reply(env, _reply()) is False
+    assert env.classified == [] and env.api.calls == []
+
+
+async def test_follow_ups_skip_the_classifier_in_a_review_mode_origin(env: Env) -> None:
+    env.orch.sessions = _Sessions(_ROOT)
+    env.activation["C0ORIGIN"] = ACTIVATION_REVIEW
+    assert await _dispatch_reply(env, _reply()) is False
+    assert env.classified == []
+
+
+async def test_a_thread_whose_root_mention_opened_a_channel_is_not_classified(env: Env) -> None:
+    env.api.responses["agents.conversations.create"] = {"ok": True, "channel_id": "C0CODE"}
+    assert await _open(env, mention(ts=_ROOT)) is True
+    assert len(env.classified) == 1
+    env.orch.sessions = _Sessions(_ROOT)
+    assert await _dispatch_reply(env, _reply()) is False
+    assert len(env.classified) == 1
+
+
+async def test_concurrent_follow_ups_in_one_thread_open_one_channel(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env.api.responses["agents.conversations.create"] = {"ok": True, "channel_id": "C0CODE"}
+    env.orch.sessions = _Sessions(_ROOT)
+    gate = asyncio.Event()
+    real = routing.classify
+
+    async def slow_classify(sessions: Any, text: str, context: Any = ()) -> RouteDecision:
+        await gate.wait()
+        return await real(sessions, text, context)
+
+    monkeypatch.setattr(routing, "classify", slow_classify)
+    first = asyncio.create_task(_dispatch_reply(env, _reply()))
+    second = asyncio.create_task(_dispatch_reply(env, _reply(ts="1700000000.000300")))
+    await asyncio.sleep(0)
+    gate.set()
+    assert await first is True
+    assert await second is False  # waited, then saw the channel the first opened
+    assert len(env.classified) == 1
+    assert routing._follow_up_locks == {}
+
+
+async def test_the_follow_up_that_opened_a_channel_still_finds_it_when_redelivered(
+    env: Env,
+) -> None:
+    env.api.responses["agents.conversations.create"] = {"ok": True, "channel_id": "C0CODE"}
+    env.orch.sessions = _Sessions(_ROOT)
+    env.route_result = False  # the first turn does not get there (a restart)
+    assert await _dispatch_reply(env, _reply()) is True
+    assert [r for r in env.store._routes.values() if r.seeded_at] == []
+    env.route_result = True
+    routing._gate_seen.clear()
+    # Slack re-delivers it: it is the thread's opener, not a later reply, so it
+    # is handled here (never answered in the thread) and its first turn lands.
+    assert await _dispatch_reply(env, _reply()) is True
+    assert len(env.classified) == 1 and len(env.routed) == 2
+    assert [r.seeded_at > 0 for r in env.store._routes.values()] == [True]
+
+
+async def test_a_mention_and_a_reply_in_one_thread_open_one_channel(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env.api.responses["agents.conversations.create"] = {"ok": True, "channel_id": "C0CODE"}
+    env.orch.sessions = _Sessions(_ROOT)
+    gate = asyncio.Event()
+    real = routing.classify
+
+    async def slow_classify(sessions: Any, text: str, context: Any = ()) -> RouteDecision:
+        await gate.wait()
+        return await real(sessions, text, context)
+
+    monkeypatch.setattr(routing, "classify", slow_classify)
+    root_mention = mention(ts="1700000000.000150", thread_ts=_ROOT)
+    mention_task = asyncio.create_task(
+        routing.dispatch(
+            env.orch,
+            routing.PASS,
+            event=root_mention,
+            clean_text=CLEAN,
+            sender_id=OWNER,
+            was_mention=True,
+        )
+    )
+    await asyncio.sleep(0)
+    reply = asyncio.create_task(_dispatch_reply(env, _reply()))
+    await asyncio.sleep(0)
+    gate.set()
+    assert await mention_task is True
+    # The reply waited for the mention's decision, then saw its channel.
+    assert await reply is False
+    assert len(_created(env)) == 1 and len(env.classified) == 1
+    assert routing._follow_up_locks == {}
+
+
+async def test_a_redelivered_opener_finds_its_channel_after_a_later_one_opened(
+    env: Env,
+) -> None:
+    created = iter(["C0CODE", "C0SECOND"])
+    env.api.responses["agents.conversations.create"] = lambda _b: {
+        "ok": True,
+        "channel_id": next(created),
+    }
+    env.orch.sessions = _Sessions(_ROOT)
+    assert await _dispatch_reply(env, _reply()) is True
+    # A later mention in the thread opens a second channel (mention behaviour).
+    assert await _open(env, mention(ts="1700000000.000300", thread_ts=_ROOT)) is True
+    routing._gate_seen.clear()
+    env.orch.sessions = _Sessions()  # after a restart: no thread session in memory
+    # The first reply, re-delivered, is still its channel's opener.
+    assert await _dispatch_reply(env, _reply()) is True
+    assert len(env.classified) == 2 and len(env.routed) == 2

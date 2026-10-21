@@ -133,6 +133,7 @@ def _reset_routing() -> None:
     routing._gate_seen.clear()
     routing._creating.clear()
     routing._bind_locks.clear()
+    routing._follow_up_locks.clear()
     routing._PENDING_TEMPS.clear()
 
 

@@ -1236,8 +1236,9 @@ async def _route_message(
     )
 
     # ── Slack Code channels: start the turn in the channel's bound session, or
-    #    open a code channel for a mention that asks for multi-step work. False
-    #    (always, with slack.code_channels off) continues the normal path. ──
+    #    open a code channel for a mention, or a reply in a thread the bot
+    #    already answers, that asks for multi-step work. False (always, with
+    #    slack.code_channels off) continues the normal path. ──
     if await code_channel_dispatch(
         orch,
         _code_channel,

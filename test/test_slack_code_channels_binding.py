@@ -101,6 +101,48 @@ def test_routes_expire_and_are_capped(tmp_path: Any, monkeypatch: pytest.MonkeyP
     assert len(json.loads((tmp_path / "s.json").read_text())["routes"]) == 3
 
 
+def test_past_the_cap_stay_routes_go_before_a_code_channel_route(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kiro_crew.slack.code_channels import store as store_mod
+
+    monkeypatch.setattr(store_mod, "MAX_ROUTES", 2)
+    store = CodeChannelStore(tmp_path / "s.json")
+    now = time.time()
+    store.record_decision(Route("open", "C1", "0.0", decision="code_channel", created_at=now))
+    for i in range(3):
+        store.record_decision(
+            Route(f"s{i}", "C1", f"{i + 1}.0", decision="stay", created_at=now + i)
+        )
+    # Thread replies record a stay row each; the oldest still-unfinished
+    # code_channel row a restart needs is not the one evicted.
+    assert store.get_route("open") is not None and store.get_route("s2") is not None
+
+
+def test_a_thread_opened_a_channel_by_its_bindings_and_routes(tmp_path: Any) -> None:
+    store = CodeChannelStore(tmp_path / "s.json")
+    assert not store.thread_opened_channel("C1", "10.0")
+    store.record_decision(
+        Route("r", "C1", "11.0", decision="code_channel", origin_thread_ts="10.0")
+    )
+    assert store.thread_opened_channel("C1", "10.0")
+    assert not store.thread_opened_channel("C1", "10.0", except_ts="11.0")  # its own opener
+    assert not store.thread_opened_channel("C2", "10.0")
+    store.put_binding(
+        Binding(
+            channel_id="C0NEW",
+            team_id="T1",
+            session_key="chat-1-1",
+            anchor_ts="1.0",
+            origin_channel_id="C1",
+            origin_ts="20.0",
+        )
+    )
+    assert store.thread_opened_channel("C1", "20.0")  # a root mention's own thread
+    reloaded = CodeChannelStore(tmp_path / "s.json")
+    assert reloaded.thread_opened_channel("C1", "10.0")
+
+
 def test_update_binding_changes_named_fields_atomically_and_persists(tmp_path: Any) -> None:
     store = CodeChannelStore(tmp_path / "s.json")
     store.put_binding(BINDING)

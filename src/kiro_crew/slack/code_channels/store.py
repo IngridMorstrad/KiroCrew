@@ -57,12 +57,21 @@ MAX_ROUTES = 2048
 
 
 def _bounded_routes(routes: dict[str, "Route"], now: float) -> dict[str, "Route"]:
-    """*routes* without expired rows, capped at :data:`MAX_ROUTES` (newest kept)."""
+    """*routes* without expired rows, capped at :data:`MAX_ROUTES`.
+
+    Past the cap the oldest ``stay`` rows go first: thread replies record one
+    each, and they must not push out a ``code_channel`` row a restart still
+    needs to finish opening its channel.
+    """
     fresh = {k: r for k, r in routes.items() if now - r.created_at <= ROUTE_TTL_SECS}
     if len(fresh) <= MAX_ROUTES:
         return fresh
-    newest = sorted(fresh.items(), key=lambda kv: kv[1].created_at, reverse=True)[:MAX_ROUTES]
-    return dict(newest)
+    ranked = sorted(
+        fresh.items(),
+        key=lambda kv: (kv[1].decision == ROUTE_CODE_CHANNEL, kv[1].created_at),
+        reverse=True,
+    )
+    return dict(ranked[:MAX_ROUTES])
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,8 @@ class Route:
     #: When the first turn reached the channel's session (0 = not yet). A
     #: re-delivered event for a route with a channel but no seed delivers it.
     seeded_at: float = 0.0
+    #: The origin thread the message was in (its own ts when it opened one).
+    origin_thread_ts: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,8 +107,10 @@ class Binding:
     names this app as its agent; such a channel is adopted on first use.
 
     ``channel_name`` is the Slack channel name at bind time; ``archived_at`` /
-    ``wrapped_up_at`` are wall-clock stamps the wrap-up feature sets. ``""`` / ``0``
-    mean unset, so a record written before these fields existed loads unchanged.
+    ``wrapped_up_at`` are wall-clock stamps the wrap-up feature sets.
+    ``origin_thread_ts`` is the origin thread the channel was opened from, which
+    stops that thread's follow-ups being classified again. ``""`` / ``0`` mean
+    unset, so a record written before these fields existed loads unchanged.
     """
 
     channel_id: str
@@ -113,6 +126,7 @@ class Binding:
     channel_name: str = ""
     archived_at: float = 0.0
     wrapped_up_at: float = 0.0
+    origin_thread_ts: str = ""
 
     @property
     def origin_link(self) -> tuple[str, str] | None:
@@ -274,6 +288,41 @@ class CodeChannelStore:
     def bindings(self) -> list[Binding]:
         self._read()
         return list(self._bindings.values())
+
+    def thread_opened_channel(
+        self, origin_channel_id: str, thread_ts: str, *, except_ts: str = ""
+    ) -> bool:
+        """Whether a code channel was opened (or is being opened) from this thread.
+
+        A bound channel whose origin is the thread, or a route that decided to
+        open one there. A thread's root message counts as being in its thread.
+        Records whose origin message is *except_ts* are left out, so a
+        re-delivered message that opened the channel is still recognised as its
+        own opener rather than as a later reply. A route whose create failed
+        keeps the thread unclassified until the route expires, which errs
+        toward answering in place.
+        """
+        if not (origin_channel_id and thread_ts):
+            return False
+        self._read()
+
+        def _in_thread(origin: str, origin_ts: str, origin_thread: str) -> bool:
+            return (
+                origin == origin_channel_id
+                and thread_ts in (origin_thread, origin_ts)
+                and not (except_ts and origin_ts == except_ts)
+            )
+
+        if any(
+            _in_thread(b.origin_channel_id, b.origin_ts, b.origin_thread_ts)
+            for b in self._bindings.values()
+        ):
+            return True
+        return any(
+            r.decision == ROUTE_CODE_CHANNEL
+            and _in_thread(r.origin_channel_id, r.origin_ts, r.origin_thread_ts)
+            for r in self._routes.values()
+        )
 
     def put_binding(self, binding: Binding) -> Binding:
         """Store *binding* unless the channel is already bound; returns the stored one."""
