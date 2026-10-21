@@ -721,8 +721,17 @@ live renderer's `observe` as the driver's `event_tap`:
   swallowed.
 - The live renderer consumes `TEXT_CHUNK` and `TOOL_CALL` (paired by
   `tool_call_id` with the raw event the tap saw) and the raw tool results. It is
-  fenced: the first failure of its sink switches it off for the rest of the turn,
-  and a tool step's projection is bounded by `TOOL_STEP_TIMEOUT_SECS`.
+  fenced: the first failure of its sink switches it off for the rest of the turn.
+  Nothing it does waits on disk: the sink queues each step's transcript write on
+  one ordered background writer.
+- Before any reply write the step writes are SETTLED: `TeeRenderer` settles the
+  mirror ahead of the channel renderer's `DONE` (Slack writes the reply from
+  `on_done`), and the transport settles after `driver.run` and before its
+  failure-path rescue. `ChannelLiveSink.settle` waits up to
+  `SETTLE_TIMEOUT_SECS`, then abandons what is left; the abandon is re-checked
+  under `ConversationLog.atomic_appends`, the lock the reply is written under, so
+  a step lands before the reply or not at all. The transport's `finally`
+  abandons, so nothing lands after the turn.
 - The sink is the dashboard's half, `dashboard/channel_live.py::ChannelLiveSink`.
   Streamed text goes out as `chat_chunk` frames on the slot's own `_chunk_seq`; a
   tool call goes out as the dashboard runner's own `tool_call` frame
@@ -737,9 +746,18 @@ live renderer's `observe` as the driver's `event_tap`:
   window's mtime watermark alone, because a row it reads and a reply appended in
   the same mtime tick would otherwise read to the next full pass as nothing newer.
 - Nothing is projected or written when the conversation has no open tab bound to
-  it, when the gateway runs without a dashboard, or for an incognito/temporary
-  thread (re-asked at each write). History readers filter to user/assistant rows,
-  so a recorded step never enters a later prompt.
+  it, when the gateway runs without a dashboard, when the user's row did not land
+  at receipt (the steps would sit above the question), or for an
+  incognito/temporary thread (re-asked before every frame and write). A step row
+  carries the turn's own `source_thread` / `source_user` / `agent`. History
+  readers filter to user/assistant rows, so a recorded step never enters a later
+  prompt.
+- Not carried: a `tool_call_update` refinement (the step keeps its first title;
+  kiro-cli sends the full title on the call itself), a tool's output on the
+  stored row (it reaches the open tab as the `tool_result` frame only), and the
+  streamed text in a mid-turn snapshot of the tab (it is frames only, so a tab
+  re-read mid-turn shows the text from the next chunk on, and the reply replaces
+  it either way).
 - Discord and Telegram are not wired: they project the user's row and the reply
   together only after the turn (`project_channel_turn_live`), so a step recorded
   mid-turn would land above the message that asked for it.

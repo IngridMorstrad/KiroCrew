@@ -345,3 +345,148 @@ def test_a_driver_event_tap_that_raises_does_not_change_the_turn() -> None:
 
     assert out == "Let me check the files. There are two files."
     assert renderer.text == out
+
+
+def test_no_live_view_when_the_users_row_did_not_land(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed receipt write means the reply path writes the question AND the
+    answer after the turn; steps recorded during it would sit above the question."""
+    h = harness
+    _surface_tab(h)
+    real_append = h.log.append
+    calls = {"n": 0}
+
+    def flaky_append(key: str, role: str, *a: Any, **k: Any) -> Any:
+        if role == "user" and calls["n"] == 0:
+            calls["n"] += 1
+            raise TimeoutError("transcript lock busy")
+        return real_append(key, role, *a, **k)
+
+    monkeypatch.setattr(h.log, "append", flaky_append)
+
+    _run(h, golden.ScriptedProvider(_script()), golden.RecordingSlackClient())
+
+    rows = [(r["role"], r["content"]) for r in h.log.read_messages(SESSION_KEY)[2:]]
+    assert rows == [
+        ("user", "what files are there?"),
+        ("assistant", "Let me check the files. There are two files."),
+    ]
+    assert not [k for k, _ in h.frames if k == "tool_call"]
+
+
+def test_a_restricted_thread_gets_no_frames_or_rows(harness: Any) -> None:
+    from kiro_crew.dashboard.channel_live import ChannelLiveSink
+    from kiro_crew.messaging.renderer import TOOL_CALL, OutputEvent
+
+    h = harness
+    _surface_tab(h)
+    restricted = {"on": False}
+    sink = ChannelLiveSink(h.state, SESSION_KEY, h.log, allowed=lambda: not restricted["on"])
+    restricted["on"] = True  # an ``!incognito`` landing mid-turn
+
+    async def go() -> None:
+        sink.on_text("secret plan")
+        sink.on_tool_call(None, OutputEvent(kind=TOOL_CALL, tool_call_id="t", title="Running: ls"))
+        await sink.settle()
+
+    asyncio.run(go())
+
+    assert h.frames == []
+    assert _tool_rows(h.log.read_messages(SESSION_KEY)) == []
+
+
+def test_a_tab_bound_to_another_session_is_not_this_turns_tab(harness: Any) -> None:
+    h = harness
+    slot = _surface_tab(h)
+    slot.linked_session_key = "slack:1111111111.000001"
+
+    assert channel_slots.linked_channel_slot(h.state, SESSION_KEY) is None
+
+
+def test_a_step_still_queued_at_the_reply_is_dropped_never_written_below_it(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow transcript lock must not land a step under the reply: settle waits
+    (bounded), then abandons what is left; a write already holding the lock
+    finishes first, because the reply is written under the same lock."""
+    import threading
+
+    from kiro_crew.dashboard.channel_live import ChannelLiveSink
+    from kiro_crew.messaging.renderer import TOOL_CALL, OutputEvent
+
+    h = harness
+    _surface_tab(h)
+    real_append = h.log.append
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_append(key: str, role: str, content: str, *a: Any, **k: Any) -> Any:
+        if content == "🔧 Running: first":
+            entered.set()
+            release.wait(5)
+        return real_append(key, role, content, *a, **k)
+
+    monkeypatch.setattr(h.log, "append", slow_append)
+    sink = ChannelLiveSink(h.state, SESSION_KEY, h.log)
+
+    def write_reply() -> None:
+        with h.log.atomic_appends(SESSION_KEY):
+            real_append(SESSION_KEY, "assistant", "the reply")
+
+    async def go() -> None:
+        sink.on_tool_call(
+            None, OutputEvent(kind=TOOL_CALL, tool_call_id="a", title="Running: first")
+        )
+        sink.on_tool_call(
+            None, OutputEvent(kind=TOOL_CALL, tool_call_id="b", title="Running: second")
+        )
+        while not entered.is_set():
+            await asyncio.sleep(0.01)
+        await sink.settle(timeout=0.1)
+        reply = asyncio.ensure_future(asyncio.to_thread(write_reply))
+        await asyncio.sleep(0.1)
+        release.set()
+        await reply
+
+    asyncio.run(go())
+
+    tail = [(r["role"], r["content"]) for r in h.log.read_messages(SESSION_KEY)[2:]]
+    assert tail == [("tool", "🔧 Running: first"), ("assistant", "the reply")]
+
+
+def test_a_step_waiting_on_the_lock_when_abandoned_writes_nothing(harness: Any) -> None:
+    """The abandon is re-checked UNDER the transcript lock: a step write that was
+    already waiting for the lock (another writer held it) when the reply's settle
+    gave up must not land once it finally gets the lock."""
+    import threading
+
+    from kiro_crew.dashboard.channel_live import ChannelLiveSink
+    from kiro_crew.messaging.renderer import TOOL_CALL, OutputEvent
+
+    h = harness
+    _surface_tab(h)
+    held = threading.Event()
+    release = threading.Event()
+
+    def other_writer() -> None:
+        with h.log.atomic_appends(SESSION_KEY):
+            held.set()
+            release.wait(5)
+
+    sink = ChannelLiveSink(h.state, SESSION_KEY, h.log)
+
+    async def go() -> None:
+        holder = asyncio.ensure_future(asyncio.to_thread(other_writer))
+        while not held.is_set():
+            await asyncio.sleep(0.01)
+        sink.on_tool_call(None, OutputEvent(kind=TOOL_CALL, tool_call_id="a", title="Running: ls"))
+        await asyncio.sleep(0.1)  # the step's thread is now parked on the lock
+        await sink.settle(timeout=0.1)
+        release.set()
+        await holder
+        await asyncio.sleep(0.2)
+
+    asyncio.run(go())
+
+    assert _tool_rows(h.log.read_messages(SESSION_KEY)) == []

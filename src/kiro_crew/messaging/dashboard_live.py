@@ -27,19 +27,13 @@ costs the tab its live view and never the channel turn.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Protocol
 
 from kiro_crew.acp.types import EVENT_TOOL_CALL, EVENT_TOOL_RESULT
-from kiro_crew.messaging.renderer import TEXT_CHUNK, TOOL_CALL, OutputEvent, Renderer
+from kiro_crew.messaging.renderer import DONE, TEXT_CHUNK, TOOL_CALL, OutputEvent, Renderer
 
 logger = logging.getLogger(__name__)
-
-#: Longest a tool call's projection may hold the turn. The sink writes the step
-#: to the transcript before the driver moves on, so the step lands ahead of the
-#: reply; a stuck disk must not stall the channel turn behind it.
-TOOL_STEP_TIMEOUT_SECS = 5.0
 
 #: Raw tool-call events kept for the matching ``TOOL_CALL`` output event. The
 #: driver dispatches that event right after the tap sees the raw one, so one
@@ -49,16 +43,26 @@ _MAX_PENDING_CALLS = 64
 
 
 class LiveSink(Protocol):
-    """Where a channel turn's live output goes: the dashboard's half."""
+    """Where a channel turn's live output goes: the dashboard's half.
+
+    Every method but :meth:`settle` is synchronous and returns at once: whatever
+    a step needs written is the sink's to queue, so the turn never waits on it.
+    """
 
     def on_text(self, text: str) -> None:
         """Streamed assistant text, already redacted by the driver."""
 
-    async def on_tool_call(self, raw: Any | None, event: OutputEvent) -> None:
+    def on_tool_call(self, raw: Any | None, event: OutputEvent) -> None:
         """A tool call the driver rendered; *raw* is its provider event, if seen."""
 
     def on_tool_result(self, raw: Any) -> None:
         """A tool's result, as the provider sent it."""
+
+    async def settle(self) -> None:
+        """Finish (bounded) or abandon queued writes. Called before the reply is written."""
+
+    def abandon(self) -> None:
+        """Write nothing more for this turn."""
 
 
 class DashboardLiveRenderer(Renderer):
@@ -111,14 +115,33 @@ class DashboardLiveRenderer(Renderer):
                     self._sink.on_text(event.text)
             elif event.kind == TOOL_CALL:
                 raw = self._pending_calls.pop(str(event.tool_call_id or ""), None)
-                await asyncio.wait_for(
-                    self._sink.on_tool_call(raw, event), timeout=TOOL_STEP_TIMEOUT_SECS
-                )
+                self._sink.on_tool_call(raw, event)
             # Everything else is the channel's to render (approval prompts,
             # compaction notices) or arrives on the tab through the transcript
             # the transport writes (the reply, the empty-turn notice).
         except Exception:
             self._fail(f"a {event.kind} event")
+
+    async def settle(self) -> None:
+        """Let the sink's queued writes land (bounded) before the reply is written.
+
+        Called by :class:`TeeRenderer` ahead of the channel renderer's ``DONE``
+        (which is where a channel may write the reply) and by the transport ahead
+        of every other reply write. Never raises; the live view writes nothing
+        after it.
+        """
+        try:
+            await self._sink.settle()
+        except Exception:
+            self._fail("settling")
+            self.abandon()
+
+    def abandon(self) -> None:
+        """Write nothing more for this turn; for a ``finally``. Never raises."""
+        try:
+            self._sink.abandon()
+        except Exception:
+            self._fail("abandoning")
 
     # The driver reaches this renderer only through ``dispatch``; the handlers
     # exist to satisfy the contract.
@@ -171,6 +194,11 @@ class TeeRenderer(Renderer):
         await self.primary.on_turn_start()
 
     async def dispatch(self, event: OutputEvent) -> None:
+        if event.kind == DONE:
+            # The channel renderer may write the reply from ``on_done`` (Slack
+            # stamps its footer there), so the live view's step writes land, or
+            # are dropped, first: a step never follows the reply in the transcript.
+            await self.mirror.settle()
         await self.primary.dispatch(event)
         await self.mirror.dispatch(event)
 
