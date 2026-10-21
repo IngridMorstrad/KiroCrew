@@ -302,6 +302,15 @@ export const CHUNK_BUDGETS = {
 
   // The SPA entry chunk: router, providers, and the eager page skeleton.
   main: 594 * KB, // measured 566 KB
+
+  // ModelEffortDropdown and its model-picker dependencies, split into a lazy
+  // chunk by main commit 0b0210d09 (feat(chat): defer a mid-turn model pick to
+  // the turn boundary). All imports of it are static in our diff; the split
+  // happens because ComposerDockView (eager) and crewWindowModelPicker (inside
+  // the lazy CrewChatWindow) both import it, and Rollup hoists shared
+  // dependencies into their own chunk to avoid duplication across the two
+  // entry points. Measured 505 KB on main @ 658eb7053; ~5% headroom.
+  ModelEffortDropdown: 530 * KB,
 }
 
 const REPORT_PATH = path.resolve('dist', 'bundle-report.json')
