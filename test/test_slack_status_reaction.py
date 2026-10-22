@@ -197,20 +197,26 @@ class TestController:
     async def test_a_reply_faster_than_the_ack_still_takes_the_ack_down(self):
         """The reply-time remove must not overtake a slow ack add."""
         from kiro_crew.slack.handler import StatusReactionController
+        from kiro_crew.testing.wait import async_wait_until, until_parked
+
+        gate = asyncio.Event()
 
         class _SlowAdd(MockSlackClient):
             async def add_reaction(self, channel, ts, emoji, raise_on_error=False):
-                await asyncio.sleep(0.01)
+                await gate.wait()
                 await super().add_reaction(channel, ts, emoji)
 
         slack = _SlowAdd()
         ctrl = StatusReactionController(slack, "C1", "msg1")
         ctrl.start(native_status=False)
         ctrl.finalize()
-        await asyncio.sleep(0.05)
-        await _drain()
-        assert _added(slack, "msg1") == [_ACK]
-        assert _left_on(slack, "msg1") == set()
+        # The ack add is in flight and parked when the reply-time remove is asked for.
+        await until_parked(gate)
+        gate.set()
+        await async_wait_until(
+            lambda: _added(slack, "msg1") == [_ACK] and _left_on(slack, "msg1") == set(),
+            describe=lambda: (_added(slack, "msg1"), _left_on(slack, "msg1")),
+        )
 
     @pytest.mark.asyncio
     async def test_disabled_adds_nothing_even_on_error(self):

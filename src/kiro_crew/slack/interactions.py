@@ -205,7 +205,7 @@ async def dispatch(payload: dict) -> None:
             return
 
     # ── A checkbox card posted before the one-click card replaced it ──
-    # Its Send can no longer answer; say so rather than dropping the press
+    # Its Send cannot answer; say so rather than dropping the press
     # silently. (Ticking its checkboxes sends events too: those stay silent.)
     if action_id in _RETIRED_OPTIONS_SEND:
         _thread = payload.get("message", {}).get("thread_ts") or msg_ts

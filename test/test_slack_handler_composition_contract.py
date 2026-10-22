@@ -48,8 +48,8 @@ from kiro_crew.subprocess_utf8 import UTF8_TEXT
 #: (SD39): nothing reads ``json`` or ``re`` off the facade, and pinning one would
 #: fail on the removal of an unused import. The project module objects it imports
 #: ARE pinned, because owner functions read them as facade globals. The Slack status
-#: reaction trail's names (its debounce, stall watchdog, tool-to-phase map and the
-#: one-shot ``done`` reaction) were deleted with the trail and are no longer pinned.
+#: reaction is one ack reaction, so it binds no debounce, stall watchdog,
+#: tool-to-phase map or one-shot ``done`` reaction, and none of those is pinned.
 _BASE_NAMES = frozenset("""
     ACTIVATION_REVIEW APPROVAL_AUTO APPROVAL_INTERACTIVE AcpError AcpProcessDied
     AcpPromptBusy AcpTimeoutError Any ConfigReadError ContextBuilder ConversationLog

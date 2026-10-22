@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from functools import partial
-from typing import Callable, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 from kiro_crew.constants import OPTIONS_RE_LINE, relocate_glued_tail_marker
 from kiro_crew.messaging.display_safety import (
@@ -191,7 +191,7 @@ def build_options_blocks(
 
     kept, overflow = cap_choices(choices, SLACK_CAPABILITIES)
     safe = _redact_choices(kept, redactor)
-    buttons = [
+    buttons: list[dict[str, Any]] = [
         {
             "type": "button",
             "text": {"type": "plain_text", "text": options_button_label(choice), "emoji": True},
