@@ -168,6 +168,40 @@ _ENV_DUMP_AWK_SED_AWS_PATTERN = (
     + _AWS_VAR_SELECTOR
 )
 
+# The grep selector above reads ``AWS-<name char>`` as a literal. That holds only
+# OUTSIDE a bracket expression: inside ``[...]`` the ``-`` is a RANGE, so
+# ``[AWS-x]`` selects every variable holding a character in ``S``..``x`` -- the
+# credentials among them -- while its text reads like the exempt hyphenated token.
+# So an env dump piped to grep is refused when ``AWS`` sits inside a bracket that
+# is still OPEN in grep's own operand.
+#
+# * Grep's own operand: ``[^|&;\n]*`` crosses grep's flags, quotes and any regex
+#   prefix but stops at a pipe, a statement separator or a newline, so a ``[`` in a
+#   later command (a ``[ -x ... ]`` test, a jq ``["aws-dev"]`` index, an
+#   ``echo '[aws-vault]'`` on the next line) is not read as a range over the dump.
+# * Still open: what lies between the opener and ``AWS`` holds no ``]`` and no
+#   ``[``. The opener is a ``[`` (with an optional ``^`` and a leading literal
+#   ``]``, both class members), or a ``]`` that does NOT close the class: the end
+#   of a POSIX subexpression (``[:digit:]``, ``[=a=]``, ``[.ch.]``) or an escaped
+#   ``\]`` (a member under ``grep -P``). Excluding ``[`` costs nothing -- a later
+#   ``[`` is itself an opener -- and is what keeps every opener's scan disjoint, so
+#   the match stays linear in the input.
+# * A CLOSED class before ``AWS`` (``^[A-Z_]*AWS_REGION=``, ``[0-9]aws-vault``)
+#   is left to the literal selector, which judges the name that follows it.
+#
+# A separate row rather than an alternation inside the grep rule: a group holding
+# ``.*`` is not split into fragments, and that is what made the combined form
+# quadratic. A bracket selector on a SECOND line of a multi-line ``grep -E``
+# pattern is not caught here (the newline stop is what scopes the operand); main
+# never refused it either.
+_AWS_BRACKET_RANGE_SELECTOR = r"[^|&;\n]*(?:\[\^?\]?|[:=.\\]\])[^\[\]\n]*AWS"
+_ENV_DUMP_GREP_AWS_BRACKET_PATTERN = (
+    rf"(?<![\w-]){_ENV_DUMP_VERBS}(?!\w)"
+    + r".*\|.*"
+    + r"(?<![\w-])[a-z0-9]{0,5}grep(?!\w)"
+    + _AWS_BRACKET_RANGE_SELECTOR
+)
+
 # ``printenv NAME...`` prints the named variables' VALUES, so naming a
 # secret-bearing variable is a credential read. Naming a non-secret one
 # (``printenv AWS_REGION``) is not. Unlike ``grep``, ``printenv`` takes EXACT
@@ -456,6 +490,17 @@ BUILTIN_DENIED_RULES: list[DeniedCommandRule] = [
             "`AWS`/`AWS_` prefix, a secret-bearing AWS variable, or a truncation of one "
             "such as `AWS_S`, which leaks any credentials stored there. Selecting a named "
             "non-secret variable such as `AWS_REGION` or `AWS_SDK_LOAD_CONFIG` is allowed."
+        ),
+    ),
+    DeniedCommandRule(
+        id="credential-exfil-env-grep-aws-bracket",
+        pattern=_ENV_DUMP_GREP_AWS_BRACKET_PATTERN,
+        category="credential-exfil",
+        description=(
+            "Blocks piping an environment dump through grep when `AWS` sits inside an "
+            "open bracket expression in grep's own pattern, such as `[AWS-x]`: there the "
+            "`-` is a range, so the class selects the AWS credential variables. A closed "
+            "class before a named non-secret variable (`^[A-Z_]*AWS_REGION=`) is allowed."
         ),
     ),
     DeniedCommandRule(

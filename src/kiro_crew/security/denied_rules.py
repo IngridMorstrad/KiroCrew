@@ -1421,6 +1421,7 @@ _ENV_CRED_PATTERNS: list[re.Pattern[str]] = [
 # cannot be switched off was the weaker of the two).
 _ENV_CRED_SHARED_RULE_IDS: tuple[str, ...] = (
     "credential-exfil-env-grep-aws",
+    "credential-exfil-env-grep-aws-bracket",
     "credential-exfil-env-awk-sed-aws",
     "credential-exfil-printenv-aws",
 )
@@ -1483,12 +1484,14 @@ _sys.modules[__name__].__class__ = _facade_mirror.MirroredModule
 __all__ = sorted(n for n in set(globals()) | set(_EXPORTS) if not n.startswith("_"))
 if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and IDEs
     from kiro_crew.security.denied_rules_catalog import (  # noqa: F401
+        _AWS_BRACKET_RANGE_SELECTOR,
         _AWS_SECRET_VAR_NAMES,
         _AWS_SECRET_WORD_PREFIXES,
         _AWS_SECRET_WORDS,
         _AWS_TEXT_VAR_SELECTOR,
         _AWS_VAR_SELECTOR,
         _ENV_DUMP_AWK_SED_AWS_PATTERN,
+        _ENV_DUMP_GREP_AWS_BRACKET_PATTERN,
         _ENV_DUMP_GREP_AWS_PATTERN,
         _ENV_DUMP_VERBS,
         _NETCAT_EXEC_PATTERN,
