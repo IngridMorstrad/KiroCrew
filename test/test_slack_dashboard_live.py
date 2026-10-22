@@ -301,7 +301,7 @@ def test_a_failing_live_view_never_breaks_the_slack_turn(
         raise RuntimeError("dashboard exploded")
 
     monkeypatch.setattr(ChannelLiveSink, "on_text", boom)
-    monkeypatch.setattr(ChannelLiveSink, "on_tool_call", boom)
+    monkeypatch.setattr(ChannelLiveSink, "on_tool_step", boom)
     monkeypatch.setattr(ChannelLiveSink, "on_tool_result", boom)
     _surface_tab(h)
     broken = golden.RecordingSlackClient()
@@ -387,7 +387,7 @@ def test_a_restricted_thread_gets_no_frames_or_rows(harness: Any) -> None:
 
     async def go() -> None:
         sink.on_text("secret plan")
-        sink.on_tool_call(None, OutputEvent(kind=TOOL_CALL, tool_call_id="t", title="Running: ls"))
+        sink.on_tool_step(None, OutputEvent(kind=TOOL_CALL, tool_call_id="t", title="Running: ls"))
         await sink.settle()
 
     asyncio.run(go())
@@ -435,10 +435,10 @@ def test_a_step_still_queued_at_the_reply_is_dropped_never_written_below_it(
             real_append(SESSION_KEY, "assistant", "the reply")
 
     async def go() -> None:
-        sink.on_tool_call(
+        sink.on_tool_step(
             None, OutputEvent(kind=TOOL_CALL, tool_call_id="a", title="Running: first")
         )
-        sink.on_tool_call(
+        sink.on_tool_step(
             None, OutputEvent(kind=TOOL_CALL, tool_call_id="b", title="Running: second")
         )
         while not entered.is_set():
@@ -480,7 +480,7 @@ def test_a_step_waiting_on_the_lock_when_abandoned_writes_nothing(harness: Any) 
         holder = asyncio.ensure_future(asyncio.to_thread(other_writer))
         while not held.is_set():
             await asyncio.sleep(0.01)
-        sink.on_tool_call(None, OutputEvent(kind=TOOL_CALL, tool_call_id="a", title="Running: ls"))
+        sink.on_tool_step(None, OutputEvent(kind=TOOL_CALL, tool_call_id="a", title="Running: ls"))
         await asyncio.sleep(0.1)  # the step's thread is now parked on the lock
         await sink.settle(timeout=0.1)
         release.set()

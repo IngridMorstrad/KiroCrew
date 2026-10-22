@@ -52,7 +52,7 @@ class LiveSink(Protocol):
     def on_text(self, text: str) -> None:
         """Streamed assistant text, already redacted by the driver."""
 
-    def on_tool_call(self, raw: Any | None, event: OutputEvent) -> None:
+    def on_tool_step(self, raw: Any | None, event: OutputEvent) -> None:
         """A tool call the driver rendered; *raw* is its provider event, if seen."""
 
     def on_tool_result(self, raw: Any) -> None:
@@ -115,7 +115,7 @@ class DashboardLiveRenderer(Renderer):
                     self._sink.on_text(event.text)
             elif event.kind == TOOL_CALL:
                 raw = self._pending_calls.pop(str(event.tool_call_id or ""), None)
-                self._sink.on_tool_call(raw, event)
+                self._sink.on_tool_step(raw, event)
             # Everything else is the channel's to render (approval prompts,
             # compaction notices) or arrives on the tab through the transcript
             # the transport writes (the reply, the empty-turn notice).

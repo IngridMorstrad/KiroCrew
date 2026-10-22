@@ -107,7 +107,7 @@ class ChannelLiveSink:
             },
         )
 
-    def on_tool_call(self, raw: Any | None, event: OutputEvent) -> None:
+    def on_tool_step(self, raw: Any | None, event: OutputEvent) -> None:
         # Through chat_runner, which composes the chat_turn modules: tool_rows'
         # helpers resolve their shared names only once it has.
         from kiro_crew.dashboard.chat_runner import _tool_call_ws_payload, _tool_meta
