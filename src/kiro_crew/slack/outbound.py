@@ -278,6 +278,17 @@ def options_answered(channel: str, ts: str) -> bool:
     return (channel, ts) in _ANSWERED
 
 
+def options_answer_settled(channel: str, ts: str) -> bool:
+    """Whether the control posted as *ts* is answered (or retired) AND its buttons are gone.
+
+    True once :func:`settle_options_answer` or :func:`mark_options_terminal` ran
+    for it: the message shows no clickable control, so an expiry has
+    nothing to spend -- and editing it would overwrite the answer line. False for
+    an unanswered control and for a claim whose original is still on screen (a
+    fallback post whose delete failed), which an expiry must still strike."""
+    return _ANSWERED.get((channel, ts)) is True
+
+
 def settle_options_answer(channel: str, ts: str) -> None:
     """Mark this control's buttons as provably gone, making the claim evictable.
 

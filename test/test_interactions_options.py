@@ -235,7 +235,7 @@ class TestSingleClickOptions:
         assert args[2:7] == ("C1", "B", "t1", "m1", "U1")
         assert hm["team_id"] == "T1"
         assert (hm["target_slot_name"], hm["route_pinned"], hm["asker_key"]) == (None, False, None)
-        forget.assert_called_once_with(None, "t1", "m1", keys=("slack:t1",))
+        forget.assert_called_once_with(None, "t1", "m1", keys=("slack:t1",), channel="C1")
         # The answer is spent: a later click on the same control cannot claim it.
         assert claim_options_answer("C1", "m1") is False
 
@@ -254,7 +254,7 @@ class TestSingleClickOptions:
         assert _answered(blocks, "A")
         orch.slack.delete_message.assert_awaited_once_with("C1", "m1")
         assert turns.await_args.args[2:7] == ("C1", "A", "t1", "fallback-ts", "U1")
-        forget.assert_called_once_with(None, "t1", "m1", keys=("slack:t1",))
+        forget.assert_called_once_with(None, "t1", "m1", keys=("slack:t1",), channel="C1")
 
     @pytest.mark.asyncio
     async def test_a_failed_delete_keeps_the_record_and_still_answers(
@@ -345,7 +345,7 @@ class TestSingleClickOptions:
         assert hm["target_slot_name"] == "chat-1"
         assert hm["route_pinned"] is True
         assert hm["asker_key"] == "dashboard:chat-1"
-        forget.assert_called_once_with(state, "t1", "m1", keys=("slack:t1",))
+        forget.assert_called_once_with(state, "t1", "m1", keys=("slack:t1",), channel="C1")
 
     @pytest.mark.parametrize(
         "action,channel,bound",
@@ -461,7 +461,7 @@ class TestForgetOptionsControl:
         monkeypatch.setattr(ix, "forget_slack_options_for_thread", recorder)
         with caplog.at_level(logging.DEBUG, logger=LOGGER):
             ix._forget_options_control("t1", "m1", keys=("slack:t1",))
-        recorder.assert_called_once_with(None, "t1", "m1", keys=("slack:t1",))
+        recorder.assert_called_once_with(None, "t1", "m1", keys=("slack:t1",), channel=None)
         assert "Failed to clear recorded OPTIONS control" in _messages(caplog)
 
 

@@ -97,7 +97,10 @@ _ACTION_PREFIX = "action::"
 
 
 def _forget_options_control(
-    thread_ts: str, ts: str | None = None, keys: tuple[str, ...] | None = None
+    thread_ts: str,
+    ts: str | None = None,
+    keys: tuple[str, ...] | None = None,
+    channel: str | None = None,
 ) -> None:
     """Drop the recorded OPTIONS control for *thread_ts*'s conversation.
 
@@ -111,12 +114,19 @@ def _forget_options_control(
     edit moves the thread to another session, so resolving the keys afterwards
     names the NEW owner and leaves the previous owner's record behind — whose next
     turn then edits over the selection.
+
+    *channel* with *ts* also drops the record of that one message under whatever
+    key holds it. A card posted top-level (a code channel's own replies) carries
+    no ``thread_ts``, so the thread a click falls back to is the card itself and
+    the keys resolved from it name no session at all.
     """
     if not _orch or not thread_ts:
         return
     try:
 
-        forget_slack_options_for_thread(_orch.dashboard_state, thread_ts, ts, keys=keys)
+        forget_slack_options_for_thread(
+            _orch.dashboard_state, thread_ts, ts, keys=keys, channel=channel
+        )
     except Exception:
         logger.debug("Failed to clear recorded OPTIONS control", exc_info=True)
 
@@ -566,7 +576,7 @@ async def _answer_options(
             # longer has to be pinned against a late click and may be evicted if
             # the map fills. While the original IS still live the claim stays put.
             settle_options_answer(channel, msg_ts)
-            _forget_options_control(thread_ts, msg_ts, keys=_owner_keys)
+            _forget_options_control(thread_ts, msg_ts, keys=_owner_keys, channel=channel)
 
     action_context = (
         "--- CONTEXT ENTRY BEGIN ---\n"
