@@ -164,3 +164,32 @@ class TestTheExpiryNeverWritesOverAnAnswer:
 
         edits = _card_edits(slack)
         assert len(edits) == 1 and "~" in _text_of(edits[0]), "the live buttons must be spent"
+
+    @pytest.mark.asyncio
+    async def test_a_stale_click_whose_strike_failed_is_still_struck_later(
+        self, world, monkeypatch
+    ):
+        """A refused stale click settles the control only once its strike landed."""
+        from slack_sdk.errors import SlackApiError
+
+        from kiro_crew.dashboard.chat_utils import expire_slack_options
+
+        state, slack, session_key = world
+
+        async def _stale(*_a, **_k):
+            return True
+
+        monkeypatch.setattr(interactions, "options_control_is_stale", _stale)
+        payload = _post_card(state, session_key, thread_ts=_THREAD)
+        slack.update_message.side_effect = SlackApiError("ratelimited", MagicMock(status_code=429))
+        await interactions.dispatch(payload)
+        await _settle()
+        interactions.handle_message.assert_not_called()
+        assert not outbound.options_answer_settled(_CHANNEL, _CARD), "nothing was struck"
+
+        slack.update_message.side_effect = None
+        await expire_slack_options(state, session_key)
+
+        edits = _card_edits(slack)
+        assert "~" in _text_of(edits[-1]), "the buttons still on screen must be spent"
+        assert _recs(state, session_key) == ()

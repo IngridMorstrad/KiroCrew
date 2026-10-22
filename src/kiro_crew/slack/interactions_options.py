@@ -333,9 +333,12 @@ async def _refuse_stale_options(channel: str, msg_ts: str, payload: dict) -> Non
             # An accepted click already holds the claim and has rendered its
             # selection. Leave the message exactly as that click left it.
             return
-        mark_options_terminal(channel, msg_ts)
+        # The claim, held unsettled, already refuses every later click. It is
+        # marked terminal (settled) only once the strike-through lands: a failed
+        # strike leaves the buttons on screen, so a later turn's expiry must still
+        # find the control unsettled and strike it.
         try:
-            await expire_options(
+            struck = await expire_options(
                 _orch.slack,
                 PostedOptions(
                     channel=channel,
@@ -345,12 +348,15 @@ async def _refuse_stale_options(channel: str, msg_ts: str, payload: dict) -> Non
                 ),
             )
         except Exception:
+            struck = False
             logger.debug(
                 "could not strike through the stale OPTIONS control %s/%s",
                 channel,
                 msg_ts,
                 exc_info=True,
             )
+        if struck:
+            mark_options_terminal(channel, msg_ts)
 
 
 _ALREADY_ANSWERED = "Already answered."
