@@ -133,7 +133,8 @@ class TestEnvDumpGrepAwsNarrowing:
         "env | grep '[^AWS-x]'",
         "env | grep '[^]AWS-x]'",
         # A POSIX subexpression's ``]`` -- ``[:digit:]``, ``[=a=]``, ``[.ch.]`` --
-        # does not close the enclosing class, and neither does ``\]`` under -P.
+        # does not close the enclosing class, and neither does a leading ``\]``
+        # under -P.
         "env | grep '[[:digit:]AWS-x]'",
         "env | grep -E '[[:digit:]AWS-z]'",
         "env | grep '[0-9[:punct:]AWS-z]'",
@@ -143,6 +144,10 @@ class TestEnvDumpGrepAwsNarrowing:
         "env | grep '[[.ch.]AWS-x]'",
         "env | grep '[[.].]AWS-x]'",
         "env | grep -P '[\\]AWS-x]'",
+        "env | grep -P '[^\\]AWS-x]'",
+        # Fixed-string mode is exempt only when no regex matcher flag is beside it.
+        "env | grep -E -F '[AWS-x]'",
+        "env | grep -F -P '[AWS-x]'",
         # The selecting stage is not the first stage after the dump.
         "env | grep -v PATH | grep AWS_SECRET",
         "env | tr ' ' '\\n' | grep AWS_SECRET",
@@ -287,6 +292,26 @@ class TestEnvDumpGrepAwsNarrowing:
         # index, ``[tag]`` echo text after a separator or on the next line -- is not
         # a grep range over the dump.
         "env | grep KIRO\necho '[aws-vault]'",
+        # An UNCLOSED bracket in grep's operand does not reach an ``aws`` in a later
+        # command: the scan after the opener stops at a separator too.
+        "env | grep '^APP_CONFIG=\\['; echo 'aws-vault profile ready'",
+        "env | grep 'x[a' && echo aws-vault",
+        "env | grep 'x[a' | grep aws-vault",
+        # Escaped brackets OUTSIDE a class are literals, not a class: a later ``\]``
+        # is not an opener (Security Scope Review on 06d7267d9; ``set-context``
+        # reads as the ``set`` dump verb).
+        "kubectl config set-context --current --namespace=dev"
+        " && kubectl logs deploy/api | grep -n '\\[ERROR\\].*aws-sdk'",
+        "env | grep '\\[WARN\\] aws-vault'",
+        # An escaped ``\[`` is a literal too (reviews on ab824f70a).
+        "env | grep '\\[aws-vault\\]'",
+        "set -euo pipefail; git log --oneline | grep -i '\\[aws-sdk\\]'",
+        "set -e; cat config.ini | grep '^\\[aws-prod\\]'",
+        # Fixed-string mode reads ``[`` as a literal, so no range is formed.
+        "env | grep -F '[aws-vault]'",
+        "env | grep -iF '[aws-vault]'",
+        "env | grep --fixed-strings '[aws-vault]'",
+        "env | fgrep '[aws-vault]'",
         "env | grep -q KIROCREW_ && [ -x /usr/local/bin/aws-vault ]",
         "env | grep -q '^AWS_VAULT=' && [ -x \"$(command -v aws-vault)\" ]",
         'printenv | grep -q AWS_PROFILE || [ -f "$HOME/.config/aws-sso-util/config" ]',

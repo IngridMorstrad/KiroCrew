@@ -1400,6 +1400,20 @@ class TestIsDeniedReDoSResistance:
             < self._BUDGET_SECONDS
         )
 
+    @pytest.mark.parametrize("unit", ["grep[", "grep -F [", "grep [a"])
+    def test_env_grep_bracket_row_scales_with_grep_words(self, unit):
+        # Many grep STARTS, each followed by an opener, up to the 20 KB keystone
+        # ceiling: the operand scan stops at the next grep word, so no two starts
+        # scan the same text. Without that stop this shape is O(starts x length).
+        from kiro_crew.security import _check_env_credential_access
+
+        pathological = "env | " + unit * (20_000 // len(unit))
+        assert self._elapsed(pathological) < self._BUDGET_SECONDS
+        assert (
+            self._cpu_cost(lambda: _check_env_credential_access(pathological))
+            < self._BUDGET_SECONDS
+        )
+
     def test_mid_dotstar_chain_spam_stays_linear(self, monkeypatch):
         """``python.*boto3.*get_credentials`` is polynomial per pattern under a single
         ``re.search``; fragment-splitting on the top-level ``.*`` gaps keeps it linear even

@@ -175,30 +175,53 @@ _ENV_DUMP_AWK_SED_AWS_PATTERN = (
 # So an env dump piped to grep is refused when ``AWS`` sits inside a bracket that
 # is still OPEN in grep's own operand.
 #
-# * Grep's own operand: ``[^|&;\n]*`` crosses grep's flags, quotes and any regex
-#   prefix but stops at a pipe, a statement separator or a newline, so a ``[`` in a
-#   later command (a ``[ -x ... ]`` test, a jq ``["aws-dev"]`` index, an
-#   ``echo '[aws-vault]'`` on the next line) is not read as a range over the dump.
-# * Still open: what lies between the opener and ``AWS`` holds no ``]`` and no
-#   ``[``. The opener is a ``[`` (with an optional ``^`` and a leading literal
-#   ``]``, both class members), or a ``]`` that does NOT close the class: the end
-#   of a POSIX subexpression (``[:digit:]``, ``[=a=]``, ``[.ch.]``) or an escaped
-#   ``\]`` (a member under ``grep -P``). Excluding ``[`` costs nothing -- a later
-#   ``[`` is itself an opener -- and is what keeps every opener's scan disjoint, so
-#   the match stays linear in the input.
+# * Grep's own operand: ``_GREP_OPERAND_CHAR`` crosses grep's flags, quotes and any
+#   regex prefix but stops at a pipe, a statement separator, a newline, or the
+#   next grep word. So a ``[`` in a later command (a ``[ -x ... ]`` test, a jq
+#   ``["aws-dev"]`` index, an ``echo '[aws-vault]'`` on the next line) is not read
+#   as a range over the dump. Stopping at the next grep word is what keeps the
+#   match linear: a later grep is its own start, so no two starts scan the same
+#   text (``grep[`` repeated to the 20 KB ceiling otherwise costs O(starts x length)).
+# * Fixed-string mode: ``fgrep``, or a ``-F`` / ``--fixed-strings`` flag, reads
+#   ``[`` as a literal, so it is not a start. The catalog tier lowercases the text,
+#   so ``-F`` and ``-f`` look the same; both are exempt, which is sound because
+#   under ``-f FILE`` the quoted word is a file to search, not a pattern (an unseen
+#   pattern file is out of scope, as for the literal row). Any ``-e``/``-E``/
+#   ``-G``/``-P`` beside it voids the exemption, so ``grep -E -F '[AWS-x]'`` and
+#   ``grep -F -e ...`` stay refused (the second in the safe direction).
+# * Still open: what lies between the opener and ``AWS`` holds no ``]``, no ``[``
+#   and no separator (so an unclosed ``[`` cannot reach an ``aws`` in a later
+#   ``; echo`` command). The opener is an UNESCAPED ``[`` (with an optional ``^``
+#   and a leading ``]`` or ``\]``, all class members), or a ``]`` that does NOT
+#   close the class: the end of a POSIX subexpression (``[:digit:]``, ``[=a=]``,
+#   ``[.ch.]``). An escaped ``\[`` or a later ``\]`` is not an opener: outside a
+#   class each is a literal (``\[ERROR\].*aws-sdk``, ``\[aws-vault\]``). The cost:
+#   ``[\[AWS-x]`` and ``[a\]AWS-x]`` (``-P``) are not caught. Excluding ``[``
+#   from the span costs nothing -- a later ``[`` is itself an opener -- and keeps
+#   every opener's scan disjoint.
 # * A CLOSED class before ``AWS`` (``^[A-Z_]*AWS_REGION=``, ``[0-9]aws-vault``)
 #   is left to the literal selector, which judges the name that follows it.
 #
 # A separate row rather than an alternation inside the grep rule: a group holding
 # ``.*`` is not split into fragments, and that is what made the combined form
-# quadratic. A bracket selector on a SECOND line of a multi-line ``grep -E``
-# pattern is not caught here (the newline stop is what scopes the operand); main
-# never refused it either.
-_AWS_BRACKET_RANGE_SELECTOR = r"[^|&;\n]*(?:\[\^?\]?|[:=.\\]\])[^\[\]\n]*AWS"
+# quadratic. Not caught here, as on main: a bracket selector on a SECOND line of a
+# multi-line ``grep -E`` pattern, or one with a ``|``, ``&`` or ``;`` class member
+# before ``AWS`` (``[|AWS-x]``). The separator and newline stops are what scope the
+# scan to grep's operand.
+_GREP_WORD = r"(?<![\w-])[a-z0-9]{0,5}grep(?!\w)"
+_GREP_OPERAND_CHAR = rf"(?:(?!{_GREP_WORD})[^|&;\n])"
+_GREP_FIXED_STRINGS = (
+    rf"(?={_GREP_OPERAND_CHAR}*\s(?:-[a-z]*f|--fixed-strings|--file))"
+    rf"(?!{_GREP_OPERAND_CHAR}*\s-[a-z]*[egp])"
+)
+_AWS_BRACKET_RANGE_SELECTOR = (
+    rf"(?!{_GREP_FIXED_STRINGS}){_GREP_OPERAND_CHAR}*"
+    r"(?:(?<!\\)\[\^?\\?\]?|[:=.]\])[^\[\]|&;\n]*AWS"
+)
 _ENV_DUMP_GREP_AWS_BRACKET_PATTERN = (
     rf"(?<![\w-]){_ENV_DUMP_VERBS}(?!\w)"
     + r".*\|.*"
-    + r"(?<![\w-])[a-z0-9]{0,5}grep(?!\w)"
+    + r"(?<![\w-])(?!fgrep(?!\w))[a-z0-9]{0,5}grep(?!\w)"
     + _AWS_BRACKET_RANGE_SELECTOR
 )
 
