@@ -955,7 +955,7 @@ def test_a_turn_start_does_not_wait_on_a_running_refresh(tmp_path, repo, audits)
     async def run() -> None:
         refresh = asyncio.ensure_future(h.svc.refresh(binding))
         await asyncio.wait_for(entered.wait(), _WAIT)
-        started = await asyncio.wait_for(h.svc.on_turn_start(binding), 2.0)
+        started = await asyncio.wait_for(h.svc.on_turn_start(binding), _WAIT)
         assert started is None and not refresh.done()  # the turn started mid-refresh
         release.set()
         await asyncio.wait_for(refresh, _WAIT)
