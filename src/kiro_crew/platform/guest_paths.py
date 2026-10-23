@@ -146,4 +146,6 @@ def guest_unverifiable(item: GuestPath) -> bool:
     text = str(item)
     if guest_norm(item) is None:
         return True
-    return "$" in text or "\\" in text or any(seg.startswith("~") for seg in text.split("/"))
+    return (
+        "$" in text or "\\" in text or any(seg.startswith("~") for seg in text.split(posixpath.sep))
+    )
