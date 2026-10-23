@@ -1,0 +1,133 @@
+/**
+ * The page-side walker (`src/kiro_crew/browser_harness/snapshot_walker.js`) and
+ * the screencast's password-mask expression (`screencast.py`, `_MASK_JS`), run in
+ * a DOM with an OPEN SHADOW ROOT holding a focused password input.
+ *
+ * `document.activeElement` stops at the shadow host, a <div>. The agent's two
+ * input gates (`type` with no ref, a printable `press_key`) ask the walker's
+ * `activeField`, and the live-frame mask asks `_MASK_JS` for password boxes;
+ * both looked only at the top document, so a web-component login form's
+ * password field was typeable by the agent and unmasked in the live view.
+ * Pinned here against the real source, evaluated the way the browser does.
+ */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, it } from 'vitest'
+
+const HARNESS_DIR = join(__dirname, '../../../src/kiro_crew/browser_harness')
+
+function walkerSource(): string {
+  const lines = readFileSync(join(HARNESS_DIR, 'snapshot_walker.js'), 'utf8').split('\n')
+  while (lines.length && (!lines[0].trim() || lines[0].trimStart().startsWith('//'))) lines.shift()
+  return lines.join('\n').trim()
+}
+
+/** `_MASK_JS` exactly as Python concatenates it: the adjacent string literals joined. */
+function maskSource(): string {
+  const py = readFileSync(join(HARNESS_DIR, 'screencast.py'), 'utf8')
+  const start = py.indexOf('_MASK_JS = (')
+  const end = py.indexOf('\n)\n', start)
+  const body = py.slice(start, end)
+  const parts = [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1])
+  return parts.join('')
+}
+
+interface Walker {
+  activeField: () => { focused: boolean; password: boolean; tag: string }
+  focus: (ref: string) => { ok: boolean; focused?: boolean; code?: string }
+  snapshot: () => { nodes: Array<{ ref?: string; role: string; state?: { password?: boolean } }> }
+}
+
+const evalWalker = (): Walker => (0, eval)(walkerSource()) as Walker
+const evalMask = (): number[][] => (0, eval)(maskSource()) as number[][]
+
+function shadowLogin(): { host: HTMLElement; user: HTMLInputElement; pass: HTMLInputElement } {
+  const host = document.createElement('div')
+  host.id = 'login'
+  document.body.appendChild(host)
+  const root = host.attachShadow({ mode: 'open' })
+  const user = document.createElement('input')
+  user.type = 'text'
+  user.name = 'user'
+  const pass = document.createElement('input')
+  pass.type = 'password'
+  pass.name = 'pw'
+  root.appendChild(user)
+  root.appendChild(pass)
+  return { host, user, pass }
+}
+
+/** The test DOM lays nothing out: give every element a box so `visible()` and the mask see it. */
+function withBoxes(): void {
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const tag = this.tagName.toLowerCase()
+    const w = tag === 'input' ? 200 : 800
+    const h = tag === 'input' ? 24 : 600
+    return { x: 10, y: 20, left: 10, top: 20, width: w, height: h, right: 10 + w, bottom: 20 + h, toJSON: () => ({}) } as DOMRect
+  }
+  Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get: () => document.body })
+}
+
+afterEach(() => {
+  document.body.innerHTML = ''
+  const w = window as unknown as Record<string, unknown>
+  delete w.__kcRefs
+  delete w.__kcRefDocObj
+  delete w.__kcRefSeq
+})
+
+describe('a focused password input inside an open shadow root', () => {
+  it('is what activeField reports, so the no-ref type and printable press_key refusals fire', () => {
+    const { host, pass } = shadowLogin()
+    pass.focus()
+    expect(document.activeElement).toBe(host) // the host, which is the bug's shape
+    const active = evalWalker().activeField()
+    expect(active).toEqual({ focused: true, password: true, tag: 'input' })
+  })
+
+  it('is masked in the live frame: the mask expression walks open shadow roots', () => {
+    withBoxes()
+    shadowLogin()
+    const boxes = evalMask()
+    expect(boxes).toEqual([[10, 20, 200, 24]])
+  })
+
+  it('focus() on a shadow text field by ref sees the focus land (not the host)', () => {
+    withBoxes()
+    const { user } = shadowLogin()
+    const w = evalWalker()
+    const nodes = w.snapshot().nodes
+    const userRef = nodes.find((n) => n.role === 'textbox' && !n.state?.password)?.ref
+    expect(userRef).toBeTruthy()
+    const result = w.focus(userRef as string)
+    expect(result.ok).toBe(true)
+    expect(result.focused).toBe(true)
+    expect(document.activeElement).not.toBe(user) // the host still, as far as the document can see
+  })
+
+  it('a password field inside the root carries the password flag in the outline, and its ref is refused', () => {
+    withBoxes()
+    shadowLogin()
+    const w = evalWalker()
+    const pw = w.snapshot().nodes.find((n) => n.state?.password)
+    expect(pw?.ref).toBeTruthy()
+    expect(w.focus(pw!.ref as string)).toEqual({ ok: false, code: 'password_field' })
+  })
+})
+
+describe('the top-document case still works the same', () => {
+  it('a plain focused password input is reported and masked', () => {
+    withBoxes()
+    const pass = document.createElement('input')
+    pass.type = 'password'
+    document.body.appendChild(pass)
+    pass.focus()
+    expect(evalWalker().activeField()).toEqual({ focused: true, password: true, tag: 'input' })
+    expect(evalMask()).toEqual([[10, 20, 200, 24]])
+  })
+
+  it('nothing focused reads as no field', () => {
+    expect(evalWalker().activeField().focused).toBe(false)
+  })
+})
