@@ -1,32 +1,47 @@
 /** Crew Mode: a UI over a conductor agent.
  *
- *  A chat is in Crew Mode exactly when it runs a conductor TEMPLATE, so there is
- *  no separate field anywhere: the composer switch is an ordinary agent switch
- *  from the default agent to the conductor. WHICH conductor is the gateway's
- *  `agent.crew_mode_agent`, and which agents count as conductors is its one list
- *  (`kiro_crew.crew_mode.conductor_agents`); both arrive with the agent catalog
- *  (`GET /api/agents/catalog`, read by `useAgents`), which records them here.
- *  Until the catalog lands the shipped conductor stands in.
+ *  Every conductor is Crew Mode: a chat is in Crew Mode exactly when it runs a
+ *  conductor TEMPLATE (or the agent its Crew Mode stamp names), so the composer
+ *  switch is an ordinary agent switch from the default agent to the conductor.
+ *  WHICH conductor is the gateway's `agent.crew_mode_agent`; the gateway moves
+ *  every Crew Mode chat onto it when it changes, and refuses any other switch of
+ *  a Crew Mode chat (`409 crew_mode_locked`). The conductor list is the gateway's
+ *  one set (`kiro_crew.crew_mode.conductor_agents`, equal to `crew_mode_agents`);
+ *  both arrive with the agent catalog (`GET /api/agents/catalog`, read by
+ *  `useAgents`), which records them here. Until the catalog lands the shipped
+ *  conductors stand in.
  */
 
 /** The conductor Crew Mode runs while the gateway has not said otherwise. */
 export const DEFAULT_CREW_MODE_AGENT = 'kirocrew-conductor'
 
+/** The shipped conductors, every one of them Crew Mode, until the catalog lands. */
+export const SHIPPED_CONDUCTORS: readonly string[] = [
+  DEFAULT_CREW_MODE_AGENT,
+  'kirocrew-ledger-conductor',
+  'kirocrew-pipeline-conductor',
+  'kirocrew-security-conductor',
+  'kirocrew-team-lead',
+]
+
 let configuredAgent = DEFAULT_CREW_MODE_AGENT
-let conductors: ReadonlySet<string> = new Set([DEFAULT_CREW_MODE_AGENT])
-let crewModeFamily: ReadonlySet<string> = new Set([DEFAULT_CREW_MODE_AGENT])
+let conductors: ReadonlySet<string> = new Set(SHIPPED_CONDUCTORS)
 
 /** Record the catalog's Crew Mode facts. Called by `useAgents` on every load.
- *  `conductorAgents` is every conductor (kept out of a normal chat's picker);
- *  `crewModeAgents` is the Crew Mode family, the only agents that are Crew Mode. */
+ *  `conductorAgents` and `crewModeAgents` are one set on the gateway (every
+ *  conductor is Crew Mode); both are read so an older gateway's two lists still
+ *  join into the one this dashboard uses. */
 export function setCrewModeCatalog(
   agent: string | undefined,
   conductorAgents: readonly string[] | undefined,
   crewModeAgents?: readonly string[],
 ): void {
   configuredAgent = agent || DEFAULT_CREW_MODE_AGENT
-  conductors = new Set([...(conductorAgents ?? []), configuredAgent])
-  crewModeFamily = new Set([...(crewModeAgents ?? []), configuredAgent])
+  conductors = new Set([
+    ...(conductorAgents ?? SHIPPED_CONDUCTORS),
+    ...(crewModeAgents ?? []),
+    configuredAgent,
+  ])
 }
 
 /** The agent a chat switches to when Crew Mode is turned on. */
@@ -45,13 +60,12 @@ export function runsConductor(agent: string | null | undefined, kind: string | n
   return kind !== 'member' && isConductorAgent(agent)
 }
 
-/** Whether a session on `agent` in namespace `kind` is in Crew Mode: on the Crew
- *  Mode family's agent, or on the agent its `stamp` names (the chat turned Crew
- *  Mode on before `agent.crew_mode_agent` changed). The pipeline, security and
- *  team-lead conductors are conductors but not Crew Mode. */
+/** Whether a session on `agent` in namespace `kind` is in Crew Mode: on any
+ *  conductor, or on the agent its `stamp` names (a custom conductor the config no
+ *  longer names, until the gateway moves the chat onto the configured one). */
 export function runsCrewMode(agent: string | null | undefined, kind: string | null | undefined, stamp?: string | null): boolean {
   if (kind === 'member' || !agent) return false
-  return crewModeFamily.has(agent) || (!!stamp && stamp === agent)
+  return conductors.has(agent) || (!!stamp && stamp === agent)
 }
 
 /** Whether `name` is the default agent: the switch is offered only there. The
@@ -68,7 +82,7 @@ export function memoryModeAllowsCrewMode(memoryMode: string | undefined): boolea
   return (memoryMode ?? 'persistent') === 'persistent'
 }
 
-/** Rows of a normal chat's agent picker: the Crew Mode family left out, since
+/** Rows of a normal chat's agent picker: every conductor left out, since
  *  Crew Mode is the way into it. Crewmates are kept whatever their name. */
 export function withoutConductors<T extends { name: string; selection_kind?: string }>(choices: T[]): T[] {
   return choices.filter(c => c.selection_kind === 'member' || !isConductorAgent(c.name))

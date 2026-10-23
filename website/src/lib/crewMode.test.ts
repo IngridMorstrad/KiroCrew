@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import {
+import { SHIPPED_CONDUCTORS,
   DEFAULT_CREW_MODE_AGENT, crewModeAgent, crewModeView, isConductorAgent, isDefaultAgentName, runsCrewMode,
   memoryModeAllowsCrewMode, runsConductor, setCrewModeCatalog, withoutConductors, agentCycleTarget,
 } from './crewMode'
@@ -86,16 +86,22 @@ describe('crewMode', () => {
 })
 
 describe('runsCrewMode', () => {
-  it('is the Crew Mode family only: other conductors stay out of the picker but are not Crew Mode', () => {
+  it('is every conductor: the two catalog lists are one set', () => {
     setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor'], ['kirocrew-conductor', 'kirocrew-ledger-conductor'])
     expect(runsCrewMode('kirocrew-conductor', 'template')).toBe(true)
     expect(runsCrewMode('kirocrew-ledger-conductor', 'template')).toBe(true)
-    expect(runsCrewMode('kirocrew-pipeline-conductor', 'template')).toBe(false)
-    expect(isConductorAgent('kirocrew-pipeline-conductor')).toBe(true)
+    expect(runsCrewMode('kirocrew-pipeline-conductor', 'template')).toBe(true)
+    expect(isConductorAgent('kirocrew-ledger-conductor')).toBe(true)
     expect(runsCrewMode('kirocrew-conductor', 'member')).toBe(false)
+    expect(runsCrewMode('kirocrew', 'template')).toBe(false)
   })
 
-  it('keeps a chat in Crew Mode on its stamped conductor after the key changes', () => {
+  it('treats every shipped conductor as Crew Mode before the catalog lands', () => {
+    setCrewModeCatalog(undefined, undefined)
+    for (const name of SHIPPED_CONDUCTORS) expect(runsCrewMode(name, 'template')).toBe(true)
+  })
+
+  it('keeps a stamped chat in Crew Mode until the gateway moves it', () => {
     setCrewModeCatalog('new-one', ['new-one'], ['new-one'])
     expect(runsCrewMode('old-one', 'template', 'old-one')).toBe(true)
     expect(runsCrewMode('kirocrew', 'template', 'old-one')).toBe(false)

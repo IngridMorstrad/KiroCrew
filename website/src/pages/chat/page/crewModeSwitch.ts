@@ -39,9 +39,8 @@ export function useCrewModeSwitch({ currentSlot, defaultAgent, switchAgent, open
   // switch is not offered at all.
   const crewModeEligible = !!currentSlot && !runsConductor(defaultAgent, 'template') && !currentSlot.mode && !currentSlot.instance_id && currentSlot.origin !== 'app'
     && memoryModeAllowsCrewMode(currentSlot.memory_mode)
-    // Crew Mode is the Crew Mode conductor TEMPLATE: `runsCrewMode` reads a crewmate
-    // that carries a conductor's name as that crewmate, and the pipeline, security
-    // and team-lead conductors as ordinary agents, not Crew Mode.
+    // Every conductor TEMPLATE is Crew Mode: `runsCrewMode` reads a crewmate that
+    // carries a conductor's name as that crewmate, not as a conductor.
     && (runsCrewMode(currentSlot.agent, currentSlot.agent_kind, currentSlot.crew_mode_agent)
       || (currentSlot.agent_kind !== 'member' && isDefaultAgentName(currentSlot.agent ?? '', defaultAgent)))
   const crewModeOn = crewModeEligible && runsCrewMode(currentSlot?.agent, currentSlot?.agent_kind, currentSlot?.crew_mode_agent)

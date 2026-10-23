@@ -185,10 +185,10 @@ describe('Crew Mode on ChatPage', () => {
     expect(mark.className).not.toMatch(/\bborder\b|rounded|hover:/)
   })
 
-  it('shows no Crew Mode badge on a conductor that is not Crew Mode, and keeps its picker', async () => {
-    setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor'], ['kirocrew-conductor'])
+  it('shows the Crew Mode badge on every conductor, the pipeline conductor included', async () => {
+    setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor'], ['kirocrew-conductor', 'kirocrew-pipeline-conductor'])
     await renderWith({ messages: [{ role: 'user', content: 'hello' }], agent: 'kirocrew-pipeline-conductor', agentKind: 'template' })
-    expect(screen.queryByTestId('crew-mode-composer-chip')).toBeNull()
+    expect(screen.getByTestId('crew-mode-composer-chip')).toHaveTextContent('Crew Mode')
   })
 
   it('opens a worker like a session: breadcrumb, back to conductor, and a steer composer', async () => {
