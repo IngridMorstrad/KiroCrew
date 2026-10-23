@@ -926,7 +926,7 @@ def build_permission_event(
         # with no arguments is tagged too, so a diff block's path is still a guest's.
         if _resolved_raw_params is None or isinstance(_resolved_raw_params, dict):
             _resolved_raw_params = GuestPathParams(_resolved_raw_params, root=remote_workspace_root)
-        _command = (_resolved_raw_params or {}).get("command")
+        _command = _resolved_raw_params.get("command") if _resolved_raw_params else None
         _runs_shell = tool_kind == "execute"
         is_shell = is_shell or _runs_shell
         if _runs_shell and isinstance(_command, str) and _command:
