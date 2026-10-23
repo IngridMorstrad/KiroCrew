@@ -761,7 +761,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   const {
     lastTextIdx, regenerating, setRegenerating, handleRegenerate,
   } = useRegenerate({
-    dispatch, activeSlot, messages, slotRunning, activeSlotRemoteBound, isStreaming, setRefusedPress, showRefusedPress,
+    dispatch, activeSlot, messages, messagesRef, slotRunning, activeSlotRemoteBound, isStreaming, setRefusedPress, showRefusedPress,
   })
 
   // ---- Continue the thread ---------------------------------------------------
@@ -794,7 +794,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     handleEditResend, editLast, setEditLast, editSeqRef, farmPassRef, handleEditConsumed, searchCtxValue, renderUserContentCb, lastRole, streamTick, transcriptHot, railWidth, winW,
     effectiveSidebarWidth, toggleAct, handleSpeak, handleApplyPlan,
   } = useMessageActions({
-    dispatch, navigate, filteredSlotsRef, connected, activeSlot, messages, slotRunning, activityOpen, activeSlotRef, activeSlotRemoteBound, showActionError, handleFileOpen, handleFolderOpen, search,
+    dispatch, navigate, filteredSlotsRef, connected, activeSlot, messages, messagesRef, slotRunning, activityOpen, activeSlotRef, activeSlotRemoteBound, showActionError, handleFileOpen, handleFolderOpen, search,
     tabsCtl, sessionTitles, selectSessionTab, linkPreviewsOn, planTaskId, setSidebarPinned, sidebarAutoHidden, sidebarWidth, setRegenerating,
   })
 

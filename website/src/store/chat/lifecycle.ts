@@ -205,7 +205,8 @@ export const resumeFromHistory = createAsyncThunk(
 
 /** The action that lists a successful fork in the sidebar. Every fork path
  *  dispatches this before activating the fork: the chat page clears an active
- *  session its slot list lacks. memory_mode is the parent's, echoed by the
+ *  session its slot list lacks. `openCreatedSlot` uses it the same way for a
+ *  session another server route created. memory_mode is the parent's, echoed by the
  *  server; without it the new tab would read as persistent until the next
  *  slots refresh. */
 export function listForkedSlot(d: Pick<ChatSlot, 'key'> & Partial<Pick<ChatSlot, 'title' | 'messages' | 'folder_id' | 'memory_mode' | 'pinned'>>) {
@@ -438,6 +439,15 @@ export function addLifecycleCases(builder: ActionReducerMapBuilder<ChatState>): 
       state.slotStopping = false
       state.slotState = 'idle'
       setPagingCursor(state, false, 0)
+      // A switch still loading the chat being left, such as a close landing
+      // made while this create was pending, no longer owns the pane. Retire
+      // it: its answer is now superseded (`supersededSwitch`) and cannot
+      // write this chat's view, and the new chat has nothing to load.
+      state.slotLoading = false
+      state.slotSwitchRequestId = null
+      state.slotSwitchTarget = null
+      state.slotSwitchOrigin = null
+      state.slotSwitchLatestRequestId = action.meta.requestId
     })
     .addCase(resumeFromHistory.pending, (state, action) => {
       // A new attempt supersedes whatever the previous one narrated, and its

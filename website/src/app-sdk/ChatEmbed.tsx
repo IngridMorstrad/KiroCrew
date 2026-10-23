@@ -32,6 +32,10 @@
  * (`chat-core/composer/pickers.ts`), reading through the app's scoped client
  * and shown only when the host app declared their endpoints
  * (`useEmbedPickers`).
+ *
+ * `hide` lets a host remove parts (`ChatEmbedHideKey`). Each key gates the one
+ * place its part mounts, and a hidden part is not mounted at all. Hiding never
+ * adds: every grant check still applies to what stays.
  */
 import { useRef, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -72,6 +76,7 @@ import { drainEmbedRecovery, stashEmbedRecovery, subscribeEmbedRecovery, type Pe
 import { retireSendTail, sendTailProof, hostProofBaseline, calmLineHolds, isOwnUserRow, rowKey, type HostSendProof, type SendTail } from './embedSendTails'
 import { embedReadPath, isEmbedCursor, mergeEmbedRead, type EmbedCursor } from './embedIncrementalRead'
 import type { ChatMessage } from '../types'
+import type { ChatEmbedHideKey } from './chatEmbedHide'
 import { loadChatConfig } from '../pages/chat/ChatSettings'
 import QueueStack, { SubagentDeliveryProgress, splitPaneMessages } from '../components/QueueStack'
 import { hydrateQueuedBubbles, normalizeQueueEntries } from '../store/chatSlice'
@@ -162,6 +167,13 @@ export interface ChatEmbedProps {
    * `ChatMessageList`. Omitted, artifact links follow their href as before.
    */
   onArtifactOpen?: (slug: string) => void
+  /**
+   * Parts of the embed to remove, e.g. `hide={['header', 'stop']}`. A hidden
+   * part is not mounted. Hiding only removes: it never shows a part the host
+   * lacks the grant for (attach still needs the upload path), and voice input
+   * stays off either way. Omitted, every part shows as before.
+   */
+  hide?: readonly ChatEmbedHideKey[]
 }
 
 /** Stable empty transcript. A fresh `[]` fallback would be a new identity on every
@@ -242,6 +254,21 @@ interface PendingSend {
   viaHost: boolean
   text: string
   before: ReadonlySet<string>
+}
+
+/** One send's mutation input. `msg` is the trimmed wire text; `draftText` is
+ *  what the composer held, whitespace and all. */
+interface EmbedSendVars {
+  msg: string
+  meta?: ChatEmbedSendMeta
+  files: string[]
+  sentPastes: PasteBlock[]
+  draftText: string
+  /** A chip send: it never consumed the draft, so nothing is handed back. */
+  override: boolean
+  sendId: string
+  slot: string
+  hostProof?: HostSendProof
 }
 
 /** Whether the poll shows THIS optimistic send. The default path stamps
@@ -335,8 +362,10 @@ function ChatEmbed({
   composerMaxHeight,
   onFileOpen,
   onArtifactOpen,
+  hide,
 }: ChatEmbedProps) {
   const api = useAppApi()
+  const hidden = (key: ChatEmbedHideKey) => hide?.includes(key) === true
   // The parking scope for receipts that outlive this instance: this app's
   // embeds for this slot (see embedSendRecovery).
   const appName = useAppInfo().name
@@ -573,7 +602,7 @@ function ChatEmbed({
    *  send's proof can still retire its notice and take the restored copy
    *  back instead of stranding it in the composer for a duplicate resend. */
   const [sendTails, setSendTails] = useState<SendTail[]>([])
-  const attachments = useEmbedAttachments(api, slotKey)
+  const attachments = useEmbedAttachments(api, slotKey, hidden('attach'))
   const { restore: restoreFiles, removeFile } = attachments
   /** Set before every change the user makes to the draft (typing, a chip
    *  delete or expand, a picker insert), so the undo history records it even
@@ -841,25 +870,32 @@ function ChatEmbed({
   // ChatPage keep). The unconfirmed notice says so in its own words for a
   // chip send -- "tap the suggestion again" -- instead of claiming a restore that
   // did not happen.
+  /** Where a send's outcome goes: onto this embed if it is still mounted and
+   *  still showing the slot the send belonged to; otherwise parked by that
+   *  slot for the next embed that shows it. Only a composer submit has text to
+   *  hand back -- a chip send never consumed the draft. Shared by the receipt
+   *  branches and `onError`, so a send that throws recovers like a refused one. */
+  const deliverOutcome = useCallback((
+    { files, sentPastes, draftText, override, sendId, slot }: EmbedSendVars,
+    tail: PendingEmbedRecovery['tail'],
+  ) => {
+    // The text is going back to the composer: drop this send's optimistic
+    // row so the user never sees two copies of it.
+    setPending(list => list.filter(p => p.sendId !== sendId))
+    const rec: PendingEmbedRecovery = override
+      ? { tail }
+      : { tail, restoreText: draftText, ...(files.length ? { restoreFiles: files } : {}), ...(sentPastes.length ? { restorePastes: sentPastes } : {}) }
+    if (mountedRef.current && slotKeyRef.current === slot) applyRecovery(rec)
+    else stashEmbedRecovery({ app: appName, slot }, rec)
+  }, [applyRecovery, appName])
+
   const sendMutation = useMutation({
     // `msg` is the trimmed wire text; `draftText` is what the composer held,
     // whitespace and all -- a recovery must give back what the user typed, not
     // what the wire carried.
-    mutationFn: async ({ msg, meta, files, sentPastes, draftText, override, sendId, slot, hostProof }: { msg: string; meta?: ChatEmbedSendMeta; files: string[]; sentPastes: PasteBlock[]; draftText: string; override: boolean; sendId: string; slot: string; hostProof?: HostSendProof }) => {
-      // Where the outcome goes: onto this embed if it is still mounted and still
-      // showing the slot the send belonged to; otherwise parked by that slot for
-      // the next embed that shows it. Only a composer submit has text to hand
-      // back -- a chip send never consumed the draft.
-      const deliver = (tail: PendingEmbedRecovery['tail']) => {
-        // The text is going back to the composer: drop this send's optimistic
-        // row so the user never sees two copies of it.
-        setPending(list => list.filter(p => p.sendId !== sendId))
-        const rec: PendingEmbedRecovery = override
-          ? { tail }
-          : { tail, restoreText: draftText, ...(files.length ? { restoreFiles: files } : {}), ...(sentPastes.length ? { restorePastes: sentPastes } : {}) }
-        if (mountedRef.current && slotKeyRef.current === slot) applyRecovery(rec)
-        else stashEmbedRecovery({ app: appName, slot }, rec)
-      }
+    mutationFn: async (vars: EmbedSendVars) => {
+      const { msg, meta, override, sendId, slot, hostProof } = vars
+      const deliver = (tail: PendingEmbedRecovery['tail']) => deliverOutcome(vars, tail)
       // The copy is the core's (`receiptCopy.ts`, shared with SideChat): a
       // refusal FRAMED as a failed send rather than the server's bare sentence
       // -- the optimistic row is dropped first, leaving no bubble to anchor a raw reason to --
@@ -898,8 +934,13 @@ function ChatEmbed({
       if (receipt.status === 'refused') fail(receipt.reason)
       if (receipt.status === 'response-late') unconfirmed()
     },
-    // A send that threw never reached the transcript: drop its optimistic row.
-    onError: (_err, { sendId }) => { setPending(list => list.filter(p => p.sendId !== sendId)) },
+    // A send that threw instead of returning a receipt (only a bug in the send
+    // path: `sendTurn` never rejects) recovers like a refused one: the
+    // optimistic row goes, a composer submit's text comes back, and a failure
+    // row says the message was not sent. Dropping only the row lost the text.
+    onError: (_err, vars) => {
+      deliverOutcome(vars, { role: 'error', content: sendFailureCopy(undefined, !vars.override), sendId: vars.sendId })
+    },
     onSettled: () => { void refetch() },
   })
 
@@ -994,7 +1035,9 @@ function ChatEmbed({
   })
   // Staged files count as a draft, as in the main composer's
   // `composerHasDraft`: Stop must not take the place of sending them.
-  const showStop = running && !draft.trim() && attachments.files.length === 0
+  // A hidden Stop leaves Send in place: an empty draft cannot send, and a
+  // typed one queues, exactly as it does beside a visible Stop.
+  const showStop = !hidden('stop') && running && !draft.trim() && attachments.files.length === 0
   // Says what Stop does now, not "again": the warning also shows to a reader
   // who opened or returned to the embed after someone else's press.
   const stopResetHint = (
@@ -1099,7 +1142,7 @@ function ChatEmbed({
       className={`flex flex-col h-full min-h-0 overflow-hidden ${frameless ? '' : 'border border-border rounded-lg bg-bg'}`}
       style={{ '--mc-message-font-size': `${messageFontSize}px` } as React.CSSProperties}
     >
-      {!frameless && (
+      {!frameless && !hidden('header') && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
           {/* Muted while stalled: the idle accent would say the session is fine.
               Danger while a stop is under way, so the dot agrees with the
@@ -1132,6 +1175,7 @@ function ChatEmbed({
         onApprove={approve}
         onApproveBatch={approveBatch}
         canTrust
+        toolDetails={!hidden('toolDetails')}
         onFileOpen={onFileOpen}
         onArtifactOpen={onArtifactOpen}
         // No hand-off: the embed's composer draft is unsaved local state that
@@ -1212,14 +1256,14 @@ function ChatEmbed({
       {/* fuseBelow off: the embed's input row is a flat strip, not the
           dock's glass the front card slides under, so the stack stands as
           whole cards above it. */}
-      {(queuedMessages.length > 0 || systemDeliveryCount > 0) && (
+      {!hidden('queue') && (queuedMessages.length > 0 || systemDeliveryCount > 0) && (
         <div className="shrink-0 pt-1 pb-1" data-testid="chat-embed-queue">
           <SubagentDeliveryProgress count={systemDeliveryCount} />
           <QueueStack messages={queuedMessages} fuseBelow={false} />
         </div>
       )}
 
-      {followUpOptions.length > 0 && (
+      {!hidden('followUps') && followUpOptions.length > 0 && (
         <div className={`shrink-0 px-3 ${frameless ? '' : 'bg-bg-accent'}`}>
           <FollowUpBar
             options={followUpOptions}
