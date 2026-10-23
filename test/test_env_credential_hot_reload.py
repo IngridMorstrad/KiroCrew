@@ -632,6 +632,45 @@ class TestLoaderCredentialHelpers:
             assert folded["telegram_bot_token"] == "valid-rotation", order
             assert loader.env_owns_key("TELEGRAM_BOT_TOKEN")
 
+    def test_windows_reordering_two_spellings_is_a_change_and_applies_the_new_winner(
+        self, monkeypatch
+    ):
+        """A save that only REORDERS two case spellings holding different values
+        changes no key's value, but on Windows it changes which spelling boot (and
+        the live applier) installs. The diff must report it, and applying it must
+        install the new first spelling's value. On POSIX the two names are two
+        variables, so a reorder changes nothing. (Fixes the GPT order-only-edit
+        finding.)"""
+        from kiro_crew import platform_compat
+        from kiro_crew.config import loader
+
+        before = {"TELEGRAM_BOT_TOKEN": "first", "telegram_bot_token": "second"}
+        after = {"telegram_bot_token": "second", "TELEGRAM_BOT_TOKEN": "first"}
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", False, raising=False)
+        assert loader.changed_env_keys(before, after) == frozenset()
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
+        changed = loader.changed_env_keys(before, after)
+        assert changed == frozenset({"TELEGRAM_BOT_TOKEN", "telegram_bot_token"})
+
+        folded = _FoldedEnviron({"TELEGRAM_BOT_TOKEN": "first"})
+        monkeypatch.setattr(os, "environ", folded)
+        loader.note_env_owned_key("TELEGRAM_BOT_TOKEN")
+        loader.apply_env_credential_changes(changed, after, before)
+        assert folded["TELEGRAM_BOT_TOKEN"] == "second"
+
+    def test_windows_reordering_spellings_with_equal_values_is_not_a_change(self, monkeypatch):
+        """Control: when both spellings hold the same value the winner's value is
+        unchanged, so a reorder is still no diff and restarts nothing."""
+        from kiro_crew import platform_compat
+        from kiro_crew.config import loader
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
+        before = {"TELEGRAM_BOT_TOKEN": "same", "telegram_bot_token": "same"}
+        after = {"telegram_bot_token": "same", "TELEGRAM_BOT_TOKEN": "same"}
+        assert loader.changed_env_keys(before, after) == frozenset()
+
     def test_windows_reconcile_to_a_different_surviving_value_takes_ownership(self, monkeypatch):
         """A service supplies the token (unowned); .env holds two spellings with
         different values. Removing the service-matching spelling installs the

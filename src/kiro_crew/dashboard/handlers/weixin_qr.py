@@ -38,6 +38,7 @@ from kiro_crew.atomic_write import atomic_write
 from kiro_crew.config.loader import (
     CRED_WEIXIN_TOKEN,
     KiroCrewConfig,
+    apply_env_credential_changes,
     config_path,
     env_bom_prefix,
     env_path,
@@ -234,10 +235,14 @@ def _commit_credential_and_config(cp: Path, serialized: str, token: str) -> None
             raise
         # ``load_credentials()`` lets ``os.environ`` win over ``.env``, and boot
         # copied the previous token there: left alone, the channel restart and
-        # an in-app re-exec would both keep the replaced token. A scrubbed
-        # environ holds no credential to go stale and must not regain one.
-        if not os.environ.get("_KIROCREW_CREDS_SCRUBBED"):
-            os.environ[CRED_WEIXIN_TOKEN] = token
+        # an in-app re-exec would both keep the replaced token. Routed through
+        # the one shared live applier rather than a direct ``os.environ`` write,
+        # so this write records ``.env`` ownership the same way every other
+        # live write does -- a later removal of the line then revokes the token
+        # instead of leaving it in force -- and inherits the Docker
+        # ``_KIROCREW_CREDS_SCRUBBED`` guard (a scrubbed environ must not regain
+        # a credential).
+        apply_env_credential_changes({CRED_WEIXIN_TOKEN}, {CRED_WEIXIN_TOKEN: token})
     finally:
         platform_compat.release_lock(lock_fd)
         os.close(lock_fd)

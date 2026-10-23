@@ -465,9 +465,40 @@ def adopt_env_owned_keys_from_reexec() -> bool:
     return True
 
 
+def _effective_entry_values(env: Mapping[str, str]) -> dict[str, str]:
+    """Each ``os.environ`` entry's value as boot would propagate it from *env*.
+
+    The first non-empty spelling in ``.env`` order wins, keyed by canonical entry
+    name -- boot's ``setdefault`` precedence, and the value
+    :func:`apply_env_credential_changes` installs. On POSIX every name is its
+    own entry, so this is just the map's non-empty values.
+    """
+    out: dict[str, str] = {}
+    for name, value in env.items():
+        if value:
+            out.setdefault(_env_name_key(name), value)
+    return out
+
+
 def changed_env_keys(old: Mapping[str, str], new: Mapping[str, str]) -> frozenset[str]:
-    """Keys whose ``.env`` value differs between *old* and *new* (added/removed/edited)."""
-    return frozenset(k for k in set(old) | set(new) if old.get(k, None) != new.get(k, None))
+    """Keys whose ``.env`` change can alter the process environment.
+
+    Every key whose value differs between *old* and *new* (added, removed or
+    edited), PLUS every spelling of an ``os.environ`` entry whose effective value
+    changed. The second set matters on Windows, where ``os.environ`` is
+    case-insensitive and several spellings share one entry: a save that only
+    REORDERS two spellings holding different values changes no key's value, yet
+    changes which one boot (and the live applier) installs. Missing it would
+    advance the watcher's baseline without applying the new winner. On POSIX an
+    entry's effective value changes only when its one key's value does, so the
+    result there is exactly the per-key set.
+    """
+    changed = {k for k in set(old) | set(new) if old.get(k, None) != new.get(k, None)}
+    old_eff, new_eff = _effective_entry_values(old), _effective_entry_values(new)
+    moved = {c for c in set(old_eff) | set(new_eff) if old_eff.get(c) != new_eff.get(c)}
+    if moved:
+        changed.update(k for k in (*old, *new) if _env_name_key(k) in moved)
+    return frozenset(changed)
 
 
 def _env_name_key(name: str) -> str:
