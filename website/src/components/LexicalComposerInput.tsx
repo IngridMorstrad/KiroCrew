@@ -139,8 +139,8 @@ interface LexicalComposerInputProps {
   /** A bare Escape: stop the running turn. The SAME precedence gate the
    *  textarea's keydown runs (useComposerStopKey), so the binding behaves
    *  identically in both editors; it returns true when it claimed the key and
-   *  false when a picker, dictation, an approval, a dialog or IME composition
-   *  owns Escape, or no turn is running (#22315). */
+   *  false when a picker, dictation, an approval, a dialog, IME composition or
+   *  voice read-back owns Escape, or no turn is running (#22315). */
   onEscapeStop?: StopTurnOnEscape
 }
 
@@ -821,7 +821,7 @@ function InteractionPlugin({
         const stop = onEscapeStopRef.current
         if (!stop || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
         const composing = editor.isComposing() || latch.isLatched() || event.isComposing || event.keyCode === 229
-        return stop(event, composing)
+        return stop(event, { native: event, composing })
       },
       COMMAND_PRIORITY_HIGH,
     )

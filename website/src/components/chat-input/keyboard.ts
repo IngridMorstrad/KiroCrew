@@ -135,7 +135,8 @@ export function useComposerKeyDown({ rawPasteRef, handleUndoKey, endUndoBurst, h
    *  the same onStop protocol the Stop button runs). Returns true when it
    *  claimed the key, so the handler stops before Escape reaches undo/Tab/
    *  history. The caller owns precedence: it returns false when a picker,
-   *  dictation, an approval, a dialog, or IME composition owns Escape, or when
+   *  dictation, an approval, a dialog, IME composition or voice read-back
+   *  owns Escape, or when
    *  no turn is running (issue #22315). */
   stopTurnOnEscape?: StopTurnOnEscape
 }) {
@@ -154,7 +155,7 @@ export function useComposerKeyDown({ rawPasteRef, handleUndoKey, endUndoBurst, h
     // composition owns Escape first (see useComposerStopKey; `ime` supplies the
     // textarea's composition verdict), so dictation-
     // discard and picker-close keep Escape exactly as they do today.
-    if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && stopTurnOnEscape?.(e, ime.isComposing(e))) return
+    if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && stopTurnOnEscape?.(e, { native: e.nativeEvent, composing: ime.isComposing(e) })) return
     // Cmd/Ctrl+Shift+V (or Cmd+Option+Shift+V on macOS) → next paste inserts
     // full text inline (no chip collapse).
     // Self-clearing: any other keydown resets the flag so it only ever affects

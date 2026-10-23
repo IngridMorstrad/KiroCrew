@@ -673,8 +673,8 @@ function ChatInput({
     [promptOptimizer, connected, optimizeUnlessLocked],
   )
   // Escape stops the running turn when the prompt box is focused (issue #22315),
-  // yielding to a picker, dictation, an approval, a dialog or IME composition.
-  // Wired into BOTH editors: the textarea's keydown and the rich-text editor's
+  // yielding to a picker, dictation, an approval, a dialog, IME composition or
+  // an Escape that stopped voice read-back. Wired into BOTH editors: the textarea's keydown and the rich-text editor's
   // Escape command, so the binding holds with "Style Markdown While Typing" on.
   const stopTurnOnEscape = useComposerStopKey({
     isRunning, onStop, anyPickerOpenRef, voiceRecording, voiceDrainCancellable, hasApproval, approvalNudgeActive,

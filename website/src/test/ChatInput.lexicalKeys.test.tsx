@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { renderWithProviders } from './helpers'
 import ChatInput from '../components/ChatInput'
+import { noteEscapeStoppedSpeech } from '../utils/speechStopKey'
 
 // The Lexical composer sits behind ChatInput's React.lazy boundary
 // (components/chat-input/engine.tsx). A cold chunk import on a loaded CI
@@ -84,6 +85,22 @@ describe('ChatInput Lexical composer: keyboard chords match the textarea', () =>
     // A modified Escape is not the binding.
     fireEvent.keyDown(input, { key: 'Escape', code: 'Escape', shiftKey: true })
     expect(onStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('an Escape that stopped voice read-back leaves the turn running', async () => {
+    // Stand-in for the capture-phase stop-speaking shortcut, which marks the
+    // keydown it spent before the editor sees it.
+    const markSpeech = (e: Event) => { if ((e as KeyboardEvent).key === 'Escape') noteEscapeStoppedSpeech(e) }
+    document.addEventListener('keydown', markSpeech, true)
+    try {
+      const onStop = vi.fn()
+      renderWithProviders(<Host isRunning onStop={onStop} />)
+      const input = await screen.findByRole('textbox', undefined, LAZY_COMPOSER_MOUNT)
+      fireEvent.keyDown(input, { key: 'Escape', code: 'Escape' })
+      expect(onStop).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', markSpeech, true)
+    }
   })
 
   it('Escape leaves the turn alone when none is running, and during IME composition', async () => {

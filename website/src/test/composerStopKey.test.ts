@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import type { RefObject } from 'react'
 import { useComposerStopKey, type StopKeyEvent } from '../components/chat-input/stopKey'
+import { noteEscapeStoppedSpeech } from '../utils/speechStopKey'
 
 type Opts = Parameters<typeof useComposerStopKey>[0]
 
@@ -28,9 +29,9 @@ function fakeEvent(repeat = false) {
   return { repeat, preventDefault: vi.fn() } satisfies StopKeyEvent
 }
 
-function run(opts: Opts, e = fakeEvent(), composing = false) {
+function run(opts: Opts, e = fakeEvent(), composing = false, native: Event = new KeyboardEvent('keydown', { key: 'Escape' })) {
   const { result } = renderHook(() => useComposerStopKey(opts))
-  const claimed = result.current(e, composing)
+  const claimed = result.current(e, { native, composing })
   return { claimed, e }
 }
 
@@ -62,6 +63,24 @@ describe('useComposerStopKey (issue #22315)', () => {
     expect(claimed).toBe(false)
     expect(onStop).not.toHaveBeenCalled()
     expect(e.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('yields when this same Escape already stopped voice read-back', () => {
+    // With auto-speak on, the reply is read aloud while the turn streams, and
+    // Escape is the stop-speaking shortcut. That capture-phase listener marks
+    // the keydown it spent; the gate must leave the turn alone for it, or the
+    // press meant for the speech soft-cancels the turn and the next one
+    // force-kills it (Opus review on #23463).
+    const onStop = vi.fn()
+    const native = new KeyboardEvent('keydown', { key: 'Escape' })
+    noteEscapeStoppedSpeech(native)
+    const { claimed, e } = run(base({ onStop }), fakeEvent(), false, native)
+    expect(claimed).toBe(false)
+    expect(onStop).not.toHaveBeenCalled()
+    expect(e.preventDefault).not.toHaveBeenCalled()
+    // The mark is per event: the next, unmarked Escape stops the turn.
+    expect(run(base({ onStop })).claimed).toBe(true)
+    expect(onStop).toHaveBeenCalledTimes(1)
   })
 
   it('yields to an open trigger picker', () => {

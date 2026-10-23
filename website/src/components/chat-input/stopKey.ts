@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { anotherEscapeOwnerIsOpen } from './escapeOwners'
+import { escapeStoppedSpeech } from '../../utils/speechStopKey'
 
 /* Escape-to-stop for the composer (issue #22315). The CLI binds Esc to cancel
    the streaming turn; the dashboard had only the Stop button. This hook is the
@@ -15,10 +16,17 @@ import { anotherEscapeOwnerIsOpen } from './escapeOwners'
  *  (textarea) and the native event Lexical hands its Escape command fit it. */
 export type StopKeyEvent = Pick<KeyboardEvent, 'repeat' | 'preventDefault'>
 
-/** Run on a bare Escape. `composing` is the calling editor's own IME verdict
- *  (each editor tracks composition through its own latch). Returns true when
- *  the gate claimed the key. */
-export type StopTurnOnEscape = (e: StopKeyEvent, composing: boolean) => boolean
+/** What the calling editor knows about this keydown beyond the event itself. */
+export interface StopKeyContext {
+  /** The native keydown (the textarea passes `e.nativeEvent`). */
+  native: Event
+  /** The calling editor's own IME verdict: each editor tracks composition
+   *  through its own latch. */
+  composing: boolean
+}
+
+/** Run on a bare Escape. Returns true when the gate claimed the key. */
+export type StopTurnOnEscape = (e: StopKeyEvent, key: StopKeyContext) => boolean
 
 export function useComposerStopKey({ isRunning, onStop, anyPickerOpenRef, voiceRecording, voiceDrainCancellable, hasApproval, approvalNudgeActive }: {
   /** A turn is running on THIS composer's slot. */
@@ -36,19 +44,26 @@ export function useComposerStopKey({ isRunning, onStop, anyPickerOpenRef, voiceR
   /** The approval-mode nudge is up: Escape hides it for the session. */
   approvalNudgeActive: boolean
 }): StopTurnOnEscape {
-  return useCallback((e: StopKeyEvent, composing: boolean): boolean => {
+  return useCallback((e: StopKeyEvent, { native, composing }: StopKeyContext): boolean => {
     // Leave Escape alone when an IME composition owns the key (Escape cancels
     // the candidate window, never the turn), when there is no turn to stop, or
     // when this surface has no stop. The caller computes `composing` from its
     // own latch, which also catches the post-`compositionend` WebKit keydown
     // (keyCode 229, isComposing already false).
     if (composing || !isRunning || !onStop) return false
+    // This same keydown already stopped voice read-back (the capture-phase
+    // stop-speaking shortcut). The press was for the speech: stopping the turn
+    // too would soft-cancel it, and a second press to silence the next
+    // sentence would force-kill it. The store cannot answer this, because
+    // stopping speech clears `voicePlaying` before the key gets here.
+    if (escapeStoppedSpeech(native)) return false
     // Precedence: Escape belongs to what owns it in the composer today, and
     // the turn is the LAST claimant. Each of these consumes Escape itself:
     //  - an open trigger picker closes (anyPickerOpenRef; some close without
     //    preventDefault, so the ref is the only reliable signal);
     //  - a recording or draining dictation discards (voice.ts);
-    //  - a pending approval / its mode nudge dismisses (approval.ts).
+    //  - a pending approval / its mode nudge dismisses (approval.ts);
+    //  - voice read-back stops (checked above, on the event itself).
     if (anyPickerOpenRef.current) return false
     if (voiceRecording || voiceDrainCancellable) return false
     if (hasApproval || approvalNudgeActive) return false
