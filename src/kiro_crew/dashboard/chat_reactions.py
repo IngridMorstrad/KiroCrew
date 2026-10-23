@@ -30,12 +30,12 @@ from kiro_crew.sel import sel
 
 logger = logging.getLogger(__name__)
 
-# slot_key is retained in the store and the file, so it is bounded like every
-# other retained field: the per-slot count cap bounds how many reactions ONE
-# slot holds, not how many distinct slot_keys a caller can invent, so without a
-# length (and the count cap already caps records per key) a flood of long,
-# made-up slot_keys would still grow memory and chat_reactions.json unbounded
-# (a-bound-bounds-every-field-it-retains).
+# slot_key is retained in every record, so its length is capped like every
+# other retained field; with the mid cap and the fixed emoji set, that bounds
+# the size of each record. It does not bound how many records the store holds:
+# the per-slot cap limits records per slot_key, but a dashboard caller can
+# react under any slot_key and nothing removes a deleted session's reactions,
+# so the number of distinct slot_keys can still grow (chat pins share this).
 _MAX_SLOT_KEY_CHARS = 256
 _MAX_MID_CHARS = 128
 _MAX_REACTIONS_PER_SLOT = 500

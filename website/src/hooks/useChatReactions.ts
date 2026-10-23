@@ -26,8 +26,9 @@ export {
 export interface ReactionError {
   slot: string
   mid: string
-  /** The emoji the failed toggle was for, so the notice can name it
-   *  ("Could not add 👍. Click it to retry.") instead of a bare "the reaction". */
+  /** The emoji the failed toggle was for. The add-failure notice names it
+   *  ("Could not add 👍. Open + and choose it again."); the remove-failure and
+   *  limit notices do not. */
   emoji: string
   kind: 'react' | 'unreact' | 'limit'
 }
