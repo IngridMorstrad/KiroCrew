@@ -403,6 +403,7 @@ async def switch_slot_agent(
     # slot._lock, then the session lock. An ExitStack because the session
     # lock's KEY is only known after the in-lock read below, and locking on
     # any earlier read could leave this holding the wrong session lock.
+    crew_turned_on = False
     async with contextlib.AsyncExitStack() as _stack:
         await _stack.enter_async_context(slot._lock)
         # Re-authorize after the await above (see _slot_replaced_while_queued):
@@ -767,6 +768,9 @@ async def switch_slot_agent(
             prior_crew_stamp if agent_name == prior_crew_stamp else ""
         )
         slot.crew_mode_agent = new_crew_stamp
+        # Counted below, once the switch has committed: Crew Mode turning on is a
+        # move from an agent that is not a conductor onto one.
+        crew_turned_on = bool(new_crew_stamp) and prior_agent not in crew_mode.crew_mode_agents()
         # The metadata line carries the stamp only when this switch moves one, so a
         # chat that never turned Crew Mode on keeps the line it had.
         crew_stamp_moves = bool(new_crew_stamp or prior_crew_stamp)
@@ -1322,6 +1326,11 @@ async def switch_slot_agent(
     # on yet; leaving the conductor changes nothing on the page.
     from kiro_crew.dashboard_agentic import adopt_crew_mode_board_on_switch
 
+    if crew_turned_on:
+        from kiro_crew import crew_mode as _cm
+        from kiro_crew.metrics import crew_mode as crew_mode_metrics
+
+        crew_mode_metrics.record_turned_on("switch", repeat=bool(_cm.known_roots() - {slot.key}))
     await adopt_crew_mode_board_on_switch(slot, agent_name, state)
     # The reset destroyed any eagerly created session; picking an agent is
     # itself a strong first-message intent signal (it also resets the

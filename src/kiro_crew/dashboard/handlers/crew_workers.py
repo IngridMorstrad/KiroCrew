@@ -561,6 +561,9 @@ async def api_crew_worker_steer(request: web.Request) -> web.Response:
     # never overrules. A worker with no item there still got the text; nothing is
     # written for it.
     delivered["ledger_event"] = await _record_steer(state, root, worker, message)
+    from kiro_crew.metrics import crew_mode as crew_mode_metrics
+
+    crew_mode_metrics.record_steer(on_item=bool(delivered["ledger_event"]))
     return web.json_response(delivered)
 
 

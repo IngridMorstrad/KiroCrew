@@ -319,6 +319,10 @@ async def api_work_report(request: web.Request) -> web.Response:
             # report -- an unknown or closed item, a ``done`` with no evidence, a
             # status outside the worker's vocabulary -- returned long before here.
             work_metrics.record_report(item.status, item.reason)
+            from kiro_crew.metrics import crew_mode as crew_mode_metrics
+
+            if crew_mode_metrics.board_is_crew_mode(state, conductor_key):
+                crew_mode_metrics.record_worker_report(item.status, item.reason)
             crew_store = _crew_store(conductor_key)
             if crew_store and item.status:
                 # The answer to the dispatch, in the crew's own log: the emitter

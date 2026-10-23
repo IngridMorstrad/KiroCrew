@@ -503,6 +503,14 @@ async def api_chat_slot_create(request: web.Request) -> web.Response:
             from kiro_crew import crew_mode
 
             slot.crew_mode_agent = crew_mode.stamp_for_switch(slot.agent, slot.agent_kind)
+            from kiro_crew.metrics import crew_mode as crew_mode_metrics
+
+            born_crew = bool(slot.crew_mode_agent)
+            crew_mode_metrics.record_new_chat(crew_mode=born_crew)
+            if born_crew:
+                crew_mode_metrics.record_turned_on(
+                    "create", repeat=bool(crew_mode.known_roots() - {slot.key})
+                )
         if reopening_persisted_cron:
             # The creator fence already loaded and authorized this metadata
             # snapshot. Reuse it so a closed-session reopen restores the user's
