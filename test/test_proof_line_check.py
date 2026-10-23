@@ -426,15 +426,45 @@ _CI_BODIES = [
 ]
 
 
+def _to_bash_path(p: Path) -> str:
+    """Return a path string that Git-for-Windows bash (MINGW) can open.
+
+    On POSIX hosts the path is returned unchanged.  On Windows, MINGW bash
+    maps ``D:\\a\\x`` as ``/d/a/x``; applying that transform lets both the
+    script argument and GITHUB_OUTPUT be opened by bash on the GitHub-hosted
+    windows-latest runner (Git Bash) and on CodeBuild Windows.
+    """
+    if os.name != "nt":
+        return str(p)
+    # p.as_posix() gives "D:/a/x"; p.drive is "D:".  Replace the drive
+    # prefix with its MINGW equivalent: "D:" -> "/d".
+    forward = p.as_posix()
+    return "/" + p.drive[0].lower() + forward[len(p.drive) :]
+
+
 def _ci_sees_tests(body: str, tmp_path: Path) -> bool:
     out = tmp_path / "out"
     out.write_text("", encoding="utf-8")
     env = {
         "PATH": os.environ.get("PATH", ""),
         "PR_BODY": _CI_PREFIX + body,
-        "GITHUB_OUTPUT": str(out),
+        # CI passes GITHUB_OUTPUT as a POSIX path; on Windows we apply the
+        # same MINGW mapping so bash can open the file for appending.
+        "GITHUB_OUTPUT": _to_bash_path(out),
     }
-    subprocess.run(["bash", str(DESC_CHECK)], env=env, check=True, capture_output=True)
+    # Mirror how CI invokes the script: relative path from the repo root so
+    # bash never sees a Windows-style absolute path with backslashes.
+    proc = subprocess.run(
+        ["bash", ".github/scripts/pr-description-check.sh"],
+        check=False,
+        env=env,
+        cwd=str(ROOT),
+        capture_output=True,
+    )
+    assert proc.returncode == 0, (
+        f"pr-description-check.sh exited {proc.returncode}; "
+        f"stderr: {proc.stderr.decode(errors='replace')!r}"
+    )
     lines = out.read_text("utf-8").splitlines()
     annotation = next(ln for ln in lines if ln.startswith("annotation="))
     return "## Tests" not in annotation
