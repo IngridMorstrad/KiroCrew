@@ -169,8 +169,8 @@ def test_the_bot_token_fixtures_are_what_they_claim() -> None:
     assert len(AA_SECRET) == 35 and AA_SECRET.startswith("AA")
     assert len(DOCS_STYLE_SECRET) == 34 and not DOCS_STYLE_SECRET.startswith("AA")
     assert not DOCS_STYLE_SECRET.startswith(_rp._TELEGRAM_SECRET_PREFIX)
-    # The issue's own example tail is ALSO 35 characters: length alone cannot be the
-    # distinguisher, or the fix would re-break #22475.
+    # A real CDK ARN tail is ALSO 35 characters here, so length alone cannot tell a
+    # resource name from a secret.
     assert len(FIRING_ARNS[0].rsplit(":", 1)[1]) == 35
 
 
