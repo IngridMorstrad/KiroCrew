@@ -170,6 +170,36 @@ def test_successful_commit_replaces_the_credential_boot_propagated(tmp_path, mon
     assert KiroCrewConfig().load_credentials(propagate=False)["WEIXIN_TOKEN"] == "brand-new"
 
 
+def test_first_sign_in_owns_the_token_so_removing_the_line_revokes_it(tmp_path, monkeypatch):
+    """A first sign-in (no token at boot) writes the token into ``os.environ``.
+    That write must record ``.env`` ownership like every other live write: the
+    watcher's next tick then sees ``prior == value`` and leaves ownership alone,
+    and when the operator later deletes the ``.env`` line the live applier pops
+    the token instead of leaving the revoked credential in force until a full
+    restart. (Fixes the Opus Weixin ownership finding.)"""
+    from kiro_crew.config import loader
+
+    monkeypatch.setenv("KIROCREW_HOME", str(tmp_path))
+    monkeypatch.setenv("WEIXIN_TOKEN", "x")
+    monkeypatch.delenv("WEIXIN_TOKEN")
+    monkeypatch.delenv("_KIROCREW_CREDS_SCRUBBED", raising=False)
+    loader.discard_env_owned_key("WEIXIN_TOKEN")
+    try:
+        qr._commit_credential_and_config(tmp_path / "config.json", '{"weixin": {}}', "brand-new")
+        assert os.environ["WEIXIN_TOKEN"] == "brand-new"
+        assert loader.env_owns_key("WEIXIN_TOKEN")
+
+        # The watcher's tick after the sign-in: same value, ownership kept.
+        loader.apply_env_credential_changes({"WEIXIN_TOKEN"}, {"WEIXIN_TOKEN": "brand-new"}, {})
+        assert loader.env_owns_key("WEIXIN_TOKEN")
+
+        # The operator deletes the line: the token is revoked in-process.
+        loader.apply_env_credential_changes({"WEIXIN_TOKEN"}, {}, {"WEIXIN_TOKEN": "brand-new"})
+        assert "WEIXIN_TOKEN" not in os.environ
+    finally:
+        loader.discard_env_owned_key("WEIXIN_TOKEN")
+
+
 def test_successful_commit_keeps_a_scrubbed_environ_free_of_the_credential(tmp_path, monkeypatch):
     """The Docker entrypoint scrubs credentials out of ``os.environ`` so they stay
     off ``/proc/<pid>/environ``; the sign-in must not put one back."""
