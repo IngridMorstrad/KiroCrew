@@ -1035,7 +1035,7 @@ dashboard is the safe direction.
 
 | Mode | stdin+stdout TTY | Behaviour |
 |---|---|---|
-| interactive REPL | yes | Prompt. Exactly `y` allows once; anything else denies. |
+| interactive REPL | yes | Prompt. Exactly `y` (or the legacy `a`) allows once; anything else denies. |
 | interactive REPL | no | Deny automatically, notice on stderr, stdin untouched. |
 | `-m` single message | either | Deny automatically, notice on stderr, stdin untouched. |
 
@@ -1050,13 +1050,13 @@ than inferred from a TTY check, because only the caller knows which mode runs.
 `[y/n/t]` (`crates/chat-cli/src/cli/chat/mod.rs`), so this prompt uses the same
 `y` to allow and `n` to deny, and a person moving between the two tools does not
 have a habitual `y` read as a refusal. Matching is exact and case-insensitive
-after trimming: `y` allows, and `yes`, `yank` or a blank line deny.
+after trimming: `y` (or the legacy `a`) allows, and `yes`, `yank` or a blank line deny.
 
 | Answer | Result |
 |---|---|
 | `y` | Allow this call once |
 | `n`, blank, EOF, anything unrecognised | Deny |
-| `a` | Allow once. The pre-Kiro-CLI key, honoured but not advertised, kept for one release |
+| `a` | Allow once. The pre-Kiro-CLI key, honoured but not advertised; removal after one release is tracked in #23475 |
 | `d` | Deny. The pre-Kiro-CLI key; it needs no special case because every unrecognised answer denies |
 | `t` | Deny, with a notice that trusting a tool for the session is not available here |
 

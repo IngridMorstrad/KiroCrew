@@ -85,10 +85,10 @@ _CLI_SEL_SOURCE = "cli"
 #: being read as a denial.
 _ALLOW_KEY = "y"
 _DENY_KEY = "n"
-#: The keys this prompt used before it matched Kiro CLI, still honoured but no
-#: longer advertised, so a user who learned them is not suddenly refused. Kept
-#: for one release; ``d`` needs no entry because every unrecognised answer
-#: already denies.
+#: An unadvertised alias for allow, so a user who learned ``a`` from this
+#: prompt is not suddenly refused. Temporary: it is removed one release after
+#: the ``y`` / ``n`` keys ship (tracked in the CLI spec). ``d`` needs no entry
+#: because every unrecognised answer already denies.
 _LEGACY_ALLOW_KEYS = frozenset({"a"})
 #: Kiro CLI's "trust this tool for the session". Not honoured here: this CLI
 #: has no persistent approval (see :func:`_answer_permission`), so ``t`` denies
