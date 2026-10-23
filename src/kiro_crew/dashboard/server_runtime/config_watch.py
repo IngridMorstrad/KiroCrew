@@ -220,7 +220,9 @@ def _register_config_watch(
         # every Crew Mode root onto it, busy ones at their next idle point.
         from kiro_crew.dashboard import crew_mode_migration
 
-        await crew_mode_migration.on_config_change(state, getattr(change, "new", None))
+        # Off the applier: the watcher cancels an applier after 10 s, and a cancel
+        # landing inside a root's switch must never leave it half moved.
+        crew_mode_migration.schedule_on_config_change(state, getattr(change, "new", None))
         state.push_refresh("agents")
 
     # The workflow-run ceiling and the channel caps are not registered here:

@@ -770,7 +770,14 @@ async def switch_slot_agent(
         slot.crew_mode_agent = new_crew_stamp
         # Counted below, once the switch has committed: Crew Mode turning on is a
         # move from an agent that is not a conductor onto one.
-        crew_turned_on = bool(new_crew_stamp) and prior_agent not in crew_mode.crew_mode_agents()
+        # The migration moving a root between conductors turns nothing on, even when
+        # the conductor it leaves is no longer one the config names.
+        crew_turned_on = (
+            bool(new_crew_stamp)
+            and not caller.crew_mode_migration
+            and prior_agent not in crew_mode.crew_mode_agents()
+            and str(prior_agent or "") != prior_crew_stamp
+        )
         # The metadata line carries the stamp only when this switch moves one, so a
         # chat that never turned Crew Mode on keeps the line it had.
         crew_stamp_moves = bool(new_crew_stamp or prior_crew_stamp)
@@ -892,7 +899,16 @@ async def switch_slot_agent(
         # Children guard, shared with reload/model: the reset tears down the
         # runtime attached sub-agents run on, so a parent that is idle but
         # still has children must refuse rather than discard their work.
-        children_409 = await _subagents_attached_response(state, slot, session_key, "slot_agent")
+        # A cancel (the migration's task, a dropped request) landing in any await
+        # between the commit and the metadata write unwinds the commit, so a slot is
+        # never left on the new agent with nothing reset and nothing persisted.
+        try:
+            children_409 = await _subagents_attached_response(
+                state, slot, session_key, "slot_agent"
+            )
+        except asyncio.CancelledError:
+            _rollback_switch()
+            raise
         if children_409 is not None:
             _rollback_switch()
             return children_409
@@ -932,7 +948,7 @@ async def switch_slot_agent(
             reset_verdict = await _reset_slot_session_or_warn(
                 state, slot, session_key, switch_kind="agent"
             )
-        except Exception:
+        except BaseException:
             # The identity probe proved the pop never happened: the old
             # session is still alive on the old binding, so the committed
             # values describe a switch that did not take — and the acting tab
@@ -974,7 +990,7 @@ async def switch_slot_agent(
                     reset_verdict = await _reset_slot_session_or_warn(
                         state, slot, session_key, switch_kind="agent"
                     )
-                except Exception:
+                except BaseException:
                     _rollback_switch()
                     state.push_slots_update()
                     raise

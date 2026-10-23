@@ -36,8 +36,39 @@ STATE_FILENAME = "crew-mode-conductor.json"
 #: Seconds between retries of roots that were busy when a migration ran.
 RETRY_SECS = 15.0
 
-#: Root slot keys still owed a move onto the configured conductor.
+#: Root slot keys still owed a move onto the configured conductor: every root not on
+#: it when a migration starts, so a cancel before a root is visited still leaves it
+#: owed, and every root a retryable refusal sent back.
 _pending: set[str] = set()
+
+#: ``{root slot key: refusal code}`` for roots a permanent refusal kept off the
+#: target. They are not retried by the idle loop; a config change or a restart tries
+#: them again. While any is here the recorded name is not advanced.
+_failed: dict[str, str] = {}
+
+#: Refusals that clear on their own once the root is idle again: a turn, attached
+#: subagents (a conductor between turns), a binding that moved mid-switch, a
+#: metadata write that failed.
+RETRYABLE: frozenset[str] = frozenset(
+    {"turn_in_flight", "slot_subagents_running", "session_rebound", "history_unavailable"}
+)
+
+#: One migration at a time: the config watcher, the idle retry loop and the start
+#: pass all call :func:`migrate`, and two of them on one idle root would reset its
+#: fresh conductor session twice.
+_lock: asyncio.Lock | None = None
+
+
+#: ``{configured name: why it cannot run Crew Mode, "" when it can}``, so the idle
+#: loop does not re-read the config every tick. Cleared on every config change.
+_verdicts: dict[str, str] = {}
+
+
+def _migration_lock() -> asyncio.Lock:
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
 
 
 def _state_path() -> Any:
@@ -96,8 +127,53 @@ def _audit(slot_key: str, before: str, after: str, outcome: str, error: str = ""
         logger.debug("crew mode migration audit failed", exc_info=True)
 
 
-async def _move(state: Any, slot: Any, target: str) -> bool:
-    """Switch one idle root onto *target*. ``True`` when it is there (or already was)."""
+def failed() -> dict[str, str]:
+    """Roots a permanent refusal kept off the configured conductor, with the code."""
+    return dict(_failed)
+
+
+def _notify(state: Any, title: str, body: str) -> None:
+    try:
+        state.notify("agent", title, body)
+    except Exception:
+        logger.debug("crew mode migration notice failed", exc_info=True)
+
+
+def _usable(target: str) -> str:
+    """``""`` when *target* can run Crew Mode, else why it cannot. BLOCKING (config read).
+
+    It must name an agent template that resolves (not a typo), and not a crewmate:
+    a Crew Mode root runs a conductor template, never a crewmate.
+    """
+    from kiro_crew.config import KiroCrewConfig
+    from kiro_crew.config.loader_agents import resolve_agent_bindings
+    from kiro_crew.validation_parts.input_bounds import is_registered_agent_name
+
+    if not is_registered_agent_name(target):
+        return "invalid_agent_name"
+    try:
+        cfg = KiroCrewConfig.load()
+    except Exception:
+        # The config watcher just loaded this config; a read failure here is
+        # transient, and the switch itself re-validates the name.
+        return ""
+    if target in getattr(cfg, "agents", {}):
+        return "agent_is_crewmate"
+    try:
+        bindings = resolve_agent_bindings(
+            cfg, target, None, validate_memory_files=False, selection_kind="template"
+        )
+    except Exception:
+        return "agent_unresolved"
+    return "" if bindings.requested_resolved else "agent_not_found"
+
+
+async def _move(state: Any, slot: Any, target: str) -> str:
+    """Switch one idle root onto *target*.
+
+    ``"ok"`` when it is there (or already was), ``"retry"`` when it is busy or a
+    refusal that clears on its own came back, else the permanent refusal code.
+    """
     from kiro_crew.dashboard.chat_handlers import (
         SlotAgentSwitchCaller,
         agent_switch_outcome,
@@ -105,9 +181,9 @@ async def _move(state: Any, slot: Any, target: str) -> bool:
     )
 
     if slot.agent == target:
-        return True
+        return "ok"
     if _busy(slot):
-        return False
+        return "retry"
     before = str(slot.agent or "")
     resp = await switch_slot_agent(
         state, slot, slot.key, target, "template", SlotAgentSwitchCaller.for_crew_mode_migration()
@@ -119,62 +195,120 @@ async def _move(state: Any, slot: Any, target: str) -> bool:
             state.push_slots_update()
         except Exception:
             logger.debug("crew mode migration: push_slots_update failed", exc_info=True)
-        return True
+        return "ok"
     code = str(body.get("code") or body.get("error") or resp.status)
-    if code == "turn_in_flight":
-        return False
+    if code in RETRYABLE:
+        return "retry"
     _audit(slot.key, before, target, "error", code)
     logger.warning("crew mode migration: %s not moved onto %s (%s)", slot.key, target, code)
-    # A refusal other than a busy turn will not change by retrying; drop it so one
-    # broken session cannot keep the migration open forever.
-    return True
+    return code or "error"
 
 
-async def migrate(state: Any, target: str | None = None) -> dict[str, list[str]]:
+async def migrate(
+    state: Any, target: str | None = None, *, retry_failed: bool = True
+) -> dict[str, list[str]]:
     """Move every live Crew Mode root onto *target* (default: the configured one).
 
-    Idle roots move now; busy ones join :func:`pending` for the retry loop. Returns
-    ``{"moved": [...], "pending": [...]}``. The recorded name is advanced only once
-    nothing is pending, so a restart before then migrates the rest.
+    Idle roots move now; busy ones, and ones a refusal that clears on its own sent
+    back, stay in :func:`pending` for the retry loop. A permanent refusal is
+    audited, named in one dashboard notice and kept in :func:`failed`; the idle loop
+    skips those (*retry_failed* False). Returns ``{"moved": [...], "pending":
+    [...]}``. The recorded name is advanced only when every live root is on
+    *target*, so a restart before then migrates the rest.
     """
     from kiro_crew import crew_mode
 
-    target = target or crew_mode.crew_mode_agent()
-    moved: list[str] = []
-    for slot in _roots(state):
-        if slot.agent == target:
-            _pending.discard(slot.key)
-            continue
-        before = slot.agent
-        if await _move(state, slot, target):
-            _pending.discard(slot.key)
-            if slot.agent != before:
-                moved.append(slot.key)
-        else:
-            _pending.add(slot.key)
-    live = {s.key for s in list(state._slots.values())}
-    _pending.intersection_update(live)
-    if not _pending:
-        await asyncio.to_thread(write_applied, target)
-    return {"moved": moved, "pending": sorted(_pending)}
+    async with _migration_lock():
+        target = target or crew_mode.crew_mode_agent()
+        roots = _roots(state)
+        if retry_failed:
+            _failed.clear()
+        # Every root not on the target is owed the move BEFORE any await, so a
+        # cancel part-way through still leaves the unvisited ones owed.
+        _pending.update(s.key for s in roots if s.agent != target and s.key not in _failed)
+        moved: list[str] = []
+        newly_failed: dict[str, str] = {}
+        for slot in roots:
+            if slot.agent == target:
+                _pending.discard(slot.key)
+                _failed.pop(slot.key, None)
+                continue
+            if slot.key in _failed:
+                continue
+            before = slot.agent
+            outcome = await _move(state, slot, target)
+            if outcome == "ok":
+                _pending.discard(slot.key)
+                if slot.agent != before:
+                    moved.append(slot.key)
+            elif outcome == "retry":
+                _pending.add(slot.key)
+            else:
+                _pending.discard(slot.key)
+                _failed[slot.key] = outcome
+                newly_failed[slot.key] = outcome
+        live = {s.key for s in list(state._slots.values())}
+        _pending.intersection_update(live)
+        for key in [k for k in _failed if k not in live]:
+            _failed.pop(key, None)
+        if newly_failed:
+            names = ", ".join(f"{k} ({c})" for k, c in sorted(newly_failed.items()))
+            _notify(
+                state,
+                "A Crew Mode chat did not move",
+                f"These chats stay on their conductor instead of {target}: {names}. "
+                "Kiro Crew tries again after the next config change or restart.",
+            )
+        if not _pending and not _failed and all(s.agent == target for s in _roots(state)):
+            await asyncio.to_thread(write_applied, target)
+        return {"moved": moved, "pending": sorted(_pending)}
 
 
-async def reconcile(state: Any) -> dict[str, list[str]] | None:
+async def reconcile(state: Any, *, retry_failed: bool = True) -> dict[str, list[str]] | None:
     """Migrate when the configured conductor differs from the one last applied.
 
     ``None`` when there was nothing to do. A first start (nothing recorded) records
-    the current name and moves nothing.
+    the current name and moves nothing. A configured name that is not a usable
+    agent template (a typo, a crewmate) moves nothing: it is logged, named in one
+    notice, and every reader keeps the conductor last applied
+    (:func:`kiro_crew.crew_mode.set_unusable`).
     """
     from kiro_crew import crew_mode
 
-    target = crew_mode.crew_mode_agent()
+    configured = crew_mode.configured_crew_mode_agent()
     applied = await asyncio.to_thread(read_applied)
+    if configured != applied:
+        why = _verdicts.get(configured)
+        if why is None:
+            why = _verdicts[configured] = await asyncio.to_thread(_usable, configured)
+        if why:
+            fallback = applied or crew_mode.DEFAULT_CREW_MODE_AGENT
+            first = crew_mode.crew_mode_agent() == configured
+            crew_mode.set_unusable(configured, fallback)
+            if first:
+                logger.error(
+                    "agent.crew_mode_agent names %r, which cannot run Crew Mode (%s); "
+                    "Crew Mode chats stay on %r",
+                    configured,
+                    why,
+                    fallback,
+                )
+                _audit("*", fallback, configured, "denied", why)
+                _notify(
+                    state,
+                    "Crew Mode conductor not changed",
+                    f"agent.crew_mode_agent names {configured}, which is not an agent "
+                    f"template ({why}). Crew Mode chats stay on {fallback}.",
+                )
+            return None
+    crew_mode.clear_unusable()
+    target = crew_mode.crew_mode_agent()
     if applied is None:
         await asyncio.to_thread(write_applied, target)
         return None
     if applied == target and not _pending:
         return None
-    return await migrate(state, target)
+    return await migrate(state, target, retry_failed=retry_failed)
 
 
 def _stamp_live_roots(state: Any) -> list[str]:
@@ -264,10 +398,10 @@ async def run(state: Any, *, start_delay: float = 2.0) -> None:
         logger.warning("crew mode start pass failed", exc_info=True)
     while True:
         await asyncio.sleep(RETRY_SECS)
-        if not _pending:
-            continue
         try:
-            await migrate(state)
+            # Roots still owed a move, and a recorded name that is not yet the
+            # target (a migration cancelled before it visited every root).
+            await reconcile(state, retry_failed=False)
         except Exception:
             logger.warning("crew mode migration retry failed", exc_info=True)
 
@@ -282,7 +416,27 @@ async def on_config_change(state: Any, cfg: Any = None) -> None:
 
     if cfg is not None:
         crew_mode.remember(cfg)
+    _verdicts.clear()
     try:
         await reconcile(state)
     except Exception:
         logger.warning("crew mode migration after a config change failed", exc_info=True)
+
+
+def schedule_on_config_change(state: Any, cfg: Any = None) -> asyncio.Task[None]:
+    """Start :func:`on_config_change` as a tracked background task and return it.
+
+    The config watcher runs each applier under a 10 s bound and cancels it on
+    timeout; a migration resets sessions and can take longer, so it runs off the
+    applier, never under that bound. *cfg* is remembered first, synchronously.
+    """
+    from kiro_crew import crew_mode
+
+    if cfg is not None:
+        crew_mode.remember(cfg)
+    task = asyncio.create_task(on_config_change(state), name="crew-mode-migration")
+    tasks = getattr(state, "_background_tasks", None)
+    if isinstance(tasks, set):
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+    return task

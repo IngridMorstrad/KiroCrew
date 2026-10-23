@@ -109,13 +109,27 @@ def _agent_of(cfg: Any) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else DEFAULT_CREW_MODE_AGENT
 
 
-def crew_mode_agent(cfg: Any = None) -> str:
-    """The agent a chat switches to when Crew Mode is turned on.
+#: ``{configured name: conductor in force}`` for a configured ``agent.crew_mode_agent``
+#: the migration found unusable (no such agent template, or a crewmate's name). While
+#: the name stays configured, every reader gets the conductor last applied instead, so
+#: new Crew Mode chats still turn on and the lock still lets the roots stay put.
+_unusable: dict[str, str] = {}
 
-    From *cfg* when given (and remembered); otherwise from the live config snapshot,
-    else the last value remembered. Never reads the config file, so the slot
-    serializer can ask it on the event loop.
-    """
+
+def set_unusable(name: str, fallback: str) -> None:
+    """Record that the configured *name* cannot run Crew Mode; *fallback* stands in."""
+    if name and fallback and name != fallback:
+        _unusable.clear()
+        _unusable[name] = fallback
+
+
+def clear_unusable() -> None:
+    """Forget any unusable configured name (a later config names a usable one)."""
+    _unusable.clear()
+
+
+def configured_crew_mode_agent(cfg: Any = None) -> str:
+    """The name ``agent.crew_mode_agent`` spells, usable or not. No I/O."""
     if cfg is not None:
         remember(cfg)
         return _configured
@@ -123,6 +137,18 @@ def crew_mode_agent(cfg: Any = None) -> str:
     if live_cfg is not None:
         return _agent_of(live_cfg)
     return _configured
+
+
+def crew_mode_agent(cfg: Any = None) -> str:
+    """The agent a chat switches to when Crew Mode is turned on.
+
+    From *cfg* when given (and remembered); otherwise from the live config snapshot,
+    else the last value remembered. A configured name the migration found unusable
+    (:func:`set_unusable`) reads as the conductor last applied. Never reads the
+    config file, so the slot serializer can ask it on the event loop.
+    """
+    name = configured_crew_mode_agent(cfg)
+    return _unusable.get(name, name)
 
 
 def remember(cfg: Any) -> None:
