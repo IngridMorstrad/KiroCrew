@@ -35,9 +35,11 @@ from aiohttp import web
 
 from kiro_crew import platform_compat
 from kiro_crew.atomic_write import atomic_write
+from kiro_crew.config import live
 from kiro_crew.config.loader import (
     CRED_WEIXIN_TOKEN,
     KiroCrewConfig,
+    apply_env_credential_changes,
     config_path,
     env_bom_prefix,
     env_path,
@@ -50,6 +52,7 @@ from kiro_crew.dashboard.channel_folders import (
     ensure_channel_folder,
     stored_folder_name,
 )
+from kiro_crew.dashboard.chat_utils_awaits import drained_to_thread
 from kiro_crew.dashboard.handlers.agents import _get_config_lock
 from kiro_crew.dashboard.handlers.core import _hot_apply_after_write
 from kiro_crew.dashboard.handlers.messaging import is_direct_local_request
@@ -234,10 +237,14 @@ def _commit_credential_and_config(cp: Path, serialized: str, token: str) -> None
             raise
         # ``load_credentials()`` lets ``os.environ`` win over ``.env``, and boot
         # copied the previous token there: left alone, the channel restart and
-        # an in-app re-exec would both keep the replaced token. A scrubbed
-        # environ holds no credential to go stale and must not regain one.
-        if not os.environ.get("_KIROCREW_CREDS_SCRUBBED"):
-            os.environ[CRED_WEIXIN_TOKEN] = token
+        # an in-app re-exec would both keep the replaced token. Routed through
+        # the one shared live applier rather than a direct ``os.environ`` write,
+        # so this write records ``.env`` ownership the same way every other
+        # live write does -- a later removal of the line then revokes the token
+        # instead of leaving it in force -- and inherits the Docker
+        # ``_KIROCREW_CREDS_SCRUBBED`` guard (a scrubbed environ must not regain
+        # a credential).
+        apply_env_credential_changes({CRED_WEIXIN_TOKEN}, {CRED_WEIXIN_TOKEN: token})
     finally:
         platform_compat.release_lock(lock_fd)
         os.close(lock_fd)
@@ -350,7 +357,9 @@ async def weixin_qr_status(request: web.Request) -> web.Response:
 
     token = resp.get("bot_token", "")
     base_url = resp.get("baseurl") or ILINK_BASE_URL
-    account_id = resp.get("ilink_bot_id") or resp.get("account_id") or resp.get("ilink_user_id") or ""
+    account_id = (
+        resp.get("ilink_bot_id") or resp.get("account_id") or resp.get("ilink_user_id") or ""
+    )
     if not token or not account_id:
         await client.close()
         _SESSIONS.pop(session_id, None)
@@ -371,8 +380,18 @@ async def weixin_qr_status(request: web.Request) -> web.Response:
         #
         # The whole block runs OFF the loop: the file I/O plus, on Windows,
         # the owner-only DACL restrict_to_owner() applies.
+        #
+        # Hold the live-config watcher across the whole transaction, like every
+        # sibling channel saver: ``.env`` and ``config.json`` commit separately
+        # (and a failed config write rolls the credential back), so a poll landing
+        # between them must not restart Weixin with the new token and the previous
+        # account id. The release wakes the watcher on the committed state.
+        # ``drained_to_thread`` keeps a cancelled request waiting for the worker
+        # to finish, so the hold and the lock are never released while a write
+        # or its rollback is still in flight.
         async with _get_config_lock():
-            await asyncio.to_thread(_persist)
+            with live.hold():
+                await drained_to_thread(_persist)
     except EnvStagingRefused as exc:
         # The .env's staging directory is unusable: nothing was written, and the
         # message names the directory and its fix.
@@ -382,14 +401,14 @@ async def weixin_qr_status(request: web.Request) -> web.Response:
         # A corrupt config.json or an un-restrictable credential file must NOT be
         # reported as a successful sign-in.
         logger.exception("weixin: failed to persist QR sign-in")
-        return web.json_response(
-            {"error": "persist_failed", "detail": str(exc)[:200]}, status=500
-        )
+        return web.json_response({"error": "persist_failed", "detail": str(exc)[:200]}, status=500)
     finally:
         await client.close()
         _SESSIONS.pop(session_id, None)
 
-    logger.info("weixin: QR login confirmed; account_id=%s persisted. Restart to connect.", account_id[:8])
+    logger.info(
+        "weixin: QR login confirmed; account_id=%s persisted. Restart to connect.", account_id[:8]
+    )
     return web.json_response({"status": "confirmed", "connected": True, "account_id": account_id})
 
 
@@ -406,7 +425,12 @@ async def weixin_config_get(request: web.Request) -> web.Response:
 
     def _load() -> tuple[Any, bool]:
         cfg = KiroCrewConfig.load()
-        creds = cfg.load_credentials()
+        # propagate=False: a post-boot dashboard read must not re-seed
+        # os.environ. A setdefault here on a worker thread could restore a
+        # credential the live watcher just popped (an external .env removal
+        # racing this read), silently undoing the removal. Boot owns the one
+        # propagation; the live applier owns every mutation after.
+        creds = cfg.load_credentials(propagate=False)
         return cfg.weixin, bool(creds.get(CRED_WEIXIN_TOKEN, "") or cfg.weixin.token)
 
     # Off-loop: both config.json and the .env credential store are read from disk.
@@ -500,7 +524,9 @@ async def weixin_config_save(request: web.Request) -> web.Response:
             _state = request.app.get("state")
             if _state is not None:
                 await ensure_channel_folder(
-                    _state, "weixin", _folder_name,
+                    _state,
+                    "weixin",
+                    _folder_name,
                     relabel="session_folder" in body,
                 )
 
