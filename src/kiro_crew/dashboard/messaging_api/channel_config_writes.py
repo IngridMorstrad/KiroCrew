@@ -286,14 +286,28 @@ async def _write_env_or_roll_back(
         if rollback is not None:
             await rollback()
         raise
+    # Applied HERE, synchronously, so this save's own response -- and the channel
+    # restart its config half triggers under the same ``live.hold()`` -- sees the
+    # new credential at once, rather than waiting up to a poll interval for the
+    # config watcher to notice the ``.env`` move. The watcher re-applies the same
+    # key on its next tick after the hold releases; that is idempotent (identical
+    # line values), not a second, conflicting write.
+    #
+    # Routed through the one shared applier (``apply_env_credential_changes``)
+    # rather than a hand-rolled set/pop loop, so this path inherits the Docker
+    # ``_KIROCREW_CREDS_SCRUBBED`` guard and the PATH carve-out instead of
+    # re-exposing a scrubbed credential in /proc/<pid>/environ. The value each
+    # ``.env`` line now holds is what a restart would propagate: a new channel
+    # token reads back as its ``secret://`` reference; a cleared key becomes
+    # absent from the map and is popped. No baseline (``old``) is tracked here --
+    # the watcher owns that -- so the applier pops a cleared key unconditionally,
+    # the behaviour this path already had.
+    new_env: dict[str, str] = {}
     for key, new_val in env_updates.items():
-        # The value the .env line now holds: a new channel token reads back as
-        # its secret:// reference, the same value a restart propagates.
         line_val = _loader.vault_channel_env_value(key, new_val)
-        if line_val is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = line_val
+        if line_val is not None:
+            new_env[key] = line_val
+    _loader.apply_env_credential_changes(set(env_updates), new_env)
 
 
 def _wide_env_refusal(exc: _loader.EnvFileWideEncodingError) -> web.HTTPConflict:
