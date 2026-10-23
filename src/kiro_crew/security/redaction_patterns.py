@@ -326,13 +326,13 @@ _ARN_PREFIX_MAX_LOOKBACK = 256
 # over-redaction, which is the safe way to be wrong.
 #
 # How every secret Telegram issues today begins (BotFather's documented example is
-# `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`). The tail reaching this check has
-# already cleared the Telegram branch's 30-character floor, so a tail starting `AA`
-# is withheld whatever its length: truncating, padding or extending a secret cannot
-# turn it back into a resource name. Telegram does not promise the prefix, which is
-# why the padded-id rule below stands beside it. A CDK resource name of 30 or more
-# characters starting `AA` redacts.
+# `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`). The exemption is withheld when an
+# `AA` anywhere in the tail starts a run at least as long as the branch's own floor:
+# prefixing, truncating or extending a secret cannot turn it back into a resource
+# name. Telegram does not promise the prefix, which is why the padded-id rule below
+# stands beside it. A resource name with 30+ characters from its first `AA` redacts.
 _TELEGRAM_SECRET_PREFIX = "AA"
+_TELEGRAM_SECRET_MIN_RUN = 30
 # A Telegram bot id is 6-10 digits. Leading zeros in front of one pad it out to 12;
 # a real account id can start `00`, and one that does, followed by a 30+ character
 # resource name, redacts.
@@ -346,7 +346,10 @@ def _arn_exemption_withheld(hit: str) -> bool:
     only: no pattern here can backtrack on a long run of one character.
     """
     account, _, tail = hit.partition(":")
-    if tail.startswith(_TELEGRAM_SECRET_PREFIX):
+    # The whole tail is token characters (the branch matched it), so a secret behind
+    # public padding is the first `AA` with a branch-length run from it to the end.
+    first = tail.find(_TELEGRAM_SECRET_PREFIX)
+    if first != -1 and len(tail) - first >= _TELEGRAM_SECRET_MIN_RUN:
         return True
     unpadded = account.lstrip("0")
     return unpadded != account and len(unpadded) in _BOT_ID_LENGTHS

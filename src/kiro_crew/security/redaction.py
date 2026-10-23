@@ -1475,6 +1475,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _TELEGRAM_AT_RE,
         _TELEGRAM_BRANCH,
         _TELEGRAM_DIGITS_RE,
+        _TELEGRAM_SECRET_MIN_RUN,
         _TELEGRAM_SECRET_PREFIX,
         _arn_exemption_withheld,
         _contains_credential_pattern,

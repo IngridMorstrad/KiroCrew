@@ -502,13 +502,13 @@ def _url_payload_command(n: int) -> str:
 #: facade's ``TYPE_CHECKING`` mirror manifest (the two ARN-prefix regexes, the lookback
 #: constant, the 12-digit account-id regex and the sans-Telegram alternation), which
 #: ``test_facade_mirror_guards`` requires name everything the facade forwards.
-#: Then by 36 more for ``_arn_exemption_withheld``: twelve digits alone do not prove an
+#: Then by 40 more for ``_arn_exemption_withheld``: twelve digits alone do not prove an
 #: account id, so the exemption is withheld when the account is a zero-padded 6-10
-#: digit bot id (``_BOT_ID_LENGTHS``) or the tail starts with ``AA``, the Telegram
-#: secret prefix (``_TELEGRAM_SECRET_PREFIX``). Two constants, one string-only
-#: predicate, its call in the rejection arm, their comments and three manifest
-#: lines; the exemption only narrows.
-_PACKAGE_LINE_BUDGET = 32_527
+#: digit bot id (``_BOT_ID_LENGTHS``) or an ``AA`` anywhere in the tail starts a
+#: branch-length run (``_TELEGRAM_SECRET_PREFIX``, ``_TELEGRAM_SECRET_MIN_RUN``).
+#: Three constants, one string-only predicate, its call in the rejection arm, their
+#: comments and four manifest lines; the exemption only narrows.
+_PACKAGE_LINE_BUDGET = 32_531
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

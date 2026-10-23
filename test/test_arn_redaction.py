@@ -234,6 +234,35 @@ def test_a_truncated_aa_secret_behind_a_non_zero_padded_id_is_redacted(keep: int
     assert warnings
 
 
+@pytest.mark.parametrize("padding", ["x", "x7", "MyStack-"])
+def test_an_aa_secret_behind_public_resource_padding_is_redacted(padding: str) -> None:
+    """Characters in front of the secret must not move it out of the prefix test."""
+    text = f"arn:aws:sns:us-west-2:999110201543:{padding}{AA_SECRET}"
+    result, warnings = redact_credentials(text)
+    assert AA_SECRET not in result
+    assert TAG in result
+    assert warnings
+
+
+@pytest.mark.parametrize(
+    ("resource", "redacts"),
+    [
+        # An `AA` mid-name with 30+ characters from it to the end could be a secret.
+        ("MyStack" + "AAQueueA1B2C3D4E5F6G7H8I9J0KLMNOP", True),
+        # An `AA` inside a short hash suffix is too close to the end to be one.
+        ("MyStackMyTopicFunctionHandlerAAB3C4D5", False),
+    ],
+)
+def test_an_aa_inside_a_cdk_name_redacts_only_with_a_secret_length_run(
+    resource: str, redacts: bool
+) -> None:
+    arn = f"arn:aws:sns:us-west-2:123456789012:{resource}"
+    first = resource.find("AA")
+    assert (len(resource) - first >= 30) is redacts
+    result, _ = redact_credentials(arn)
+    assert (result != arn) is redacts
+
+
 @pytest.mark.parametrize(
     ("resource", "redacts"),
     [
