@@ -1036,7 +1036,7 @@ dashboard is the safe direction.
 
 | Mode | stdin+stdout TTY | Behaviour |
 |---|---|---|
-| interactive REPL | yes | Prompt. Exactly `a` allows once; anything else denies. |
+| interactive REPL | yes | Prompt. Exactly `a` allows once; exactly `o` denies with a typed reply to the agent; anything else denies. |
 | interactive REPL | no | Deny automatically, notice on stderr, stdin untouched. |
 | `-m` single message | either | Deny automatically, notice on stderr, stdin untouched. |
 
@@ -1052,8 +1052,33 @@ A shell call shows the command it is asking about:
 ```
 Permission required: Run a helpful script
 Command: git status --short
-   [a] allow once  [d] deny (default):
+   [a] allow once  [d] deny (default)  [o] other (reply to the agent):
 ```
+
+**`o` answers with a typed reply instead of a bare approve or deny.** Exactly
+`o` (case-insensitive, surrounding whitespace ignored) asks a second question,
+`Your reply (the tool will not run; blank to just deny):`, and the call is then
+refused with the person's words attached ("use the staging bucket instead",
+"show me the diff first"). It never approves. The order is the deny path's:
+
+1. SEL audit as `denied` with `error="user_replied"` (a blank reply or EOF is an
+   ordinary `user_denied`). The reply text itself is not audited — it is the
+   person's message, not a decision.
+2. The reply is steered into the running turn while the request is still
+   unanswered, on the same channel as the host deny notice
+   (`kiro_crew.deny_notice`), gated on `supports_refusal_steer`. ACP's
+   permission response carries only an option id, so free text cannot ride on
+   the answer itself. The message opens with
+   `[Kiro Crew: the user replied to your permission request]`, not the
+   `[Kiro Crew host notice]` tag: this one *is* a user action. The tool title is
+   redacted; the reply is passed as typed.
+3. `reject_tool`. kiro-cli's "User denied tool execution" is true here, so no
+   host notice is owed.
+
+If the backend has no refusal-steer channel, or the steer fails or exceeds
+`STEER_NOTICE_BOUND_SECS`, the reply is not dropped: `_send_and_print` prints a
+one-line stderr notice and sends it as the next message once the turn ends.
+Only a real prompt can produce a reply, so `-m` and non-TTY runs are unchanged.
 
 `title` is LLM-authored prose, so approving on it alone is consent to a
 description rather than to what runs — the same reason the gate keys on
@@ -1070,7 +1095,7 @@ consent to a verb:
 Permission required: Tidy up the notes
 Tool: fs_write
 Path: /home/tester/thesis.md
-   [a] allow once  [d] deny (default):
+   [a] allow once  [d] deny (default)  [o] other (reply to the agent):
 ```
 
 The path is read from the request's own `raw_tool_params`, under the same
@@ -1685,11 +1710,31 @@ address. Until it restarts, a new CLI gets `HTTP 403` from `logout`, the `stop`
 API fallback reports its no-target diagnostic, and the badge poke prints its
 fallback line. This fails closed and ends at the next gateway restart.
 
-**Out of scope.** The same value is also the gateway's `X-Internal-Secret`.
-Other senders of it do not yet use this proof: `cli_commands_gateway_api.py` spawn,
-spawn-run and spawn poll, `_artifact`, the no-socket arm of
-`_file_delivery_approve`, `pod/runtime_client.py`'s Windows mint and
-`app_lifecycle_client.py`. Those are tracked as follow-ups.
+**Internal-secret senders.** The same value is also the gateway's
+`X-Internal-Secret`. The CLI senders below prove their peer before the first
+byte:
+
+| Sender | Transport and proof | On refusal |
+|---|---|---|
+| `kirocrew spawn list` / `spawn run`, `kirocrew artifact` (`cli_commands_gateway_api._gateway_send`) | `_owner_verified_secret_urlopen`, both arms | `Error: gateway ownership not verified: …`, exit 1 (`artifact` prints it on stderr) |
+| `spawn run`'s result poll (`_gateway_send`, operation `cli_spawn_poll`) | `_owner_verified_secret_urlopen`, both arms; every poll is audited | the same message on stderr, exit 1 |
+| `kirocrew file-delivery approve` (`_file_delivery_approve`) | `_owner_verified_secret_urlopen`, both arms | ownership message, exit 1 |
+| `kirocrew doctor` adaptive-controller read (`doctor_checks.workload._gateway_adaptive_state`) | `_owner_verified_secret_urlopen`, both arms | one `not read` line naming the unproven peer |
+| `app_lifecycle_client` (mint and action) | owner-only unix socket only; `verify_peer` requires `_connected_unix_peer_is_recorded_gateway` | `AppGatewayError` (not an `OSError`), so the CLI never drops to its file-only path |
+| `memory_forget_client` (mint and delete) | owner-only unix socket only; `_gateway_peer_verifier` wraps `_connected_unix_peer_is_recorded_gateway` and refuses up front when `_recorded_gateway_pid` has no pid | `ForgetRefused` |
+| `pod/runtime_client.mint_token` on Windows | `tcp_verified_urlopen`; `_attested_gateway_tcp_verifier` requires `_connected_tcp_peer_pid` (the 4-tuple resolver `_connected_peer_verdict` also uses) to equal the pod's attested gateway pid | `PodError` |
+
+The pod check reads the pod's own pid record, not this home's, which is why it
+shares the resolver rather than `_recorded_gateway_pid`. The app-lifecycle,
+memory-forget and pod hooks emit the same SEL `allowed` / `denied` events
+(`_audit_peer_allowed`, `_audit_peer_denied`) as the proof above, under the
+operations `app_lifecycle`, `memory_forget` and `pod_token_mint`.
+
+**Not yet covered.** `cron_trigger.trigger_cron_job` sends the value over plain
+`loopback_urlopen`. It serves both `kirocrew cron trigger` and the agent-side
+`mcp_cron` tool, which runs inside the sandbox, so it shares the open design
+question for the agent-side senders: whether the pid proof can run there. That
+is tracked in #23270.
 
 ## Gateway PID Command
 

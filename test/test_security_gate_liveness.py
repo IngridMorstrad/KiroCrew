@@ -488,7 +488,18 @@ def _url_payload_command(n: int) -> str:
 #: the agent file tools and read-allowed so the dashboard can serve pasted images.
 #: Data, not rule logic: the matcher and every other entry are unchanged.
 #:
-#: Raised again, from 32,447, for a real new rule in ``redaction_patterns.py``: the
+#: Raised again for the ``rm_floor`` reads of a backtick body inside
+#: double quotes and of a redirection glued to an operand, and for the floor-error
+#: path naming ``rm`` as a word (``_names_rm_word``, on the raw text and with
+#: ``${X:-…}`` defaults resolved). One helper pair, two branches in the existing
+#: segment walk and one regex; no floor widened beyond ``rm`` itself. A live
+#: redirection is kept as ONE segment word -- its fd prefix (``2>``), a ``{fd}``,
+#: a two-character operator (``>>``) and an fd-dup (``2>&1``) all stay together --
+#: so the program-word scan can step over a leading redirection (and its separate
+#: target) the way it steps over a ``VAR=val`` assignment, using the shared
+#: ``shell_normalizer._push_token_redirection`` recognizer. A redirect before
+#: ``rm`` cannot hide the program word.
+#: Raised again, from 32,518, for a real new rule in ``redaction_patterns.py``: the
 #: Telegram-bot-token branch (``_CREDENTIAL_PATTERNS``) false-positives on a long
 #: CDK-generated ARN, whose account-id/resource boundary shares that branch's bare
 #: ``<digits>:<30+ run>`` shape. Two new compiled patterns (an alternation with the
@@ -513,7 +524,7 @@ def _url_payload_command(n: int) -> str:
 #: branch-length run (``_TELEGRAM_SECRET_PREFIX``, ``_TELEGRAM_SECRET_MIN_RUN``).
 #: Three constants, one string-only predicate, its call in the rejection arm, their
 #: comments and four manifest lines; the exemption only narrows.
-_PACKAGE_LINE_BUDGET = 32_540
+_PACKAGE_LINE_BUDGET = 32_611
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
