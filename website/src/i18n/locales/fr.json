@@ -3372,6 +3372,7 @@
         "highlight_4": "Relis les actions extraites avant tout enregistrement — archive le bruit, enregistre le reste",
         "highlight_5": "Fournisseurs de tâches et d’agenda enfichables : un registre de tâches local et un lecteur iCalendar (.ics) sont fournis, et une organisation peut enregistrer les siens",
         "highlight_6": "Relis la transcription ligne par ligne dans une autre langue pendant que la réunion se déroule",
+        "highlight_7": "Garde tes propres notes à côté de celles des agents — colle une capture d'écran et elle arrive avec le temps écoulé de la réunion",
         "page_label": "Réunions",
         "use_case_1": "Capture une réunion en direct pendant que des agents parallèles produisent la transcription, les notes structurées, le diagramme et la revue des actions à mener.",
         "configuration_1": "Autorise le navigateur à accéder au microphone pour la capture en direct ; configure éventuellement dans les paramètres un chemin ou une URL iCalendar, le registre local des tâches, les rôles d'agent et les termes de correction vocale."
@@ -3398,6 +3399,7 @@
         "start": "Démarrer",
         "toggleTasks": "Actions à suivre",
         "titleLabel": "Titre de la réunion",
+        "toggleNote": "Ma note",
         "toggleTranslation": "Traduction",
         "unpause": "Reprendre"
       },
@@ -3479,7 +3481,10 @@
         "anotherMeetingActiveNamed": "« {{title}} » est toujours en cours. Ouvre-la dans Réunions et choisis d’abord « Terminer et passer en revue ».",
         "anotherMeetingReviewing": "« {{title}} » est encore en revue. Ouvre-la dans Réunions et choisis d’abord « Clore la réunion ».",
         "sttStreamingDisabled": "La transcription en direct est désactivée. Dans Paramètres → Voix, vérifie que la saisie vocale est activée, que le fournisseur gère le streaming et que Streaming est activé.",
-        "openVoiceSettings": "Ouvrir les paramètres vocaux"
+        "openVoiceSettings": "Ouvrir les paramètres vocaux",
+        "noteSaveFailed": "Impossible d'enregistrer ta note.",
+        "noteImageFailed": "Impossible d'ajouter cette image. Colle un PNG, JPEG, GIF ou WebP.",
+        "noteImageTooLarge": "Cette image est trop volumineuse pour une note."
       },
       "settings": {
         "addTerm": "Ajouter",
@@ -3557,6 +3562,22 @@
         "chat": "Discussion",
         "html": "Schéma",
         "markdown": "Notes"
+      },
+      "note": {
+        "title": "Ma note",
+        "close": "Fermer la note",
+        "placeholder": "Écris ici tes propres notes. Markdown est pris en charge.",
+        "saving": "Enregistrement…",
+        "unsaved": "Modifications non enregistrées",
+        "saved": "Enregistrée",
+        "hint": "Enregistrement automatique au fil de la saisie.",
+        "editorLabel": "Texte de la note",
+        "preview": "Aperçu",
+        "edit": "Modifier",
+        "uploading": "Ajout de l'image…",
+        "loading": "Chargement de ta note…",
+        "loadFailed": "Impossible de lire ta note sur le disque. La modification est en pause pour ne rien écraser : ferme puis rouvre le panneau pour réessayer.",
+        "paused": "Modification en pause"
       }
     },
     "mochi": {
@@ -10449,6 +10470,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe n’a pas pu utiliser ton vocabulaire personnalisé. Choisis-en un autre, ou Aucun, dans les paramètres de reconnaissance vocale, puis réessaie.",
       "stream_error_sdk_outdated": "Les langues mélangées nécessitent amazon-transcribe 0.6.3 ou plus récent dans le gateway. Mets-le à jour avec la commande indiquée dans le journal du gateway, ou vide Langues mélangées dans les paramètres de reconnaissance vocale, puis réessaie."
     },
+    "speechProviders": {
+      "unavailable_no_reason": "Ce fournisseur ne peut pas fonctionner pour le moment.",
+      "sign_in_hint": "Connecte-toi avec ton {{account}} pour l’utiliser."
+    },
     "templateSource": {
       "built_in": "Intégré",
       "package": "Package",
@@ -12368,7 +12393,8 @@
       },
       "messageContextMenu": {
         "copy_link_text": "Copier le texte du lien",
-        "copy_link_address": "Copier l'adresse du lien"
+        "copy_link_address": "Copier l'adresse du lien",
+        "open_link_new_tab": "Ouvrir le lien dans un nouvel onglet"
       },
       "dashboardPreviewPanel": {
         "tab_title": "{{name}} (aperçu)",
@@ -17767,6 +17793,7 @@
         "unavailable_disabled": "La reconnaissance vocale est désactivée. Activez-la ci-dessus.",
         "status_provider_off": "N’écoute pas",
         "status_not_working": "ne fonctionne pas",
+        "status_unavailable_provider": "indisponible",
         "unavailable_provider_off": "La voix est activée, mais le fournisseur est réglé sur Désactivé, donc rien n’écoute. Choisis un autre fournisseur dans le menu Fournisseur ci-dessous.",
         "unavailable_extra_missing": "Les paquets vocaux ne sont pas installés dans l’environnement Python du gateway.",
         "unavailable_no_wheel": "Aucun moteur de reconnaissance vocale précompilé n’existe pour cette plateforme. Installez un compilateur C++ et CMake, puis réinstallez les paquets vocaux.",

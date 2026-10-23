@@ -3236,6 +3236,7 @@
         "highlight_4": "抽出したアクションアイテムを確認してからファイリング—ノイズはアーカイブし、残りをファイル",
         "highlight_5": "プラグ可能なタスクとカレンダープロバイダ。ローカルタスク台帳とiCalendar(.ics)リーダーが付属し、組織は独自のものを登録できます",
         "highlight_6": "ミーティングの進行中に、文字起こしを別の言語で 1 行ずつ読み返せます",
+        "highlight_7": "エージェントのノートと並べて自分のノートを残せます — スクリーンショットを貼り付けると、ミーティングの経過時間つきで記録されます",
         "page_label": "会議"
       },
       "meeting": {
@@ -3258,10 +3259,27 @@
         "resuming": "再開中…",
         "retryAgents": "再試行",
         "start": "開始",
+        "toggleNote": "マイノート",
         "toggleTasks": "アクションアイテム",
         "titleLabel": "ミーティングのタイトル",
         "toggleTranslation": "翻訳",
         "unpause": "再開"
+      },
+      "note": {
+        "close": "ノートを閉じる",
+        "edit": "編集",
+        "editorLabel": "ノートの本文",
+        "hint": "入力すると自動的に保存されます。",
+        "loadFailed": "ノートをディスクから読み取れませんでした。上書きを防ぐため編集を一時停止しています。パネルを閉じて開き直すと再試行します。",
+        "loading": "ノートを読み込み中…",
+        "paused": "編集を一時停止中",
+        "placeholder": "自分用のメモをここに入力します。Markdown が使えます。",
+        "preview": "プレビュー",
+        "saved": "保存済み",
+        "saving": "保存中…",
+        "title": "マイノート",
+        "unsaved": "未保存の変更",
+        "uploading": "画像を追加中…"
       },
       "pillBar": {
         "addLink": "リンクを追加",
@@ -3319,6 +3337,9 @@
         "minutesRevertFailed": "編集を破棄できませんでした。",
         "renameFailed": "ミーティングの名前を変更できませんでした。",
         "minutesSaveFailed": "編集を保存できませんでした。",
+        "noteImageFailed": "その画像を追加できませんでした。PNG、JPEG、GIF、WebP のいずれかを貼り付けてください。",
+        "noteImageTooLarge": "その画像は大きすぎてノートに追加できません。",
+        "noteSaveFailed": "ノートを保存できませんでした。",
         "startFailed": "ミーティングを開始できませんでした。",
         "started": "ミーティング開始。",
         "statusFailed": "ミーティングステータスを変更できませんでした。",
@@ -10159,6 +10180,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe でカスタム語彙を使用できませんでした。音声入力の設定で別の語彙か「なし」を選んでから、もう一度お試しください。",
       "stream_error_sdk_outdated": "複数言語を使うには、ゲートウェイに amazon-transcribe 0.6.3 以降が必要です。ゲートウェイのログにあるコマンドで更新するか、音声入力の設定で複数言語を空にしてから、もう一度お試しください。"
     },
+    "speechProviders": {
+      "unavailable_no_reason": "このプロバイダーは現在実行できません。",
+      "sign_in_hint": "使用するには {{account}} でサインインしてください。"
+    },
     "templateSource": {
       "built_in": "組み込み",
       "package": "パッケージ",
@@ -12002,7 +12027,8 @@
       },
       "messageContextMenu": {
         "copy_link_text": "リンクのテキストをコピー",
-        "copy_link_address": "リンクのアドレスをコピー"
+        "copy_link_address": "リンクのアドレスをコピー",
+        "open_link_new_tab": "リンクを新しいタブで開く"
       },
       "dashboardPreviewPanel": {
         "tab_title": "{{name}}（プレビュー）",
@@ -17225,6 +17251,7 @@
         "unavailable_disabled": "音声入力はオフになっています。上でオンにしてください。",
         "status_provider_off": "聞き取っていません",
         "status_not_working": "動作していません",
+        "status_unavailable_provider": "利用不可",
         "unavailable_provider_off": "音声はオンですが、プロバイダーがオフに設定されているため、何も聞き取っていません。下のプロバイダーメニューから別のプロバイダーを選択してください。",
         "unavailable_extra_missing": "音声用パッケージがゲートウェイの Python 環境にインストールされていません。",
         "unavailable_no_wheel": "このプラットフォーム向けのビルド済み音声認識エンジンはありません。C++ コンパイラーと CMake をインストールし、音声用パッケージを再インストールしてください。",

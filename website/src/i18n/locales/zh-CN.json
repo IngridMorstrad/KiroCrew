@@ -3148,6 +3148,7 @@
         "highlight_4": "在提交任何内容之前先审阅提取出的行动项 — 噪音归档，其余提交",
         "highlight_5": "任务和日历提供方可插拔：内置本地任务账本和 iCalendar（.ics）读取器，组织也可以注册自己的实现",
         "highlight_6": "会议进行时，逐行用另一种语言读回转录内容",
+        "highlight_7": "在智能体笔记旁边记录你自己的笔记 — 粘贴截图后会附上会议进行到的时间",
         "page_label": "会议"
       },
       "meeting": {
@@ -3172,6 +3173,7 @@
         "start": "开始",
         "toggleTasks": "行动项",
         "titleLabel": "会议标题",
+        "toggleNote": "我的笔记",
         "toggleTranslation": "翻译",
         "unpause": "继续"
       },
@@ -3249,7 +3251,10 @@
         "anotherMeetingActiveNamed": "“{{title}}”仍在进行。请在会议中打开它，先选择“结束并复核”。",
         "anotherMeetingReviewing": "“{{title}}”仍在复核中。请在会议中打开它，先选择“关闭会议”。",
         "sttStreamingDisabled": "实时转写已关闭。请在 设置 → 语音 中确认已启用语音输入、所选提供方支持流式传输，并已开启流式传输。",
-        "openVoiceSettings": "打开语音设置"
+        "openVoiceSettings": "打开语音设置",
+        "noteSaveFailed": "无法保存你的笔记。",
+        "noteImageFailed": "无法添加该图片。请粘贴 PNG、JPEG、GIF 或 WebP。",
+        "noteImageTooLarge": "该图片太大，无法添加到笔记中。"
       },
       "settings": {
         "addTerm": "添加",
@@ -3325,6 +3330,22 @@
         "chat": "对话",
         "html": "图示",
         "markdown": "笔记"
+      },
+      "note": {
+        "title": "我的笔记",
+        "close": "关闭笔记",
+        "placeholder": "在此记下你自己的笔记。支持 Markdown。",
+        "saving": "正在保存…",
+        "unsaved": "有未保存的更改",
+        "saved": "已保存",
+        "hint": "输入时自动保存。",
+        "editorLabel": "笔记内容",
+        "preview": "预览",
+        "edit": "编辑",
+        "uploading": "正在添加图片…",
+        "loading": "正在加载你的笔记…",
+        "loadFailed": "无法从磁盘读取你的笔记。为避免覆盖，编辑已暂停——关闭并重新打开面板即可重试。",
+        "paused": "编辑已暂停"
       }
     },
     "mochi": {
@@ -10159,6 +10180,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe 无法使用你的自定义词汇表。在语音转文字设置中选择其他词汇表或“无”，然后重试。",
       "stream_error_sdk_outdated": "混合语言需要 gateway 中的 amazon-transcribe 为 0.6.3 或更高版本。请用 gateway 日志中的命令升级，或在语音转文字设置中清空混合语言，然后重试。"
     },
+    "speechProviders": {
+      "unavailable_no_reason": "此提供方目前无法运行。",
+      "sign_in_hint": "请使用你的 {{account}} 登录以使用它。"
+    },
     "templateSource": {
       "built_in": "内置",
       "package": "包",
@@ -12002,7 +12027,8 @@
       },
       "messageContextMenu": {
         "copy_link_text": "复制链接文本",
-        "copy_link_address": "复制链接地址"
+        "copy_link_address": "复制链接地址",
+        "open_link_new_tab": "在新标签页中打开链接"
       },
       "dashboardPreviewPanel": {
         "tab_title": "{{name}}（预览）",
@@ -17225,6 +17251,7 @@
         "unavailable_disabled": "语音转文字已关闭。请在上方将其打开。",
         "status_provider_off": "未在监听",
         "status_not_working": "无法工作",
+        "status_unavailable_provider": "不可用",
         "unavailable_provider_off": "语音已开启，但提供方已设为“关闭”，因此没有在监听。请在下方的“提供方”菜单中选择另一个提供方。",
         "unavailable_extra_missing": "语音相关软件包未安装在 gateway 的 Python 环境中。",
         "unavailable_no_wheel": "此平台没有预编译的语音识别组件。请先安装 C++ 编译器和 CMake，然后重新安装语音软件包。",

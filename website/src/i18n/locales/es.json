@@ -3282,6 +3282,7 @@
         "highlight_4": "Revisa las tareas extraídas antes de registrar nada — archiva el ruido y registra el resto",
         "highlight_5": "Proveedores de tareas y de calendario conectables: incluye un registro local de tareas y un lector de iCalendar (.ics), y una organización puede registrar los suyos",
         "highlight_6": "Lee la transcripción línea a línea en otro idioma mientras la reunión sigue en curso",
+        "highlight_7": "Guarda tus propias notas junto a las de los agentes — pega una captura de pantalla y queda con el tiempo transcurrido de la reunión",
         "page_label": "Reuniones",
         "use_case_1": "Captura una reunión en directo mientras agentes paralelos crean la transcripción, las notas estructuradas, el diagrama y la revisión de tareas.",
         "configuration_1": "Permite que el navegador acceda al micrófono para la captura en directo; configura de forma opcional en Ajustes una ruta o URL de iCalendar, el registro local de tareas, los roles de agente y los términos de corrección de voz."
@@ -3308,6 +3309,7 @@
         "start": "Empezar",
         "toggleTasks": "Tareas",
         "titleLabel": "Título de la reunión",
+        "toggleNote": "Mi nota",
         "toggleTranslation": "Traducción",
         "unpause": "Reanudar"
       },
@@ -3389,7 +3391,10 @@
         "anotherMeetingActiveNamed": "«{{title}}» sigue en marcha. Ábrela en Reuniones y elige primero «Terminar y revisar».",
         "anotherMeetingReviewing": "«{{title}}» sigue en revisión. Ábrela en Reuniones y elige primero «Cerrar la reunión».",
         "sttStreamingDisabled": "La transcripción en vivo está desactivada. En Ajustes → Voz, comprueba que la entrada de voz esté activada, que el proveedor admita streaming y que Streaming esté activado.",
-        "openVoiceSettings": "Abrir ajustes de voz"
+        "openVoiceSettings": "Abrir ajustes de voz",
+        "noteSaveFailed": "No se pudo guardar tu nota.",
+        "noteImageFailed": "No se pudo añadir esa imagen. Pega un PNG, JPEG, GIF o WebP.",
+        "noteImageTooLarge": "Esa imagen es demasiado grande para una nota."
       },
       "settings": {
         "addTerm": "Añadir",
@@ -3467,6 +3472,22 @@
         "chat": "Chat",
         "html": "Diagrama",
         "markdown": "Notas"
+      },
+      "note": {
+        "title": "Mi nota",
+        "close": "Cerrar la nota",
+        "placeholder": "Escribe aquí tus propias notas. Se admite Markdown.",
+        "saving": "Guardando…",
+        "unsaved": "Cambios sin guardar",
+        "saved": "Guardada",
+        "hint": "Se guarda automáticamente mientras escribes.",
+        "editorLabel": "Texto de la nota",
+        "preview": "Vista previa",
+        "edit": "Editar",
+        "uploading": "Añadiendo la imagen…",
+        "loading": "Cargando tu nota…",
+        "loadFailed": "No se pudo leer tu nota del disco. La edición está en pausa para no sobrescribir nada: cierra y vuelve a abrir el panel para reintentarlo.",
+        "paused": "Edición en pausa"
       }
     },
     "mochi": {
@@ -10449,6 +10470,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe no pudo usar tu vocabulario personalizado. Elige otro, o Ninguno, en los ajustes de voz a texto y vuelve a intentarlo.",
       "stream_error_sdk_outdated": "Los idiomas mezclados necesitan amazon-transcribe 0.6.3 o posterior en el gateway. Actualízalo con el comando del registro del gateway, o vacía Idiomas mezclados en los ajustes de voz a texto, y vuelve a intentarlo."
     },
+    "speechProviders": {
+      "unavailable_no_reason": "Este proveedor no puede funcionar ahora mismo.",
+      "sign_in_hint": "Inicia sesión con tu {{account}} para usarlo."
+    },
     "templateSource": {
       "built_in": "Integrada",
       "package": "Paquete",
@@ -12368,7 +12393,8 @@
       },
       "messageContextMenu": {
         "copy_link_text": "Copiar texto del enlace",
-        "copy_link_address": "Copiar dirección del enlace"
+        "copy_link_address": "Copiar dirección del enlace",
+        "open_link_new_tab": "Abrir enlace en una pestaña nueva"
       },
       "dashboardPreviewPanel": {
         "tab_title": "{{name}} (vista previa)",
@@ -17767,6 +17793,7 @@
         "unavailable_disabled": "El reconocimiento de voz está desactivado. Actívalo arriba.",
         "status_provider_off": "No está escuchando",
         "status_not_working": "no funciona",
+        "status_unavailable_provider": "no disponible",
         "unavailable_provider_off": "La voz está activada, pero el proveedor está en Desactivado, así que nada está escuchando. Elige otro proveedor en el menú Proveedor de abajo.",
         "unavailable_extra_missing": "Los paquetes de voz no están instalados en el entorno de Python del gateway.",
         "unavailable_no_wheel": "No hay un reconocedor de voz precompilado para esta plataforma. Instala un compilador de C++ y CMake, y luego reinstala los paquetes de voz.",
