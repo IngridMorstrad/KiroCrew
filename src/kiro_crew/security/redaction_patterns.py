@@ -286,6 +286,68 @@ _CREDENTIAL_PATTERNS_SANS_JWT = re.compile(
 _TELEGRAM_BRANCH = r"[0-9]{6,}:[A-Za-z0-9_-]{30,}"
 _TELEGRAM_AT_RE = re.compile(_TELEGRAM_BRANCH)
 
+# Shape-only like JWT: a CDK-generated ARN resource name (logical id + hash)
+# past 30 chars makes `...:<account-id>:<resource>` match `<digits>:<30+ run>`.
+_CREDENTIAL_PATTERNS_SANS_TELEGRAM = re.compile(
+    _CREDENTIAL_PATTERNS.pattern.replace(f"|{_TELEGRAM_BRANCH}", "", 1)
+)
+_TELEGRAM_DIGITS_RE = re.compile(r"[0-9]{6,}(?=:)")
+# A real ARN prefix ending at the rejected start; guarded so a mere lookalike
+# (`myarn:aws:s3:us-east-1:`) is not exempt.
+_ARN_ACCOUNT_ID_PREFIX_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])arn:[a-z][a-z0-9-]*:[A-Za-z0-9-]+:[a-z0-9-]*:\Z"
+)
+# The ARN exemption fires only when the hit's own digit run is an AWS account id,
+# which is ALWAYS exactly 12 digits. A Telegram bot id is 6-10 digits, so this is
+# what tells a real `arn:...:<account>:<resource>` boundary apart from a genuine
+# token placed right after an ARN prefix (`arn:p:s:r:123456789:<35-char secret>`,
+# a 9-digit bot id). Without this, that token would be exempted and -- since the
+# bare-secret pass needs 40+ chars -- leak unredacted. `{12}` with a following
+# non-digit so a 13+ digit run (not an account id) is not read as a 12-digit one.
+_ARN_ACCOUNT_ID_12_DIGITS_RE = re.compile(r"[0-9]{12}(?![0-9])")
+# The ARN-prefix check runs once per Telegram-shaped hit, and every long CDK ARN
+# this rule exists to pass is such a hit. The pattern has no left-anchor literal
+# (it opens on a negative look-behind), so an unbounded `search(text, 0, hit)`
+# retries every start offset from 0 and makes the whole scan O(hits x len(text)) --
+# the loop-stall shape `test_security_gate_liveness` guards against. The prefix
+# must end exactly at the hit (`\Z` with `endpos = hit`), so only the bytes just
+# before the hit can match: the search starts at `hit - _ARN_PREFIX_MAX_LOOKBACK`
+# instead, which caps each check at a constant and keeps the scan linear. The
+# window spans the longest real `arn:<partition>:<service>:<region>:<account>:`
+# (partition <= 10, service <= 64, region <= 24, account 12, five colons and
+# `arn`), with room to spare. A prefix longer than the window is not a real ARN
+# and simply stays redacted -- the fail-safe direction. The look-behind guard is
+# unaffected: `re` evaluates it against the true string start, not `pos`.
+_ARN_PREFIX_MAX_LOOKBACK = 256
+# A 12-digit run alone does not prove an account id: a 6-10 digit bot id padded with
+# leading zeros is 12 digits too, so `arn:p:s:r:000110201543:<secret>` would pass the
+# checks above with the bot token intact. The exemption is withheld, and the hit
+# redacts, when either shape below holds. Each one gives up some real ARNs to
+# over-redaction, which is the safe way to be wrong.
+#
+# The secret half of a Telegram token Telegram issues today: 35 characters, starting
+# `AA` (BotFather's documented example is `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`).
+# Telegram does not promise the prefix, so this is a signature, not a definition --
+# which is why the padded-id rule below exists beside it. A CDK resource name that
+# is exactly 35 characters and starts `AA` redacts.
+_TELEGRAM_SECRET_SIGNATURE_RE = re.compile(r"AA[A-Za-z0-9_-]{33}")
+# Leading zeros in front of a 6-10 digit value: a bot id padded out to 12. A real
+# account id can start `00`; one that does, followed by a 30+ character resource
+# name, redacts.
+_PADDED_BOT_ID_RE = re.compile(r"0+[1-9][0-9]{5,9}")
+
+
+def _arn_exemption_withheld(hit: str) -> bool:
+    """Whether a Telegram-shaped hit inside an ARN is still a bot token.
+
+    *hit* is the whole Telegram-branch match, ``<12 digits>:<run>``.
+    """
+    account, _, tail = hit.partition(":")
+    return bool(
+        _TELEGRAM_SECRET_SIGNATURE_RE.fullmatch(tail) or _PADDED_BOT_ID_RE.fullmatch(account)
+    )
+
+
 # Leftmost start of a non-JWT branch, found in linear time. Unguarded, the Telegram
 # branch re-walks a digit run from every digit in it. A later digit has fewer digits
 # before the same ``:``, so only the run's first digit can win; `_sans_jwt_start`
@@ -402,7 +464,7 @@ def _credential_search(text: str, pos: int, starts: list[int]) -> re.Match[str] 
 
 
 def _credential_matches(text: str) -> Iterator[re.Match[str]]:
-    """``_CREDENTIAL_PATTERNS.finditer(text)``, minus JWT-branch hits whose header is not JSON.
+    """``_CREDENTIAL_PATTERNS.finditer(text)``, minus JWT/Telegram shape-only false hits.
 
     A rejected hit retries the other branches at its start, then resumes one character on,
     so a credential nested inside the rejected span is still found. A header holding a
@@ -421,6 +483,21 @@ def _credential_matches(text: str) -> Iterator[re.Match[str]]:
             alt = _CREDENTIAL_PATTERNS_SANS_JWT.match(text, m.start())
             if alt is None:
                 pos = m.start() + 1
+                continue
+            m = alt
+        elif (
+            _TELEGRAM_AT_RE.fullmatch(m.group())
+            and _ARN_ACCOUNT_ID_12_DIGITS_RE.match(text, m.start())
+            and _ARN_ACCOUNT_ID_PREFIX_RE.search(
+                text, max(0, m.start() - _ARN_PREFIX_MAX_LOOKBACK), m.start()
+            )
+            and not _arn_exemption_withheld(m.group())
+        ):
+            alt = _CREDENTIAL_PATTERNS_SANS_TELEGRAM.match(text, m.start())
+            if alt is None:
+                # Skip the whole digit run: mid-run still reads one digit short.
+                digits = _TELEGRAM_DIGITS_RE.match(text, m.start())
+                pos = digits.end() if digits else m.start() + 1
                 continue
             m = alt
         yield m
