@@ -322,10 +322,15 @@ def read_env_credentials_raw(*, definitive: list[bool] | None = None) -> dict[st
 # would already reflect such a window edit and so erase the very difference the
 # watcher must see. ``None`` until the first load; consumed once by the watcher.
 _boot_raw_env: dict[str, str] | None = None
+# The ``.env`` path that record was read from (``None`` when the recorder did
+# not say), so a consumer resolving a DIFFERENT data home never adopts it.
+_boot_raw_env_path: str | None = None
 _boot_raw_env_lock = threading.Lock()
 
 
-def record_boot_raw_env(raw: Mapping[str, str]) -> None:
+def record_boot_raw_env(
+    raw: Mapping[str, str], *, path: "os.PathLike[str] | str | None" = None
+) -> None:
     """Record the raw ``.env`` map the FIRST ``load_credentials()`` parsed.
 
     Only the first call of the process wins: that is the gateway boot read, the
@@ -334,15 +339,17 @@ def record_boot_raw_env(raw: Mapping[str, str]) -> None:
     because its disk read may already reflect a boot-window ``.env`` edit and
     would overwrite the baseline with the post-edit value -- hiding the change
     the watcher exists to apply. A copy is stored so a later mutation of the
-    caller's dict cannot move the baseline.
+    caller's dict cannot move the baseline. *path* is the ``.env`` file the map
+    was read from; :func:`take_boot_raw_env` refuses the record for any other.
     """
-    global _boot_raw_env
+    global _boot_raw_env, _boot_raw_env_path
     with _boot_raw_env_lock:
         if _boot_raw_env is None:
             _boot_raw_env = dict(raw)
+            _boot_raw_env_path = os.fspath(path) if path is not None else None
 
 
-def take_boot_raw_env() -> dict[str, str] | None:
+def take_boot_raw_env(*, path: "os.PathLike[str] | str | None" = None) -> dict[str, str] | None:
     """Consume the recorded boot ``.env`` map, or ``None`` if none was recorded.
 
     Consume-once: the watcher reads it exactly at ``start()`` to seed its diff
@@ -350,19 +357,29 @@ def take_boot_raw_env() -> dict[str, str] | None:
     stale boot snapshot for current state. ``None`` means no boot load ran
     (tests that drive the watcher directly), in which case the watcher falls
     back to its own off-loop read.
+
+    When the caller names the ``.env`` *path* it is about to watch and the record
+    was read from a different file, the record is discarded and ``None`` returned:
+    a map from another data home is not this watcher's baseline, and adopting it
+    would make the first cycle diff that home's keys against this one and
+    dispatch credential changes nothing made.
     """
-    global _boot_raw_env
+    global _boot_raw_env, _boot_raw_env_path
     with _boot_raw_env_lock:
-        taken = _boot_raw_env
-        _boot_raw_env = None
-    return dict(taken) if taken is not None else None
+        taken, taken_path = _boot_raw_env, _boot_raw_env_path
+        _boot_raw_env, _boot_raw_env_path = None, None
+    if taken is None:
+        return None
+    if path is not None and taken_path is not None and os.fspath(path) != taken_path:
+        return None
+    return dict(taken)
 
 
 def reset_boot_raw_env() -> None:
     """Clear the recorded boot ``.env`` map. For tests that re-drive boot."""
-    global _boot_raw_env
+    global _boot_raw_env, _boot_raw_env_path
     with _boot_raw_env_lock:
-        _boot_raw_env = None
+        _boot_raw_env, _boot_raw_env_path = None, None
 
 
 # The credential/setting keys ``.env`` propagation ACTUALLY wrote into

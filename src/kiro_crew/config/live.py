@@ -675,9 +675,18 @@ class ConfigWatch:
             # directly), fall back to the off-loop read; a read failure there
             # leaves the baseline empty and the first cycle sets it.
             if self._creds is None:
+                from kiro_crew.config import loader
                 from kiro_crew.config.loader_credentials import take_boot_raw_env
 
-                booted = take_boot_raw_env()
+                # Adopt the boot map only if it was read from the ``.env`` this
+                # watcher is about to watch (resolved off-loop: ``env_path`` can
+                # touch the filesystem). A record from another data home is not
+                # this watcher's baseline.
+                try:
+                    watched = await asyncio.to_thread(loader.env_path)
+                except Exception:  # noqa: BLE001 - fall back to an unchecked take
+                    watched = None
+                booted = take_boot_raw_env(path=watched)
                 if booted is not None:
                     self._creds = booted
                 else:

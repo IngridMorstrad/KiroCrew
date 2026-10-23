@@ -35,6 +35,7 @@ from aiohttp import web
 
 from kiro_crew import platform_compat
 from kiro_crew.atomic_write import atomic_write
+from kiro_crew.config import live
 from kiro_crew.config.loader import (
     CRED_WEIXIN_TOKEN,
     KiroCrewConfig,
@@ -51,6 +52,7 @@ from kiro_crew.dashboard.channel_folders import (
     ensure_channel_folder,
     stored_folder_name,
 )
+from kiro_crew.dashboard.chat_utils_awaits import drained_to_thread
 from kiro_crew.dashboard.handlers.agents import _get_config_lock
 from kiro_crew.dashboard.handlers.core import _hot_apply_after_write
 from kiro_crew.dashboard.handlers.messaging import is_direct_local_request
@@ -378,8 +380,18 @@ async def weixin_qr_status(request: web.Request) -> web.Response:
         #
         # The whole block runs OFF the loop: the file I/O plus, on Windows,
         # the owner-only DACL restrict_to_owner() applies.
+        #
+        # Hold the live-config watcher across the whole transaction, like every
+        # sibling channel saver: ``.env`` and ``config.json`` commit separately
+        # (and a failed config write rolls the credential back), so a poll landing
+        # between them must not restart Weixin with the new token and the previous
+        # account id. The release wakes the watcher on the committed state.
+        # ``drained_to_thread`` keeps a cancelled request waiting for the worker
+        # to finish, so the hold and the lock are never released while a write
+        # or its rollback is still in flight.
         async with _get_config_lock():
-            await asyncio.to_thread(_persist)
+            with live.hold():
+                await drained_to_thread(_persist)
     except EnvStagingRefused as exc:
         # The .env's staging directory is unusable: nothing was written, and the
         # message names the directory and its fix.

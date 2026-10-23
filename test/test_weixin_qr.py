@@ -557,3 +557,111 @@ def test_config_save_answers_only_after_the_watcher_applied_it(tmp_path, monkeyp
     assert status == 200 and body["ok"] is True
     applied.assert_awaited_once()
     assert json.loads(cp.read_text(encoding="utf-8"))["weixin"]["allowed_user_ids"] == ["u-1"]
+
+
+# ── the confirmed sign-in persists under a live-config hold ────────────────
+
+
+class _ConfirmedClient:
+    """A QR session whose poll reports a confirmed sign-in with credentials."""
+
+    closed = False
+
+    async def get_qrcode_status(self, qrcode):
+        return {"status": "confirmed", "bot_token": "tok", "ilink_bot_id": "acct-new"}
+
+    async def close(self):
+        self.closed = True
+
+
+def _confirmed_session(monkeypatch):
+    import time
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(qr, "is_direct_local_request", lambda request: True)
+    client = _ConfirmedClient()
+    monkeypatch.setattr(
+        qr, "_SESSIONS", {"s1": {"client": client, "qrcode": "q", "created_at": time.time()}}
+    )
+    monkeypatch.setattr(qr, "_stage_weixin_config", lambda **kw: (Path("config.json"), "{}"))
+    return SimpleNamespace(query={"session_id": "s1"}), client
+
+
+def test_a_confirmed_sign_in_persists_while_the_config_watcher_is_held(monkeypatch):
+    """``.env`` and ``config.json`` commit separately, so a watcher poll between
+    them could restart Weixin with the new token and the previous account id.
+    The whole persistence runs under ``live.hold()``, like every sibling channel
+    saver, and the hold is released afterwards. (Fixes the GPT Weixin-relink
+    finding.)"""
+    import asyncio
+
+    from kiro_crew.config import live
+
+    request, client = _confirmed_session(monkeypatch)
+    depths: list[int] = []
+    monkeypatch.setattr(
+        qr,
+        "_commit_credential_and_config",
+        lambda cp, serialized, token: depths.append(live.watch()._hold_depth),
+    )
+
+    resp = asyncio.run(qr.weixin_qr_status(request))
+
+    assert resp.status == 200
+    assert depths == [1], "the credential+config commit must run under the hold"
+    assert live.watch()._hold_depth == 0
+    assert client.closed
+
+
+def test_a_cancelled_sign_in_keeps_the_hold_until_the_write_finishes(monkeypatch):
+    """A cancelled request must not release the hold while the worker thread is
+    still writing: the watcher would then apply a half-committed pair. The hold
+    stays until the write finishes, and the cancellation is still raised."""
+    import asyncio
+    import threading
+
+    from kiro_crew.config import live
+
+    request, _client = _confirmed_session(monkeypatch)
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def slow_commit(cp, serialized, token):
+        started.set()
+        release.wait(timeout=10)
+        finished.set()
+
+    monkeypatch.setattr(qr, "_commit_credential_and_config", slow_commit)
+
+    async def run():
+        task = asyncio.ensure_future(qr.weixin_qr_status(request))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0.1)
+        # Cancelled, but the write is still in flight: the hold must stand.
+        assert not task.done()
+        assert live.watch()._hold_depth == 1
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert finished.is_set()
+        assert live.watch()._hold_depth == 0
+
+    asyncio.run(run())
+
+
+def test_a_boot_record_from_another_env_file_is_not_adopted(tmp_path):
+    """The boot ``.env`` record is tied to the file it was read from: a watcher
+    resolving a different data home refuses it (and it is consumed either way),
+    while the same file adopts it. (Fixes the Opus boot-record leak finding.)"""
+    from kiro_crew.config import loader_credentials as lc
+
+    here, elsewhere = tmp_path / "a" / ".env", tmp_path / "b" / ".env"
+
+    lc.record_boot_raw_env({"TELEGRAM_BOT_TOKEN": "x"}, path=here)
+    assert lc.take_boot_raw_env(path=elsewhere) is None
+    assert lc.take_boot_raw_env(path=here) is None, "a refused record is still consumed"
+
+    lc.record_boot_raw_env({"TELEGRAM_BOT_TOKEN": "x"}, path=here)
+    assert lc.take_boot_raw_env(path=here) == {"TELEGRAM_BOT_TOKEN": "x"}

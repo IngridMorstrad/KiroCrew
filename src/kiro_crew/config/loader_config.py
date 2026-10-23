@@ -1250,7 +1250,7 @@ class KiroCrewConfig:
         # the window before the watcher starts is diffed in rather than adopted as
         # an already-applied baseline it never was. An absent file records the
         # empty map, matching an absent-file raw read.
-        record_boot_raw_env(dict(creds))
+        record_boot_raw_env(dict(creds), path=ep)
 
         for key in CREDENTIAL_KEYS:
             val = os.environ.get(key)
