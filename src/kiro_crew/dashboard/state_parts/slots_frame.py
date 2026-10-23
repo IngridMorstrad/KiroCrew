@@ -852,9 +852,11 @@ def serialize_slots(
 
     under_construction = getattr(self, "_slots_under_construction", None) or ()
     queued_by_slot = _published_queued_by_slot(subs)
+    saved_creators: dict[str, str] = {}
     for s in self._slots.values():
         if s.key in under_construction:
             continue
+        saved_creators[s.key] = getattr(s, "_saved_created_by", "") or ""
         self._drop_orphaned_mcp_report(s)
         d = self.serialize_slot(
             s,
@@ -877,7 +879,9 @@ def serialize_slots(
     from kiro_crew import crew_mode
 
     try:
-        crew_mode.stamp_rows(out, settled=crew_mode.lineage_is_settled())
+        crew_mode.stamp_rows(
+            out, settled=crew_mode.lineage_is_settled(), saved_creators=saved_creators
+        )
         # The roots this frame named, so a removal patch knows to restate the
         # stamps of a closed root's workers (``push_slot_removed``).
         self._crew_mode_roots = {row["key"] for row in out if row.get(crew_mode.ROOT_FIELD)}

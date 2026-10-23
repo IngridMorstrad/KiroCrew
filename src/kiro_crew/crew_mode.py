@@ -28,7 +28,11 @@ session it dispatched, is its **worker**: the slot list stamps each worker with
 ``crew_root`` (its root's key) so the person's own session list and History can
 leave it out and the side panel can list it under its root instead. The walk follows
 the persisted lineage (``created_by`` and the crew log's session tree) past closed
-sessions, so a worker whose root's tab is closed stays out of the list too.
+sessions, so a worker whose root's tab is closed stays out of the list too. A
+reopened worker keeps its root the same way: its saved metadata line still names
+its creator, which the stamp reads for display only (:func:`stamp_rows`). Nothing
+here guesses a root from an agent name: a worker that no session created is a
+normal session.
 
 A leaf on purpose: it reads slot payload dicts and config objects, never the dashboard
 state, so the slot serializer, the session-control handlers and the MCP tools can all
@@ -217,6 +221,29 @@ def persisted_parents() -> dict[str, str]:
     }
 
 
+def persisted_tree_slots() -> frozenset[str] | None:
+    """Every slot the crew log's session tree holds a node for, or ``None`` when unread.
+
+    A node with no parent is a session nobody created or one ``session_release``
+    let go; a slot with NO node is one the tree never saw (a session from before
+    the crew log recorded it). Only the second may fall back to its saved
+    ``created_by``. In memory; never raises.
+    """
+    try:
+        from kiro_crew.crew_log import emit as crew_log_emit
+
+        if not crew_log_emit.enabled():
+            return None
+        from kiro_crew.crew_log.session_tree_projection import projection
+
+        tree = projection()
+        if not tree.seeded_for_current_store:
+            return None
+        return frozenset(tree.nodes())
+    except Exception:
+        return None
+
+
 def _row_is_root(row: Mapping[str, Any]) -> bool:
     """Whether *row* (a slot payload) is a Crew Mode root.
 
@@ -255,14 +282,21 @@ def lineage_is_settled() -> bool:
         return False
 
 
-def _creator_of(row: Mapping[str, Any], settled: bool = False) -> str:
+def _creator_of(
+    row: Mapping[str, Any],
+    settled: bool = False,
+    saved: str = "",
+    untracked: bool = False,
+) -> str:
     """The slot key that holds *row* now, or ``""``.
 
     The crew log's ``parent`` edge first: it is the current lineage, which an
     adoption (``session_adopt``) moves, so an adopted worker belongs to its new
     root. With *settled* lineage (:func:`lineage_is_settled`) a row whose edge is
-    ``None`` has no holder, because ``session_release`` cleared it. Otherwise
-    ``created_by`` (the birth stamp) stands in for a missing edge.
+    ``None`` has no holder, because ``session_release`` cleared it, unless the
+    session tree holds no node for it at all (*untracked*): then *saved*, the
+    ``created_by`` its metadata line names, stands in. Otherwise ``created_by``
+    (the birth stamp), then *saved*, stand in for a missing edge.
     """
     parent = row.get("parent")
     if isinstance(parent, Mapping):
@@ -270,11 +304,11 @@ def _creator_of(row: Mapping[str, Any], settled: bool = False) -> str:
         if isinstance(cited, str) and cited:
             return cited
     if settled and "parent" in row and not row.get("lineage_pending"):
-        return ""
+        return saved if untracked else ""
     created_by = row.get("created_by")
     if isinstance(created_by, str) and created_by:
         return created_by
-    return ""
+    return saved
 
 
 def _live_ancestor_of(row: Mapping[str, Any]) -> str:
@@ -296,6 +330,8 @@ def stamp_rows(
     *,
     settled: bool = False,
     parents: Mapping[str, str] | None = None,
+    saved_creators: Mapping[str, str] | None = None,
+    tree_slots: Iterable[str] | None = None,
 ) -> None:
     """Stamp :data:`ROOT_FIELD` on every row and :data:`WORKER_FIELD` on each worker. IN PLACE.
 
@@ -309,8 +345,33 @@ def stamp_rows(
     default :func:`persisted_parents`, read only when a walk needs it). So a worker
     whose root's tab is closed stays that root's worker and out of the person's
     list, and it is listed under the root again when the root is reopened.
+
+    *saved_creators* is each live slot's saved ``created_by`` (the metadata line,
+    ``_saved_created_by``), which a reopen does not put back on ``created_by``.
+    It places a row only where nothing better speaks: no ``parent`` edge, no
+    ``created_by``, and with settled lineage only when the session tree holds no
+    node for the row (*tree_slots*, default :func:`persisted_tree_slots`), so a
+    release still stands. It is display only: it decides which list shows the
+    row and grants no control over it. It is never inferred from the agent.
     """
     rows = list(rows)
+    saved_of = saved_creators or {}
+    tree: list[frozenset[str] | None] = [None if tree_slots is None else frozenset(tree_slots)]
+    tree_read = [tree_slots is not None]
+
+    def untracked(key: str) -> bool:
+        if not tree_read[0]:
+            tree[0] = persisted_tree_slots()
+            tree_read[0] = True
+        known = tree[0]
+        return known is not None and key not in known and f"dashboard:{key}" not in known
+
+    def creator_of(key: str, row: Mapping[str, Any]) -> str:
+        saved = saved_of.get(key, "") or ""
+        if not isinstance(saved, str) or saved == key:
+            saved = ""
+        return _creator_of(row, settled, saved, bool(saved) and settled and untracked(key))
+
     by_key: dict[str, dict[str, Any]] = {}
     for row in rows:
         key = row.get("key")
@@ -334,7 +395,7 @@ def stamp_rows(
             continue
         seen = {key}
         current: Mapping[str, Any] | None = row
-        creator = _creator_of(row, settled)
+        creator = creator_of(key, row)
         while creator and creator not in seen:
             if creator in roots or creator in closed_roots:
                 row[WORKER_FIELD] = creator
@@ -347,7 +408,7 @@ def stamp_rows(
                 creator = live_ancestor or persisted(creator)
                 continue
             current = above
-            creator = _creator_of(above, settled)
+            creator = creator_of(creator, above)
 
 
 def persisted_root_of(
@@ -444,6 +505,7 @@ def _live_row(slot: Any) -> dict[str, Any]:
     return {
         "key": getattr(slot, "key", ""),
         "created_by": getattr(slot, "_created_by", "") or "",
+        "saved_created_by": getattr(slot, "_saved_created_by", "") or "",
         "parent": None,
         "agent": getattr(slot, "agent", ""),
         "agent_kind": getattr(slot, "agent_kind", ""),
@@ -472,7 +534,8 @@ def live_stamps(
             row["parent"] = parents.get(row["key"])
         else:
             row.pop("parent", None)
-    stamp_rows(rows, settled=settled and parents is not None)
+    saved = {str(row["key"]): str(row.pop("saved_created_by") or "") for row in rows}
+    stamp_rows(rows, settled=settled and parents is not None, saved_creators=saved)
     return {
         str(row["key"]): (str(row.get(WORKER_FIELD) or ""), bool(row.get(ROOT_FIELD)))
         for row in rows

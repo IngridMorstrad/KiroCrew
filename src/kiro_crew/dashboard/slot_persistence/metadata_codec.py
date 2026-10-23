@@ -1716,6 +1716,12 @@ def apply(
     for row in FIELDS:
         if row.read is not None and purpose.purpose in row.purposes:
             row.read(read)
+    # The line's creator, for display on every purpose. Not ``_created_by``, whose
+    # purposes stay as the ``created_by`` row declares: the line is agent-editable,
+    # so this copy only places a Crew Mode worker under its root in the person's
+    # lists (``crew_mode.SAVED_CREATOR_FIELD``) and is never read as ownership.
+    saved_creator = meta.get("created_by")
+    slot._saved_created_by = saved_creator if isinstance(saved_creator, str) else ""
     # The SessionManager's override map is process-local, so a hydrated slot
     # pushes its persisted value back or the session compacts at the global one.
     if slot.autocompact_pct is not None and state.sessions:

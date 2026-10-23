@@ -130,6 +130,7 @@ class _ChatSlot:
         "_last_stop_reason",
         "_created_by",
         "_created_by_sid",
+        "_saved_created_by",
         "_lineage_minted",
         "_revived_by",
         "_artifact",
@@ -406,6 +407,7 @@ class _ChatSlot:
     _last_stop_reason: str
     _created_by: str
     _created_by_sid: str
+    _saved_created_by: str
     _lineage_minted: bool
     _revived_by: str
     _mcp_report: dict[str, Any] | None

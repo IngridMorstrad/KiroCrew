@@ -18,7 +18,8 @@ Writes: ``_app``, ``_auto_tagged``, ``_channel_runtime_origin``, ``_created_by``
 ``_model_withheld_for``, ``_origin``, ``_pending_discard_conversation_key``,
 ``_pending_discard_from_wake``, ``_pending_memory_mode``, ``_pending_model_pick``,
 ``_pending_reset_history_key``, ``_prefetch_ttl_task``, ``_reasoning_effort``,
-``_recovery_chat_triggered``, ``_revived_by``, ``_session_requested_model``,
+``_recovery_chat_triggered``, ``_revived_by``, ``_saved_created_by``,
+``_session_requested_model``,
 ``_slack_channel``, ``_slack_linked``, ``_slack_thread_ts``, ``_summary_in_flight``,
 ``_summary_turn_mark``, ``_tab_id``, ``_title_epoch``, ``_title_in_flight``,
 ``_title_low_signal``, ``_title_origin``, ``_title_refresh_mark``,
@@ -296,6 +297,11 @@ def init_session_fields(self: _ChatSlot) -> None:
     #: person's own tab, a fork, a restore. Read by
     #: ``DashboardState.creator_slot_count`` for ``MAX_SLOTS_PER_CREATOR``.
     self._created_by = ""
+    #: The ``created_by`` the session's saved metadata line names, read on every
+    #: hydration (restore, recent, resume). DISPLAY ONLY: the Crew Mode stamp reads
+    #: it to keep a reopened worker under its root (``crew_mode.stamp_rows``). It
+    #: grants nothing: session-control ownership reads ``_created_by`` alone.
+    self._saved_created_by = ""
     #: The creator's ACP session id, FROZEN at mint (see ``session_control``).
     #: Read at the child's first turn to stamp ``parent_sid`` on the immutable
     #: ``session/opened`` crew log entry -- never re-read live, so a creator slot

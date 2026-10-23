@@ -224,6 +224,98 @@ def test_a_worker_whose_own_creator_closed_stays_under_its_root():
     assert crew_mode.slot_in_crew_tree(slots, "W", {"W": {"slot": "M", "key": "R"}})
 
 
+# ── a reopened worker of an old conductor ──────────────────────────────────────
+
+#: A reopened slot: the resume leaves ``created_by`` blank and the settled frame
+#: says ``parent: None``. Only its saved metadata line still names the creator.
+_OLD_ROOT = "chat-9-1792000000"
+_OLD_WORKER = "chat-10-1792000100"
+
+
+def _reopened(**saved: str) -> dict[str, dict[str, Any]]:
+    out = [
+        _row(_OLD_ROOT, agent="kirocrew-security-conductor"),
+        _row(_OLD_WORKER, agent="kirocrew-worker", created_by=""),
+    ]
+    crew_mode.stamp_rows(out, settled=True, saved_creators=saved, tree_slots=())
+    return {r["key"]: r for r in out}
+
+
+def test_a_reopened_old_conductor_worker_with_saved_lineage_is_hidden():
+    rows = _reopened(**{_OLD_WORKER: _OLD_ROOT})
+    assert rows[_OLD_ROOT][crew_mode.ROOT_FIELD] is True
+    assert rows[_OLD_WORKER][crew_mode.WORKER_FIELD] == _OLD_ROOT
+    # Out of the person's list, in the root's Workers panel.
+    listed = crew_mode.list_view(list(rows.values()), "", agent=False)
+    assert [r["key"] for r in listed] == [_OLD_ROOT]
+    assert [r["key"] for r in crew_mode.workers_of(rows.values(), _OLD_ROOT)] == [_OLD_WORKER]
+
+
+def test_a_worker_agent_no_session_created_stays_a_normal_session():
+    """Lineage is never guessed from the agent: no saved creator, no root."""
+    rows = _reopened()
+    assert crew_mode.WORKER_FIELD not in rows[_OLD_WORKER]
+    listed = crew_mode.list_view(list(rows.values()), "", agent=False)
+    assert _OLD_WORKER in [r["key"] for r in listed]
+
+
+def test_a_released_worker_is_not_put_back_by_its_saved_creator():
+    """A tree node with no parent is a release: the saved line does not undo it."""
+    out = [
+        _row(_OLD_ROOT, agent="kirocrew-conductor"),
+        _row(_OLD_WORKER, agent="kirocrew-worker"),
+    ]
+    crew_mode.stamp_rows(
+        out, settled=True, saved_creators={_OLD_WORKER: _OLD_ROOT}, tree_slots=[_OLD_WORKER]
+    )
+    assert crew_mode.WORKER_FIELD not in out[1]
+
+
+def test_a_live_reopened_worker_keeps_its_saved_root_in_slot_patches():
+    """The ``slot_patch`` stamps (``live_stamps``) read the same saved creator."""
+    slots = {
+        _OLD_ROOT: SimpleNamespace(
+            key=_OLD_ROOT, agent="kirocrew-security-conductor", agent_kind="template"
+        ),
+        _OLD_WORKER: SimpleNamespace(
+            key=_OLD_WORKER,
+            agent="kirocrew-worker",
+            agent_kind="template",
+            _created_by="",
+            _saved_created_by=_OLD_ROOT,
+        ),
+    }
+    assert crew_mode.live_stamps(slots)[_OLD_WORKER] == (_OLD_ROOT, False)
+    plain = dict(slots)
+    plain[_OLD_WORKER] = SimpleNamespace(
+        key=_OLD_WORKER, agent="kirocrew-worker", agent_kind="template", _created_by=""
+    )
+    assert crew_mode.live_stamps(plain)[_OLD_WORKER] == ("", False)
+
+
+def test_every_hydration_keeps_the_saved_creator_for_display_only():
+    """Resume carries the line's creator onto ``_saved_created_by`` and never onto
+    ``_created_by``, which session-control ownership reads."""
+    from kiro_crew.dashboard.slot_persistence import metadata_codec
+
+    slot = SimpleNamespace(autocompact_pct=None, _created_by="", _saved_created_by="")
+    rows = [r for r in metadata_codec.FIELDS if r.key == "created_by"]
+    state = SimpleNamespace(sessions=None)
+    original = metadata_codec.FIELDS
+    try:
+        metadata_codec.FIELDS = tuple(rows)  # type: ignore[assignment]
+        metadata_codec.apply(
+            state,  # type: ignore[arg-type]
+            slot,  # type: ignore[arg-type]
+            {"created_by": _OLD_ROOT},
+            metadata_codec.Resume(member=None),
+        )
+    finally:
+        metadata_codec.FIELDS = original  # type: ignore[assignment]
+    assert slot._saved_created_by == _OLD_ROOT
+    assert slot._created_by == ""
+
+
 # ── the session list API ───────────────────────────────────────────────────────
 
 
