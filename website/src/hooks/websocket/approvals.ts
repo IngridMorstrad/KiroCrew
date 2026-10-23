@@ -24,6 +24,14 @@ import type { FrameData } from './frames'
 
 type AuthorityApproval = Awaited<ReturnType<typeof api.approvals>>[number]
 
+/** Whether *slot* is a Crew Mode worker. Its tool approvals are shown on its
+ *  conductor's approval card, so they raise no note, chime, banner or badge of
+ *  their own; the permission row in the worker's transcript stays. */
+function isCrewWorkerSlot(slot: string): boolean {
+  if (!slot) return false
+  return store.getState().dashboard.slots.some(s => s.key === slot && !!s.crew_root)
+}
+
 export interface ApprovalRegistry {
   /** Reconcile against `GET /api/approvals`: retire every approval held
    *  before the read that the answer no longer lists, then adopt each listed
@@ -173,6 +181,10 @@ export function useApprovalRegistry(dispatch: AppDispatch, queryClient: QueryCli
           if (slotMessages.some(message =>
             message.role === 'permission' && message.meta?.approval_id === a.id)) continue
           coordinatorApprovalsRef.current.set(a.id, slot)
+          if (isCrewWorkerSlot(slot)) {
+            writeRow(a, slot)
+            continue
+          }
           dispatch(addNotification({
             kind: 'approval',
             title: i18nT('hooks.useWebSocket.tool_approval', { name: a.tool || i18nT('hooks.useWebSocket.unknown') }),
@@ -191,6 +203,9 @@ export function useApprovalRegistry(dispatch: AppDispatch, queryClient: QueryCli
             typeof data.slot === 'string' ? data.slot : '',
           )
         }
+        // A Crew Mode worker's approval is shown on its conductor's approval
+        // card: no note, chime, banner or badge of its own.
+        if (typeof data.slot === 'string' && isCrewWorkerSlot(data.slot)) return data.slot
         // Approval-blocked chime: the agent is stuck until the user acts.
         // Suppressed during reconnect catch-up (same policy as turn-done).
         if (!reconnecting) {

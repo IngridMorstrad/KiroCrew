@@ -135,7 +135,6 @@
     "worker_untitled": "Worker sans titre",
     "workers_description": "Les discussions ouvertes par une discussion Crew Mode, groupées selon ce qui a besoin de toi.",
     "workers_not_crew": "Ce n’est pas une discussion Crew Mode, elle n’a donc pas de workers.",
-    "worker_group_needs_you": "A besoin de toi",
     "worker_group_working": "En cours",
     "worker_group_waiting": "En attente",
     "worker_group_done": "Terminé",
@@ -168,7 +167,15 @@
     "timeline_model_default": "Modèle par défaut",
     "timeline_gap_served_model_unreported": "Le modèle choisi par le backend en auto",
     "timeline_model_default_named": "Par défaut ({{name}})",
-    "timeline_scale_compressed": "Au-delà d’une minute par segment, le temps est dessiné plus court ; l’en-tête donne le temps réel"
+    "timeline_scale_compressed": "Au-delà d’une minute par segment, le temps est dessiné plus court ; l’en-tête donne le temps réel",
+    "worker_group_approval": "Approbation requise",
+    "worker_group_with_conductor": "En attente du chef",
+    "worker_status_asking": "Interroge son chef",
+    "timeline_not_started": "Pas commencé",
+    "timeline_loading": "Chargement de la chronologie…",
+    "workers_loading": "Chargement des exécutants…",
+    "worker_reopen": "Rouvrir {{title}} pour le lire",
+    "worker_reopen_failed": "Impossible de rouvrir cette session. Réessayez."
   },
   "terminalTab": {
     "rename": "Renommer",
@@ -9901,7 +9908,6 @@
       "flow_needs_you": "À toi",
       "side_panel_open": "Tableau des tâches",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "A besoin de toi · {{count}}",
       "summary_done": "Terminé {{done}}/{{total}}",
       "composer_chip_label": "Crew Mode est activé pour cette discussion",
       "breadcrumb_label": "Worker du Crew Mode",
@@ -9910,7 +9916,19 @@
       "steer_placeholder": "Guider {{name}}…",
       "steer_hint_running": "Interrompt sa réponse en cours.",
       "steer_hint_idle": "Lance un nouveau tour dans {{name}}.",
-      "steer_too_long": "Une consigne peut compter au plus {{max}} caractères. Raccourcissez-la pour l'envoyer."
+      "steer_too_long": "Une consigne peut compter au plus {{max}} caractères. Raccourcissez-la pour l'envoyer.",
+      "summary_approval": "Approbation requise · {{n}}",
+      "approvals_label": "Approbations d'outils des exécutants : {{n}}",
+      "approval_title": "{{name}} a besoin d'une approbation",
+      "approval_tool_unknown": "Outil inconnu",
+      "approval_input_label": "L'entrée exacte de l'outil",
+      "approval_failed": "Impossible d'envoyer cette décision. Elle a peut-être déjà été prise.",
+      "approval_approve": "Approuver",
+      "approval_reject": "Refuser",
+      "approval_trust": "Faire confiance à cet exécutant",
+      "approval_trust_hint": "Approuve ceci et laisse cet exécutant utiliser des outils sans demander jusqu'au redémarrage de la passerelle.",
+      "reopen_conductor": "Rouvrir le chef",
+      "root_closed": "{{name}} est fermé. Rouvrez-le pour continuer à guider cet exécutant."
     },
     "guideLayer": {
       "region_label": "Guide",

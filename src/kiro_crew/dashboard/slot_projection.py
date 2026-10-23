@@ -368,6 +368,11 @@ class SlotProjection:
                 }
                 if meta.get("tool_purpose"):
                     pending_approval_info["tool_purpose"] = redact(meta["tool_purpose"])
+                # Whether the card's "trust" decision is grantable for this request
+                # (the slot approve route's own proof), so a card that relays it
+                # (the Crew Mode conductor's approval card) offers Trust only then.
+                if str(meta.get("trust_grantable") or "") == "1":
+                    pending_approval_info["trust_grantable"] = "1"
                 break
         if pending_approval_info is None and coordinator_pending:
             # No unresolved permission row supplied the card: the pending

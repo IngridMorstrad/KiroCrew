@@ -1,31 +1,36 @@
-/** Crew Mode workers grouped the way the person reads them: what needs them,
- *  what is moving, what is idle, what is finished.
+/** Crew Mode workers grouped the way the person reads them: a tool approval only
+ *  they can give, what is moving, what waits on its conductor, what is idle, what
+ *  is finished.
  *
- *  The rule is the server's (`crew_workers._group`): done and needs-you come from
- *  real signals only (a closed tab, the worker's ledger item, an open approval or
- *  question), never from "it has replied". The session list's ghost stack and
- *  "N needs you" / "Done x/y" line, the breadcrumb and the side panel's cards all
- *  read the server's group from the worker list API. A live slot row alone cannot
- *  say a worker finished, so its mirror (`crewWorkerGroupOfRow`, used only until
- *  that list answers) has no done. */
+ *  A worker never asks the person itself: its questions and blockers go to its
+ *  conductor (`with_conductor`), which answers or asks in its own chat. The one
+ *  thing a conductor cannot answer is a tool approval (`approval`), resolved on
+ *  the conductor's approval card. The rule is the server's (`crew_workers._group`),
+ *  from real signals only (a closed tab, the worker's ledger item, an open
+ *  approval), never from "it has replied". The session list's ghost stack and
+ *  "Approval needed" / "Done x/y" line, the breadcrumb and the side panel's cards
+ *  all read the server's group. A live slot row alone cannot say a worker
+ *  finished, so its mirror (`crewWorkerGroupOfRow`) has no done. */
 import type { CrewWorker } from '../types'
 
-export type CrewWorkerGroup = 'needs_you' | 'working' | 'waiting' | 'done'
+export type CrewWorkerGroup = 'approval' | 'working' | 'with_conductor' | 'waiting' | 'done'
 
-/** Display order: what needs the person first. */
-export const CREW_GROUP_ORDER: readonly CrewWorkerGroup[] = ['needs_you', 'working', 'waiting', 'done']
+/** Display order: the approval only the person can give first. */
+export const CREW_GROUP_ORDER: readonly CrewWorkerGroup[] = ['approval', 'working', 'with_conductor', 'waiting', 'done']
 
 export const CREW_GROUP_LABEL_KEY: Record<CrewWorkerGroup, string> = {
-  needs_you: 'commandCenter.worker_group_needs_you',
+  approval: 'commandCenter.worker_group_approval',
   working: 'commandCenter.worker_group_working',
+  with_conductor: 'commandCenter.worker_group_with_conductor',
   waiting: 'commandCenter.worker_group_waiting',
   done: 'commandCenter.worker_group_done',
 }
 
 /** The tone each group's ghost and dot wear: theme tokens, so light and dark follow. */
 export const CREW_GROUP_TONE: Record<CrewWorkerGroup, string> = {
-  needs_you: 'crew-tone-warn',
+  approval: 'crew-tone-warn',
   working: 'crew-tone-aim',
+  with_conductor: 'crew-tone-muted',
   waiting: 'crew-tone-muted',
   done: 'crew-tone-ok',
 }
@@ -41,8 +46,9 @@ export interface CrewWorkerRowLike {
 /** One live worker row's group, before the worker list has answered: a slot row
  *  carries no finished signal, so an idle row is waiting, never done. */
 export function crewWorkerGroupOfRow(row: CrewWorkerRowLike): CrewWorkerGroup {
-  if (row.pending_approval || row.needs_input) return 'needs_you'
+  if (row.pending_approval) return 'approval'
   if (row.running) return 'working'
+  if (row.needs_input) return 'with_conductor'
   return 'waiting'
 }
 
@@ -61,9 +67,11 @@ export function groupCrewWorkers(workers: CrewWorker[]): { group: CrewWorkerGrou
 }
 
 export interface CrewRootSummary {
-  /** One entry per worker, needs-you first, for the row's ghost stack. */
+  /** One entry per worker, approval first, for the row's ghost stack. */
   groups: CrewWorkerGroup[]
-  needsYou: number
+  /** Workers waiting on a tool approval: the conductor card's one "Approval
+   *  needed" count. Questions and blockers are the conductor's, never counted. */
+  approval: number
   done: number
   total: number
 }
@@ -75,7 +83,7 @@ export function summarizeCrewWorkers(workers: readonly CrewWorker[]): CrewRootSu
   groups.sort((a, b) => CREW_GROUP_ORDER.indexOf(a) - CREW_GROUP_ORDER.indexOf(b))
   return {
     groups,
-    needsYou: groups.filter(g => g === 'needs_you').length,
+    approval: groups.filter(g => g === 'approval').length,
     done: groups.filter(g => g === 'done').length,
     total: groups.length,
   }

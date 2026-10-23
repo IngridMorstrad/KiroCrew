@@ -126,7 +126,6 @@
     "worker_untitled": "बिना शीर्षक वाला वर्कर",
     "workers_description": "Crew Mode चैट ने जो चैट खोलीं, वे इस हिसाब से बँटी हैं कि किसे तुम्हारी ज़रूरत है।",
     "workers_not_crew": "यह Crew Mode चैट नहीं है, इसलिए इसके कोई वर्कर नहीं हैं।",
-    "worker_group_needs_you": "तुम्हारी ज़रूरत",
     "worker_group_working": "चल रहा है",
     "worker_group_waiting": "इंतज़ार में",
     "worker_group_done": "पूरा",
@@ -159,7 +158,15 @@
     "timeline_model_default": "डिफ़ॉल्ट मॉडल",
     "timeline_gap_served_model_unreported": "auto पर बैकएंड ने कौन-सा मॉडल चुना",
     "timeline_model_default_named": "डिफ़ॉल्ट ({{name}})",
-    "timeline_scale_compressed": "हर हिस्से में एक मिनट से ज़्यादा समय छोटा दिखाया गया है; ऊपर असली समय है"
+    "timeline_scale_compressed": "हर हिस्से में एक मिनट से ज़्यादा समय छोटा दिखाया गया है; ऊपर असली समय है",
+    "worker_group_approval": "स्वीकृति चाहिए",
+    "worker_group_with_conductor": "कंडक्टर की प्रतीक्षा",
+    "worker_status_asking": "अपने कंडक्टर से पूछ रहा है",
+    "timeline_not_started": "शुरू नहीं हुआ",
+    "timeline_loading": "टाइमलाइन लोड हो रही है…",
+    "workers_loading": "वर्कर लोड हो रहे हैं…",
+    "worker_reopen": "पढ़ने के लिए {{title}} फिर खोलें",
+    "worker_reopen_failed": "वह सत्र फिर नहीं खुल सका। फिर कोशिश करें।"
   },
   "terminalTab": {
     "rename": "नाम बदलें",
@@ -9758,7 +9765,6 @@
       "flow_needs_you": "तुम्हारी ज़रूरत",
       "side_panel_open": "टास्क बोर्ड",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "तुम्हारी ज़रूरत · {{count}}",
       "summary_done": "पूरे {{done}}/{{total}}",
       "composer_chip_label": "इस चैट के लिए Crew Mode चालू है",
       "breadcrumb_label": "Crew Mode वर्कर",
@@ -9767,7 +9773,19 @@
       "steer_placeholder": "{{name}} को दिशा दो…",
       "steer_hint_running": "यह चल रहे जवाब में दख़ल देगा।",
       "steer_hint_idle": "{{name}} में नई बारी शुरू करेगा।",
-      "steer_too_long": "निर्देश अधिकतम {{max}} अक्षरों का हो सकता है। भेजने के लिए इसे छोटा करें।"
+      "steer_too_long": "निर्देश अधिकतम {{max}} अक्षरों का हो सकता है। भेजने के लिए इसे छोटा करें।",
+      "summary_approval": "स्वीकृति चाहिए · {{n}}",
+      "approvals_label": "वर्करों से टूल स्वीकृतियाँ: {{n}}",
+      "approval_title": "{{name}} को स्वीकृति चाहिए",
+      "approval_tool_unknown": "अज्ञात टूल",
+      "approval_input_label": "टूल का सटीक इनपुट",
+      "approval_failed": "वह निर्णय नहीं भेजा जा सका। शायद यह पहले ही तय हो चुका है।",
+      "approval_approve": "स्वीकृत करें",
+      "approval_reject": "अस्वीकार करें",
+      "approval_trust": "इस वर्कर पर भरोसा करें",
+      "approval_trust_hint": "इसे स्वीकृत करता है और गेटवे रीस्टार्ट होने तक इस वर्कर को बिना पूछे टूल चलाने देता है।",
+      "reopen_conductor": "कंडक्टर फिर खोलें",
+      "root_closed": "{{name}} बंद है। इस वर्कर को निर्देश देते रहने के लिए इसे फिर खोलें।"
     },
     "guideLayer": {
       "region_label": "गाइड",

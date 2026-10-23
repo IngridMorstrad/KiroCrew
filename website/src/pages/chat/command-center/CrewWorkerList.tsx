@@ -6,7 +6,7 @@ import type { CrewWorker } from '../../../types'
 import ErrorNotice from '../../../components/ErrorNotice'
 import { fmtRelativeTime } from '../sessionOrder'
 import { useAppDispatch, useAppSelector } from '../../../store'
-import { closeActivityPanel, openActivityPanel, switchSlot } from '../../../store/chatSlice'
+import { closeActivityPanel, openActivityPanel, resumeFromHistory, switchSlot } from '../../../store/chatSlice'
 import { useIsMobile } from '../../../hooks/useIsMobile'
 import { openPanelView } from '../../../hooks/usePanelTabs'
 import { CrewStatusDot } from '../../../components/crew/CrewModeMarks'
@@ -18,6 +18,7 @@ export const CREW_WORKER_STATUS_KEY: Record<CrewWorker['status'], string> = {
   working: 'commandCenter.worker_status_working',
   idle: 'commandCenter.worker_status_idle',
   needs_approval: 'commandCenter.worker_status_needs_approval',
+  asking: 'commandCenter.worker_status_asking',
   closed: 'commandCenter.worker_status_closed',
 }
 
@@ -74,8 +75,27 @@ export function openCrewSession(dispatch: ReturnType<typeof useAppDispatch>, key
   dispatch(keepPanel ? openActivityPanel() : closeActivityPanel())
 }
 
+/** Reopen a CLOSED worker from its saved transcript and open it like a live one.
+ *
+ *  History leaves workers out, so the conductor's panel is their way back: the
+ *  reopened tab keeps its root (its saved metadata names its creator), so it is
+ *  listed under this root again and can be steered. Resolves false when the
+ *  transcript could not be reopened. */
+export async function reopenCrewWorker(
+  dispatch: ReturnType<typeof useAppDispatch>, key: string, title: string, keepPanel = false,
+): Promise<boolean> {
+  try {
+    const resumed = await dispatch(resumeFromHistory({ key: `dashboard_${key}`, title })).unwrap()
+    if (!resumed.ok) return false
+    openCrewSession(dispatch, resumed.key || key, keepPanel)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
- * A Crew Mode root's workers in the side panel: cards grouped Needs you, Working,
+ * A Crew Mode root's workers in the side panel: cards grouped Approval needed, Working,
  * Waiting, Done, each heading with its count, what needs the person first. A
  * card opens that worker in the MAIN pane like any session; the card for the
  * worker on screen is marked current, so moving between workers is one click.
@@ -100,9 +120,16 @@ export default function CrewWorkerList({ root, viewing, active }: {
   // On a phone the panel is a sheet over the chat: opening a worker closes it, so
   // the worker fills the screen and its breadcrumb's Back is the way out.
   const isMobile = useIsMobile()
-  // Stable across renders, so the timeline's memoised lanes keep their props.
-  const open = useCallback((key: string) => {
-    openCrewSession(dispatch, key, !isMobile)
+  const [reopenFailed, setReopenFailed] = useState(false)
+  // Stable across renders, so the timeline's memoised lanes keep their props. A
+  // closed worker (its tab is gone) is reopened from its saved transcript first.
+  const open = useCallback((key: string, title = '', closed = false) => {
+    if (!closed) {
+      openCrewSession(dispatch, key, !isMobile)
+      return
+    }
+    setReopenFailed(false)
+    void reopenCrewWorker(dispatch, key, title, !isMobile).then(ok => { if (!ok) setReopenFailed(true) })
   }, [dispatch, isMobile])
   const [view, setView] = useState<'list' | 'timeline'>('list')
   const showTimeline = view === 'timeline' && !isMobile
@@ -117,6 +144,9 @@ export default function CrewWorkerList({ root, viewing, active }: {
       {/* A read failure with nothing to lose: the composer's draft is saved per
           chat (utils/chatDrafts), so the hand-off may navigate. */}
       {workers.isError && <ErrorNotice message={t('commandCenter.workers_error')} askAgent />}
+      {reopenFailed && <ErrorNotice message={t('commandCenter.worker_reopen_failed')} />}
+      {/* The first read is in flight: say so, so a slow read is not an empty panel. */}
+      {workers.isPending && <p role="status" aria-busy="true" className="text-sm text-muted" data-testid="crew-workers-loading">{t('commandCenter.workers_loading')}</p>}
       {workers.isSuccess && groups.length === 0 && <p className="text-sm text-muted">{t('commandCenter.workers_empty')}</p>}
       {groups.map(({ group, workers: rows }) => (
         <section key={group} aria-labelledby={`crew-group-${group}`} data-testid="crew-worker-group" data-group={group}>
@@ -124,7 +154,7 @@ export default function CrewWorkerList({ root, viewing, active }: {
             {t(CREW_GROUP_LABEL_KEY[group])} · {rows.length}
           </h3>
           <ul className="space-y-2">
-            {rows.map(w => <CrewWorkerCard key={w.key} worker={w} current={w.key === viewing} onOpen={() => open(w.key)} />)}
+            {rows.map(w => <CrewWorkerCard key={w.key} worker={w} current={w.key === viewing} onOpen={() => open(w.key, w.title, w.status === 'closed')} />)}
           </ul>
         </section>
       ))}
@@ -169,9 +199,10 @@ function CrewWorkerCard({ worker, current, onOpen }: { worker: CrewWorker; curre
     {meta && <span className="block text-[12px] text-muted truncate mt-0.5">{meta}</span>}
   </>
   const cls = `block w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-colors ${current ? 'crew-card' : 'border-border bg-bg-elevated/40 hover:bg-bg-hover'}`
+  // A closed worker opens too: from its saved transcript, under this root.
   return <li data-testid="crew-worker-row" data-worker={worker.key}>
     {closed
-      ? <div className={`${cls} opacity-70`}>{body}</div>
+      ? <button type="button" className={`${cls} cursor-pointer min-h-11`} aria-label={t('commandCenter.worker_reopen', { title })} data-testid="crew-worker-reopen" onClick={onOpen}>{body}</button>
       : <button type="button" className={`${cls} cursor-pointer min-h-11`} aria-current={current ? 'true' : undefined} onClick={onOpen}>{body}</button>}
   </li>
 }

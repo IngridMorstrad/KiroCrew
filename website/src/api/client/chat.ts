@@ -89,6 +89,12 @@ export function createChatEndpoints({ post, put, del, patch, j, jAccepted, jfetc
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),
       }).then(j),
+    /** Decide one of a root's workers' pending tool approvals from the root's
+     *  approval card: Approve or Reject once, or Trust this worker
+     *  (`POST .../crew-workers/{worker}/approve`, the per-slot approve route on the
+     *  worker's own slot). */
+    crewWorkerApprove: (root: string, worker: string, action: 'approve' | 'reject' | 'trust', requestId: string, requestMid: string): Promise<{ ok?: boolean }> =>
+      post('/api/chat/slots/' + encodeURIComponent(root) + '/crew-workers/' + encodeURIComponent(worker) + '/approve', { action, request_id: requestId, request_mid: requestMid }).then(j),
     /** How many tabs this gateway's startup restore listed but could not show.
      *
      *  `reported: false` means the restore has not answered yet, which is not the

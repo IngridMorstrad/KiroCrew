@@ -249,7 +249,8 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
     """
     resp = await _api_chat_send(request)
     pending = request.get(_CREW_PERSON_STEER)
-    if not pending or resp.status >= 300:
+    # Only an accepted send is a steer; its receipt is always a plain 200.
+    if not pending or resp.status != 200:
         return resp
     root, worker, message = pending
     from kiro_crew.dashboard.handlers import crew_workers
@@ -266,7 +267,7 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
             return resp
         if isinstance(receipt, dict):
             receipt.update(recorded)
-            return web.json_response(receipt, status=resp.status)
+            return web.json_response(receipt)
     return resp
 
 

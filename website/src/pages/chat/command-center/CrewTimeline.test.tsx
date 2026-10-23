@@ -159,9 +159,28 @@ describe('CrewTimeline', () => {
     expect(await screen.findByTestId('crew-timeline-header')).toHaveTextContent('Waiting')
     expect(screen.queryByText('Finished')).toBeNull()
     cleanup()
-    api.crewTimeline.mockResolvedValue(withGroup('needs_you'))
+    api.crewTimeline.mockResolvedValue(withGroup('approval'))
     renderWith(<CrewTimeline root="root-1" viewing={null} active onOpen={vi.fn()} />)
-    expect(await screen.findByTestId('crew-timeline-header')).toHaveTextContent('Needs you')
+    expect(await screen.findByTestId('crew-timeline-header')).toHaveTextContent('Approval needed')
+    cleanup()
+    api.crewTimeline.mockResolvedValue(withGroup('with_conductor'))
+    renderWith(<CrewTimeline root="root-1" viewing={null} active onOpen={vi.fn()} />)
+    expect(await screen.findByTestId('crew-timeline-header')).toHaveTextContent('Waiting on conductor')
+  })
+
+  it('says Not started, with no elapsed time or spend, before anything is recorded (X7)', async () => {
+    api.crewTimeline.mockResolvedValue({ ...DONE, lanes: DONE.lanes.map(l => ({ ...l, segments: [], marks: [] })) })
+    renderWith(<CrewTimeline root="root-1" viewing={null} active onOpen={vi.fn()} />)
+    expect(await screen.findByTestId('crew-timeline-header')).toHaveTextContent('Not started')
+    expect(screen.queryByText('Finished')).toBeNull()
+    expect(screen.queryByTestId('crew-timeline-elapsed')).toBeNull()
+    expect(screen.queryByTestId('crew-timeline-credits')).toBeNull()
+  })
+
+  it('shows a loading line while the first read is in flight (X6)', () => {
+    api.crewTimeline.mockReturnValue(new Promise(() => {}))
+    renderWith(<CrewTimeline root="root-1" viewing={null} active onOpen={vi.fn()} />)
+    expect(screen.getByTestId('crew-timeline-loading')).toHaveTextContent('Loading the timeline…')
   })
 
   it('advances a live playhead between reads when motion is allowed', async () => {
@@ -231,7 +250,7 @@ describe('CrewTimeline', () => {
     expect(Number(tool.getAttribute('data-width-pct'))).toBeGreaterThan(2)
   })
 
-  it('opens a lane on click, but not a closed one', async () => {
+  it('opens a lane on click, and reopens a closed one (X4)', async () => {
     api.crewTimeline.mockResolvedValue(DONE)
     const onOpen = vi.fn()
     renderWith(<CrewTimeline root="root-1" viewing="w-1" active onOpen={onOpen} />)
@@ -240,7 +259,8 @@ describe('CrewTimeline', () => {
     fireEvent.click(button)
     expect(onOpen).toHaveBeenCalledWith('w-1')
     const gone = screen.getAllByTestId('crew-timeline-lane')[2]
-    expect(within(gone).queryByRole('button')).toBeNull()
+    fireEvent.click(within(gone).getByTestId('crew-timeline-reopen'))
+    expect(onOpen).toHaveBeenLastCalledWith(gone.getAttribute('data-lane'), expect.any(String), true)
   })
 
   it('says when it cannot be read', async () => {

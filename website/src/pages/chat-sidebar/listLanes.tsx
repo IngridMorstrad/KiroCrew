@@ -180,8 +180,11 @@ export function createListLanes(shell: SidebarScope & LaneRows & FolderBlocks) {
               // way its own row is drawn, and a subagent awaiting approval is an ask
               // even though the slot itself carries no `pending_approval`.
               const isRunning = sidebarRows.isRunning
+              // A Crew Mode worker never counts here: its questions go to its
+              // conductor, and its tool approvals show as the conductor's own
+              // "Approval needed" count (the worker summary), not as an ask.
               const wantsUser = (s: Slot) =>
-                !!(
+                !s.crew_root && !!(
                   s.pending_approval
                   || s.needs_input
                   || (subagentApprovalCounts[s.key] || 0) > 0

@@ -788,6 +788,8 @@ def test_the_routes_are_registered_under_the_slot():
         "/api/chat/slots/{slot}/crew-workers": ["GET"],
         "/api/chat/slots/{slot}/crew-timeline": ["GET"],
         "/api/chat/slots/{slot}/crew-workers/{worker}/steer": ["POST"],
+        # The conductor's approval card (owner decision B).
+        "/api/chat/slots/{slot}/crew-workers/{worker}/approve": ["POST"],
     }
 
 
@@ -876,11 +878,15 @@ def test_a_workers_item_comes_from_the_roots_own_ledger_through_the_board_seam(m
 @pytest.mark.parametrize(
     ("status", "progress", "group"),
     [
-        ("needs_approval", "", "needs_you"),
+        # A tool approval is the one thing the conductor cannot answer: the person
+        # resolves it on the conductor's approval card.
+        ("needs_approval", "", "approval"),
         ("working", "", "working"),
         ("closed", "", "done"),
         ("idle", "done", "done"),
-        ("idle", "needs_you", "needs_you"),
+        # A worker's question or blocker waits on its conductor, never the person.
+        ("idle", "with_conductor", "with_conductor"),
+        ("asking", "", "with_conductor"),
         # Replied but never said it finished: idle, not done (U8).
         ("idle", "", "waiting"),
     ],
@@ -896,14 +902,16 @@ def test_the_side_panel_group_of_a_worker(status, progress, group):
     [
         ({"is_terminal": True, "status": None, "reason": None}, "done"),
         ({"is_terminal": False, "status": "done", "reason": None}, "done"),
-        ({"is_terminal": False, "status": "question", "reason": "needs_human"}, "needs_you"),
-        ({"is_terminal": False, "status": "blocked", "reason": "approval"}, "needs_you"),
-        # A question for the conductor, or a build it waits on, is not the person's.
-        ({"is_terminal": False, "status": "question", "reason": None}, ""),
+        # Edge review R1 S1: whatever the reason, the conductor answers it (and asks
+        # the person in its own chat when only they can decide).
+        ({"is_terminal": False, "status": "question", "reason": "needs_human"}, "with_conductor"),
+        ({"is_terminal": False, "status": "blocked", "reason": "approval"}, "with_conductor"),
+        ({"is_terminal": False, "status": "question", "reason": None}, "with_conductor"),
+        ({"is_terminal": False, "status": "blocked", "reason": None}, "with_conductor"),
         ({"is_terminal": False, "status": "progress", "reason": None}, ""),
     ],
 )
-def test_a_ledger_item_says_done_or_needs_you_only_from_its_own_fields(fields, progress):
+def test_a_ledger_item_says_done_or_with_conductor_only_from_its_own_fields(fields, progress):
     from kiro_crew.dashboard.handlers import crew_workers
 
     assert crew_workers._progress_of(SimpleNamespace(**fields)) == progress
@@ -916,7 +924,7 @@ async def test_the_worker_list_carries_each_workers_group(_open_gate):
     )
     by_key = {w["key"]: w for w in json.loads(resp.text)["workers"]}
     assert by_key["w1"]["group"] == "working"
-    assert by_key["w2"]["group"] == "needs_you"
+    assert by_key["w2"]["group"] == "approval"
 
 
 def test_an_adopted_worker_belongs_to_the_root_that_adopted_it():

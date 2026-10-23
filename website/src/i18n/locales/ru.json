@@ -144,7 +144,6 @@
     "worker_untitled": "Исполнитель без названия",
     "workers_description": "Чаты, которые открыл чат Crew Mode, по группам: что ждёт тебя.",
     "workers_not_crew": "Это не чат Crew Mode, поэтому исполнителей у него нет.",
-    "worker_group_needs_you": "Нужен ты",
     "worker_group_working": "Работает",
     "worker_group_waiting": "Ждёт",
     "worker_group_done": "Готово",
@@ -177,7 +176,15 @@
     "timeline_model_default": "Модель по умолчанию",
     "timeline_gap_served_model_unreported": "Какую модель выбрал бэкенд в режиме auto",
     "timeline_model_default_named": "По умолчанию ({{name}})",
-    "timeline_scale_compressed": "Время дольше минуты на отрезок нарисовано короче; вверху реальное время"
+    "timeline_scale_compressed": "Время дольше минуты на отрезок нарисовано короче; вверху реальное время",
+    "worker_group_approval": "Нужно одобрение",
+    "worker_group_with_conductor": "Ждёт дирижёра",
+    "worker_status_asking": "Спрашивает дирижёра",
+    "timeline_not_started": "Не начато",
+    "timeline_loading": "Загрузка хронологии…",
+    "workers_loading": "Загрузка исполнителей…",
+    "worker_reopen": "Открыть {{title}} снова для чтения",
+    "worker_reopen_failed": "Не удалось снова открыть сеанс. Попробуйте ещё раз."
   },
   "terminalTab": {
     "rename": "Переименовать",
@@ -10044,7 +10051,6 @@
       "flow_needs_you": "Нужен ты",
       "side_panel_open": "Доска задач",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "Нужен ты · {{count}}",
       "summary_done": "Готово {{done}}/{{total}}",
       "composer_chip_label": "В этом чате включён Crew Mode",
       "breadcrumb_label": "Исполнитель Crew Mode",
@@ -10053,7 +10059,19 @@
       "steer_placeholder": "Направь {{name}}…",
       "steer_hint_running": "Прерывает текущий ответ.",
       "steer_hint_idle": "Начинает новый ход в {{name}}.",
-      "steer_too_long": "Указание может содержать не более {{max}} символов. Сократите его, чтобы отправить."
+      "steer_too_long": "Указание может содержать не более {{max}} символов. Сократите его, чтобы отправить.",
+      "summary_approval": "Нужно одобрение · {{n}}",
+      "approvals_label": "Запросы одобрения от исполнителей: {{n}}",
+      "approval_title": "{{name}} ждёт одобрения",
+      "approval_tool_unknown": "Неизвестный инструмент",
+      "approval_input_label": "Точные входные данные инструмента",
+      "approval_failed": "Не удалось отправить решение. Возможно, оно уже принято.",
+      "approval_approve": "Одобрить",
+      "approval_reject": "Отклонить",
+      "approval_trust": "Доверять этому исполнителю",
+      "approval_trust_hint": "Одобряет это и позволяет исполнителю запускать инструменты без вопросов до перезапуска шлюза.",
+      "reopen_conductor": "Снова открыть дирижёра",
+      "root_closed": "{{name}} закрыт. Откройте его снова, чтобы и дальше направлять этого исполнителя."
     },
     "guideLayer": {
       "region_label": "Руководство",

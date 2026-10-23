@@ -618,6 +618,8 @@ export interface PendingApproval {
   tool_input: string
   tool_kind: string
   request_id: string
+  /** "1" when the slot approve route would honor a `trust` decision for it. */
+  trust_grantable?: string
 }
 
 export interface SubagentInfo {
@@ -642,10 +644,12 @@ export interface CrewWorker {
   title: string
   agent: string
   /** `working` while a turn runs, `needs_approval` while one waits on a tool
-   *  approval or question, `idle` otherwise, `closed` once the tab is gone. */
-  status: 'working' | 'idle' | 'needs_approval' | 'closed'
-  /** The side panel's group: needs the person, moving, not started, finished. */
-  group: 'needs_you' | 'working' | 'waiting' | 'done'
+   *  approval, `asking` while an old question card is open, `idle` otherwise,
+   *  `closed` once the tab is gone. */
+  status: 'working' | 'idle' | 'needs_approval' | 'asking' | 'closed'
+  /** The side panel's group: a tool approval only the person can give, moving,
+   *  waiting on its conductor, not started, finished. */
+  group: 'approval' | 'working' | 'with_conductor' | 'waiting' | 'done'
   /** ISO time of the worker's last turn or message; "" when it has none yet. */
   last_activity: string
   /** The work-ledger item the worker is bound to, or "" when it is not bound. */

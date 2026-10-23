@@ -135,7 +135,6 @@
     "worker_untitled": "Worker sem título",
     "workers_description": "Os chats que um chat do Crew Mode abriu, agrupados pelo que precisa de você.",
     "workers_not_crew": "Este não é um chat do Crew Mode, então não tem workers.",
-    "worker_group_needs_you": "Precisa de você",
     "worker_group_working": "Trabalhando",
     "worker_group_waiting": "Esperando",
     "worker_group_done": "Feito",
@@ -168,7 +167,15 @@
     "timeline_model_default": "Modelo padrão",
     "timeline_gap_served_model_unreported": "Qual modelo o backend escolheu no auto",
     "timeline_model_default_named": "Padrão ({{name}})",
-    "timeline_scale_compressed": "O tempo acima de um minuto por trecho é desenhado mais curto; o topo mostra o tempo real"
+    "timeline_scale_compressed": "O tempo acima de um minuto por trecho é desenhado mais curto; o topo mostra o tempo real",
+    "worker_group_approval": "Aprovação necessária",
+    "worker_group_with_conductor": "Aguardando o maestro",
+    "worker_status_asking": "Perguntando ao maestro",
+    "timeline_not_started": "Não iniciado",
+    "timeline_loading": "Carregando a linha do tempo…",
+    "workers_loading": "Carregando os trabalhadores…",
+    "worker_reopen": "Reabrir {{title}} para ler",
+    "worker_reopen_failed": "Não foi possível reabrir a sessão. Tente de novo."
   },
   "terminalTab": {
     "rename": "Renomear",
@@ -9901,7 +9908,6 @@
       "flow_needs_you": "Precisa de você",
       "side_panel_open": "Quadro de tarefas",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "Precisa de você · {{count}}",
       "summary_done": "Feito {{done}}/{{total}}",
       "composer_chip_label": "O Crew Mode está ativado neste chat",
       "breadcrumb_label": "Worker do Crew Mode",
@@ -9910,7 +9916,19 @@
       "steer_placeholder": "Guiar {{name}}…",
       "steer_hint_running": "Interrompe a resposta em andamento.",
       "steer_hint_idle": "Inicia uma nova vez em {{name}}.",
-      "steer_too_long": "Uma orientação pode ter no máximo {{max}} caracteres. Encurte-a para enviar."
+      "steer_too_long": "Uma orientação pode ter no máximo {{max}} caracteres. Encurte-a para enviar.",
+      "summary_approval": "Aprovação necessária · {{n}}",
+      "approvals_label": "Aprovações de ferramentas dos trabalhadores: {{n}}",
+      "approval_title": "{{name}} precisa de aprovação",
+      "approval_tool_unknown": "Ferramenta desconhecida",
+      "approval_input_label": "A entrada exata da ferramenta",
+      "approval_failed": "Não foi possível enviar a decisão. Talvez já tenha sido tomada.",
+      "approval_approve": "Aprovar",
+      "approval_reject": "Rejeitar",
+      "approval_trust": "Confiar neste trabalhador",
+      "approval_trust_hint": "Aprova isto e deixa este trabalhador usar ferramentas sem perguntar até o gateway reiniciar.",
+      "reopen_conductor": "Reabrir maestro",
+      "root_closed": "{{name}} está fechado. Reabra para continuar orientando este trabalhador."
     },
     "guideLayer": {
       "region_label": "Guia",

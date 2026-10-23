@@ -117,7 +117,6 @@
     "worker_untitled": "無題のワーカー",
     "workers_description": "Crew Mode のチャットが開いたチャットを、あなたが必要かどうかで分けて表示します。",
     "workers_not_crew": "これは Crew Mode のチャットではないので、ワーカーはいません。",
-    "worker_group_needs_you": "あなたが必要",
     "worker_group_working": "実行中",
     "worker_group_waiting": "待機中",
     "worker_group_done": "完了",
@@ -150,7 +149,15 @@
     "timeline_model_default": "既定のモデル",
     "timeline_gap_served_model_unreported": "auto のときバックエンドが選んだモデル",
     "timeline_model_default_named": "既定（{{name}}）",
-    "timeline_scale_compressed": "1 区間 1 分を超える時間は短く描きます。上部が実際の時間です"
+    "timeline_scale_compressed": "1 区間 1 分を超える時間は短く描きます。上部が実際の時間です",
+    "worker_group_approval": "承認が必要",
+    "worker_group_with_conductor": "指揮役を待っています",
+    "worker_status_asking": "指揮役に質問中",
+    "timeline_not_started": "未開始",
+    "timeline_loading": "タイムラインを読み込み中…",
+    "workers_loading": "ワーカーを読み込み中…",
+    "worker_reopen": "{{title}} を開き直して読む",
+    "worker_reopen_failed": "そのセッションを開き直せませんでした。もう一度お試しください。"
   },
   "terminalTab": {
     "rename": "名前を変更",
@@ -9615,7 +9622,6 @@
       "flow_needs_you": "要判断",
       "side_panel_open": "タスクボード",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "あなたが必要 · {{count}}",
       "summary_done": "完了 {{done}}/{{total}}",
       "composer_chip_label": "このチャットでは Crew Mode がオンです",
       "breadcrumb_label": "Crew Mode のワーカー",
@@ -9624,7 +9630,19 @@
       "steer_placeholder": "{{name}} を誘導…",
       "steer_hint_running": "実行中の返信に割り込みます。",
       "steer_hint_idle": "{{name}} で新しいターンを始めます。",
-      "steer_too_long": "指示は {{max}} 文字までです。短くしてから送信してください。"
+      "steer_too_long": "指示は {{max}} 文字までです。短くしてから送信してください。",
+      "summary_approval": "承認が必要 · {{n}}",
+      "approvals_label": "ワーカーからのツール承認: {{n}}",
+      "approval_title": "{{name}} に承認が必要です",
+      "approval_tool_unknown": "不明なツール",
+      "approval_input_label": "ツールへの正確な入力",
+      "approval_failed": "その判断を送れませんでした。すでに決まっている可能性があります。",
+      "approval_approve": "承認",
+      "approval_reject": "拒否",
+      "approval_trust": "このワーカーを信頼",
+      "approval_trust_hint": "これを承認し、ゲートウェイが再起動するまでこのワーカーが確認なしでツールを使えるようにします。",
+      "reopen_conductor": "指揮役を開き直す",
+      "root_closed": "{{name}} は閉じています。このワーカーへの指示を続けるには開き直してください。"
     },
     "guideLayer": {
       "region_label": "ガイド",

@@ -4,6 +4,7 @@ import { OverlayPortal } from '../../../components/overlayRoot'
 import { Send, Undo2 } from 'lucide-react'
 import { CrewModeComposerChip, CrewModeMarkSource } from '../../../components/crew/CrewModeMarks'
 import { CREW_STEER_MAX_CHARS } from '../../../lib/crewMode'
+import CrewApprovalCards from '../../../components/crew/CrewApprovalCards'
 import { Composer, type ComposerHandle, type ComposerVoiceOptions } from '../../../chat-core/composer/Composer'
 import type { ComposerPasteSlice } from '../../../chat-core/composer/composerPastes'
 import type { ComposerDraftStore } from '../../../chat-core/composer/draftStore'
@@ -507,6 +508,9 @@ export default function ComposerDockView({
               )}
               {/* Announces why the composer is locked; in every session, as the user may move on mid-switch. */}
               <span role="status" className="sr-only" data-testid="memory-switch-status">{memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : ''}</span>
+              {/* A Crew Mode conductor's workers' tool approvals, the one thing it
+                  cannot answer, stacked above its composer. */}
+              {currentSlot?.crew_mode_root && activeSlot && <CrewApprovalCards root={activeSlot} />}
               <div className={steerWorker !== undefined ? 'crew-steer-ring mx-2 p-2' : undefined} data-testid={steerWorker !== undefined ? 'crew-steer-composer' : undefined}>
               {steerWorker !== undefined && (
                 <div className="mb-1.5 px-1 flex items-center gap-1.5 text-[12px] font-semibold text-aim" data-testid="crew-steer-label">

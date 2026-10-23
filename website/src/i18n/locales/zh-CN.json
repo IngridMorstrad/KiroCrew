@@ -117,7 +117,6 @@
     "worker_untitled": "未命名的工作会话",
     "workers_description": "Crew Mode 对话开出的会话，按是否需要你分组。",
     "workers_not_crew": "这不是 Crew Mode 对话，所以没有成员。",
-    "worker_group_needs_you": "需要你",
     "worker_group_working": "进行中",
     "worker_group_waiting": "等待中",
     "worker_group_done": "已完成",
@@ -150,7 +149,15 @@
     "timeline_model_default": "默认模型",
     "timeline_gap_served_model_unreported": "使用 auto 时后端选了哪个模型",
     "timeline_model_default_named": "默认（{{name}}）",
-    "timeline_scale_compressed": "每段超过一分钟的时间画得更短；顶部是真实用时"
+    "timeline_scale_compressed": "每段超过一分钟的时间画得更短；顶部是真实用时",
+    "worker_group_approval": "需要批准",
+    "worker_group_with_conductor": "等待指挥者",
+    "worker_status_asking": "正在询问指挥者",
+    "timeline_not_started": "尚未开始",
+    "timeline_loading": "正在加载时间线…",
+    "workers_loading": "正在加载工作者…",
+    "worker_reopen": "重新打开 {{title}} 查看",
+    "worker_reopen_failed": "无法重新打开该会话。请重试。"
   },
   "terminalTab": {
     "rename": "重命名",
@@ -9615,7 +9622,6 @@
       "flow_needs_you": "需要你",
       "side_panel_open": "任务看板",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "需要你 · {{count}}",
       "summary_done": "完成 {{done}}/{{total}}",
       "composer_chip_label": "这个对话已开启 Crew Mode",
       "breadcrumb_label": "Crew Mode 成员",
@@ -9624,7 +9630,19 @@
       "steer_placeholder": "引导 {{name}}…",
       "steer_hint_running": "会打断它正在进行的回复。",
       "steer_hint_idle": "会在 {{name}} 中开始新一轮。",
-      "steer_too_long": "指示最多 {{max}} 个字符。请缩短后再发送。"
+      "steer_too_long": "指示最多 {{max}} 个字符。请缩短后再发送。",
+      "summary_approval": "需要批准 · {{n}}",
+      "approvals_label": "来自工作者的工具批准：{{n}}",
+      "approval_title": "{{name}} 需要批准",
+      "approval_tool_unknown": "未知工具",
+      "approval_input_label": "工具的确切输入",
+      "approval_failed": "无法发送该决定。可能已经处理过了。",
+      "approval_approve": "批准",
+      "approval_reject": "拒绝",
+      "approval_trust": "信任此工作者",
+      "approval_trust_hint": "批准此请求，并让此工作者在网关重启前无需询问即可运行工具。",
+      "reopen_conductor": "重新打开指挥者",
+      "root_closed": "{{name}} 已关闭。重新打开它才能继续指示此工作者。"
     },
     "guideLayer": {
       "region_label": "引导",

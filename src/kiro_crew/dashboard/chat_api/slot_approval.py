@@ -773,7 +773,12 @@ async def api_chat_slot_approve(request: web.Request) -> web.Response:
     if denied is not None:
         return denied
     request_app = str(request.get("app") or "")
-    name = request.match_info["slot"]
+    # A Crew Mode conductor's approval card decides a WORKER's request through this
+    # same route (``crew_workers.api_crew_worker_approve``): that route gates the
+    # owner, refuses app tokens and other roots' workers, reads and narrows the
+    # body, and hands over ``(worker slot key, body)``. Nothing else sets it.
+    delegated = request.get("kirocrew_crew_worker_approve")
+    name = delegated[0] if delegated else request.match_info["slot"]
 
     def audit_caller() -> str:
         return f"app:{request_app}" if request_app else f"dashboard:{name}"
@@ -781,7 +786,12 @@ async def api_chat_slot_approve(request: web.Request) -> web.Response:
     slot = state._slots.get(name)
     if not slot:
         return slot_not_found()
-    body, body_err = await read_bounded_json(request)
+    body: dict[str, Any] | None
+    body_err: web.Response | None
+    if delegated:
+        body, body_err = dict(delegated[1]), None
+    else:
+        body, body_err = await read_bounded_json(request)
     if body_err is not None:
         return body_err
     assert body is not None  # read_bounded_json returns (dict, None) on success

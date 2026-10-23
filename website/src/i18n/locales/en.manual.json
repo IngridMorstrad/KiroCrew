@@ -126,7 +126,6 @@
     "worker_untitled": "Untitled worker",
     "workers_description": "The chats a Crew Mode chat opened, grouped by what needs you.",
     "workers_not_crew": "This is not a Crew Mode chat, so it has no workers.",
-    "worker_group_needs_you": "Needs you",
     "worker_group_working": "Working",
     "worker_group_waiting": "Waiting",
     "worker_group_done": "Done",
@@ -159,7 +158,15 @@
     "timeline_model_default": "Default model",
     "timeline_gap_served_model_unreported": "Which model the backend picked on auto",
     "timeline_model_default_named": "Default ({{name}})",
-    "timeline_scale_compressed": "Time past a minute per stretch is drawn shorter; the header has the true time"
+    "timeline_scale_compressed": "Time past a minute per stretch is drawn shorter; the header has the true time",
+    "worker_group_approval": "Approval needed",
+    "worker_group_with_conductor": "Waiting on conductor",
+    "worker_status_asking": "Asking its conductor",
+    "timeline_not_started": "Not started",
+    "timeline_loading": "Loading the timeline…",
+    "workers_loading": "Loading the workers…",
+    "worker_reopen": "Reopen {{title}} to read it",
+    "worker_reopen_failed": "Could not reopen that session. Try again."
   },
   "terminalTab": {
     "rename": "Rename",
@@ -4009,7 +4016,6 @@
       "flow_needs_you": "Needs you",
       "side_panel_open": "Task board",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "Needs you · {{count}}",
       "summary_done": "Done {{done}}/{{total}}",
       "composer_chip_label": "Crew Mode is on for this chat",
       "breadcrumb_label": "Crew Mode worker",
@@ -4018,7 +4024,19 @@
       "steer_placeholder": "Steer {{name}}…",
       "steer_hint_running": "Cuts into its current reply.",
       "steer_hint_idle": "Starts a new turn in {{name}}.",
-      "steer_too_long": "A steer can be at most {{max}} characters. Shorten it to send."
+      "steer_too_long": "A steer can be at most {{max}} characters. Shorten it to send.",
+      "summary_approval": "Approval needed · {{n}}",
+      "approvals_label": "Tool approvals from workers: {{n}}",
+      "approval_title": "{{name}} needs approval",
+      "approval_tool_unknown": "Unknown tool",
+      "approval_input_label": "The exact tool input",
+      "approval_failed": "Could not send that decision. It may already be decided.",
+      "approval_approve": "Approve",
+      "approval_reject": "Reject",
+      "approval_trust": "Trust this worker",
+      "approval_trust_hint": "Approves this and lets this worker run tools without asking until the gateway restarts.",
+      "reopen_conductor": "Reopen conductor",
+      "root_closed": "{{name}} is closed. Reopen it to keep steering this worker."
     },
     "guideLayer": {
       "region_label": "Guide",

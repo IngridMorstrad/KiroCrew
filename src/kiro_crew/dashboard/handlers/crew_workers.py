@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 STATUS_WORKING = "working"
 STATUS_IDLE = "idle"
 STATUS_NEEDS_APPROVAL = "needs_approval"
+#: A worker whose question card is open. Workers do not ask the person
+#: (``ask_question`` refuses a worker, see ``handlers/ask_question``), so this is a
+#: card from before that rule; it waits on its conductor like a question report.
+STATUS_ASKING = "asking"
 STATUS_CLOSED = "closed"
 
 
@@ -59,25 +63,31 @@ def _root_row(rows: list[dict[str, Any]], root: str) -> dict[str, Any] | None:
 
 
 def _status(row: Mapping[str, Any]) -> str:
-    if row.get("pending_approval") or row.get("needs_input"):
+    if row.get("pending_approval"):
         return STATUS_NEEDS_APPROVAL
+    if row.get("needs_input"):
+        return STATUS_ASKING
     if row.get("running"):
         return STATUS_WORKING
     return STATUS_IDLE
 
 
-#: How the side panel groups workers: what needs the person, what is moving, what
-#: has not started, what is finished. The dashboard applies the same rule to live
-#: slot rows (``lib/crewWorkers.ts``) for the session list's summary.
-GROUP_NEEDS_YOU = "needs_you"
+#: How the side panel groups workers. A worker never asks the person itself: its
+#: questions and blockers go to its conductor (``with_conductor``), which answers or
+#: asks the person in its own chat. The one thing a conductor cannot answer is a
+#: tool approval (``approval``), which the person resolves on the conductor's
+#: approval card. Then what is moving, what has not started, what is finished. The
+#: dashboard applies the same rule to live slot rows (``lib/crewWorkers.ts``).
+GROUP_APPROVAL = "approval"
 GROUP_WORKING = "working"
+GROUP_WITH_CONDUCTOR = "with_conductor"
 GROUP_WAITING = "waiting"
 GROUP_DONE = "done"
 
 
 class LedgerFacts(NamedTuple):
     """What a worker's ledger item on its root says: id, the card's line, and the
-    item's own progress (``done``, ``needs_you`` or ``""`` when it says neither)."""
+    item's own progress (``done``, ``with_conductor`` or ``""`` when it says neither)."""
 
     item: str = ""
     line: str = ""
@@ -91,39 +101,38 @@ NO_LEDGER = LedgerFacts()
 def _group(status: str, progress: str = "") -> str:
     """The side panel group from real signals only.
 
-    A tool approval or an open question card is ``needs_you``; a running turn is
-    ``working``; a closed tab, a closed ledger item, or a worker that reported
-    ``done`` is ``done``; a worker that reported it waits on a person (blocked or a
-    question with ``reason`` approval or needs_human) is ``needs_you``. Anything
-    else is idle, ``waiting``: having replied is not having finished (a question
-    asked in plain text after its card timed out leaves a worker idle, not done).
+    A tool approval is ``approval``; a running turn is ``working``; a closed tab, a
+    closed ledger item, or a worker that reported ``done`` is ``done``; a worker
+    that reported ``blocked`` or ``question`` (whatever its ``reason``), or one with
+    an open question card, waits on its conductor: ``with_conductor``. Anything else
+    is idle, ``waiting``: having replied is not having finished.
     """
     if status == STATUS_NEEDS_APPROVAL:
-        return GROUP_NEEDS_YOU
+        return GROUP_APPROVAL
     if status == STATUS_WORKING:
         return GROUP_WORKING
     if status == STATUS_CLOSED or progress == GROUP_DONE:
         return GROUP_DONE
-    if progress == GROUP_NEEDS_YOU:
-        return GROUP_NEEDS_YOU
+    if status == STATUS_ASKING or progress == GROUP_WITH_CONDUCTOR:
+        return GROUP_WITH_CONDUCTOR
     return GROUP_WAITING
 
 
-#: Report statuses that mean the worker waits on someone, and the reasons that
-#: make that someone the person.
+#: Report statuses that mean the worker waits on its conductor.
 _WAITING_REPORTS = frozenset({"blocked", "question"})
-_PERSON_REASONS = frozenset({"approval", "needs_human"})
 
 
 def _progress_of(item: Any) -> str:
-    """``done`` / ``needs_you`` / ``""`` from a ledger item's own fields."""
+    """``done`` / ``with_conductor`` / ``""`` from a ledger item's own fields.
+
+    A ``blocked`` or ``question`` report is the conductor's to answer whatever its
+    ``reason`` says: a ``needs_human`` reason tells the conductor to ask the person
+    in its own chat, never the side panel to show the worker as needing them.
+    """
     if getattr(item, "is_terminal", False) or getattr(item, "status", None) == "done":
         return GROUP_DONE
-    if (
-        getattr(item, "status", None) in _WAITING_REPORTS
-        and getattr(item, "reason", None) in _PERSON_REASONS
-    ):
-        return GROUP_NEEDS_YOU
+    if getattr(item, "status", None) in _WAITING_REPORTS:
+        return GROUP_WITH_CONDUCTOR
     return ""
 
 
@@ -311,6 +320,7 @@ async def api_crew_workers(request: web.Request) -> web.Response:
                 "ledger_item": item,
                 "summary": _worker_line(row, line),
                 "created_by": str(row.get("created_by") or ""),
+                "approval": _approval_of(row),
             }
         )
     closed_meta = await asyncio.to_thread(_closed_titles, state, closed)
@@ -331,6 +341,115 @@ async def api_crew_workers(request: web.Request) -> web.Response:
             }
         )
     return web.json_response({"root": root, "workers": workers})
+
+
+#: The longest tool input an approval card shows: enough to read a command whole,
+#: short enough that one worker's argument blob cannot flood the conductor's pane.
+APPROVAL_INPUT_MAX_CHARS = 2000
+#: The longest tool name and purpose line an approval card shows.
+APPROVAL_LINE_MAX_CHARS = 200
+
+
+def _approval_of(row: Mapping[str, Any]) -> dict[str, str] | None:
+    """The worker's pending tool approval for the conductor's card, or ``None``.
+
+    From the row's ``pending_approval_info`` (``slot_projection``), which names the
+    request the worker's own permission card shows. Every text field is redacted
+    again and then cut, so a cut can never leave a credential's prefix behind.
+    """
+    from kiro_crew.security import redact
+
+    info = row.get("pending_approval_info")
+    if not row.get("pending_approval") or not isinstance(info, Mapping):
+        return None
+    request_id = info.get("request_id")
+    if not isinstance(request_id, str) or not request_id:
+        return None
+
+    def text(field: str, cap: int) -> str:
+        value = info.get(field)
+        return redact(value)[:cap] if isinstance(value, str) else ""
+
+    out = {
+        "origin": "native" if info.get("origin") == "native" else "coordinator",
+        "request_id": request_id[:APPROVAL_LINE_MAX_CHARS],
+        "request_mid": text("request_mid", APPROVAL_LINE_MAX_CHARS),
+        "tool": text("tool", APPROVAL_LINE_MAX_CHARS),
+        "tool_input": text("tool_input", APPROVAL_INPUT_MAX_CHARS),
+        "tool_purpose": text("tool_purpose", APPROVAL_LINE_MAX_CHARS),
+    }
+    if info.get("trust_grantable") == "1":
+        out["trust_grantable"] = "1"
+    raw_input = info.get("tool_input")
+    if isinstance(raw_input, str) and len(redact(raw_input)) > APPROVAL_INPUT_MAX_CHARS:
+        out["tool_input_cut"] = "1"
+    return out
+
+
+#: The three decisions the conductor's approval card offers, as the per-slot
+#: approve route spells them. Nothing wider (no command or base grants, no YOLO).
+_CARD_ACTIONS = {"approve": "approved", "reject": "rejected_once", "trust": "trust"}
+
+
+async def api_crew_worker_approve(request: web.Request) -> web.Response:
+    """POST /api/chat/slots/{slot}/crew-workers/{worker}/approve -- the approval card.
+
+    Body: ``{action: approve | reject | trust, request_id, request_mid?}``. The
+    person decides one of *worker*'s pending tool approvals from its conductor's
+    pane. Owner only, app tokens answered 404 (the side panel's gate); the worker
+    must be one of this live root's workers. The decision itself is the existing
+    per-slot approve route's, resolved on the WORKER slot: Approve and Reject are
+    one-time and pinned to the request the card showed; Trust this worker is that
+    route's ``trust`` for the worker's own slot (in memory, gone on a restart).
+    """
+    refused = await _gate(request, "crew_mode.approve")
+    if refused is not None:
+        return refused
+    state = request.app["state"]
+    root = request.match_info.get("slot", "")
+    worker = request.match_info.get("worker", "")
+    try:
+        body = await request.json()
+    except Exception:
+        return _bad("invalid_json", "the body must be a JSON object")
+    if not isinstance(body, dict):
+        return _bad("invalid_json", "the body must be a JSON object")
+    action = _CARD_ACTIONS.get(str(body.get("action") or ""))
+    request_id = body.get("request_id")
+    request_mid = body.get("request_mid")
+    if action is None:
+        return _bad("invalid_action", "action must be approve, reject or trust")
+    if not isinstance(request_id, str) or not request_id:
+        return _bad("missing_request_id", "request_id is required")
+    rows = _stamped_rows(state)
+    if _root_row(rows, root) is None:
+        return _bad("not_crew_mode_root", "this session is not a Crew Mode root", status=404)
+    if not any(row.get("key") == worker for row in crew_mode.workers_of(rows, root)):
+        return _bad("not_a_worker", "that session is not one of this root's workers", status=404)
+    if state.get_slot(worker) is None:
+        return _bad("worker_closed", "that worker's tab is closed", status=409)
+    decided: dict[str, Any] = {"action": action, "request_id": request_id}
+    if action != "trust" and isinstance(request_mid, str) and request_mid:
+        # Pinned to the exact request the card showed: a stale card cannot pick a
+        # same-id request that replaced it.
+        decided.update(origin="native", request_mid=request_mid)
+    from kiro_crew.dashboard import chat_handlers
+
+    request["kirocrew_crew_worker_approve"] = (worker, decided)
+    resp = await chat_handlers.api_chat_slot_approve(request)
+    try:
+        from kiro_crew.sel import sel
+
+        sel().log_api_access(
+            caller=f"dashboard:{root}",
+            operation="crew_mode.approve",
+            outcome="ok" if resp.status < 300 else "denied",
+            source="dashboard",
+            resources=f"worker={worker} action={action}",
+        )
+    except Exception:
+        logger.debug("crew approve: audit failed", exc_info=True)
+    return resp
 
 
 async def _window_rows(slot: Any) -> list[dict[str, Any]]:
@@ -389,7 +508,7 @@ def _lane_head(row: Mapping[str, Any], role: str) -> dict[str, Any]:
         "role": role,
         "status": status,
         "running": bool(row.get("running")),
-        "waiting": status == STATUS_NEEDS_APPROVAL,
+        "waiting": status in (STATUS_NEEDS_APPROVAL, STATUS_ASKING),
     }
 
 

@@ -92,7 +92,7 @@ vi.mock('../api/client', () => ({
       if (p === 'crewWorkers' && mocks.crewWorkersFail) return vi.fn().mockRejectedValue(new Error('down'))
       if (p === 'crewWorkers') return vi.fn().mockResolvedValue({ root: 'k-root', workers: [
         { key: 'k-w1', title: 'W1', agent: '', status: 'idle', group: 'done', last_activity: '', ledger_item: '', created_by: 'k-root' },
-        { key: 'k-w2', title: 'W2', agent: '', status: 'needs_approval', group: 'needs_you', last_activity: '', ledger_item: '', created_by: 'k-root' },
+        { key: 'k-w2', title: 'W2', agent: '', status: 'needs_approval', group: 'approval', last_activity: '', ledger_item: '', created_by: 'k-root' },
       ] })
       return vi.fn().mockResolvedValue([])
     },
@@ -228,8 +228,10 @@ describe('chat sidebar — conductor lane', () => {
     // The server's groups, not a guess from the rows: W1's "done" comes from the API.
     await screen.findByTestId('crew-worker-stack')
     const stack = within(container.querySelector('[data-crew-root="true"]') as HTMLElement).getByTestId('crew-worker-stack')
-    expect([...stack.children].map(c => c.getAttribute('data-group'))).toEqual(['needs_you', 'done'])
-    expect(getByTestId('crew-root-summary')).toHaveTextContent('Needs you · 1')
+    expect([...stack.children].map(c => c.getAttribute('data-group'))).toEqual(['approval', 'done'])
+    // One "Approval needed" count for the conductor; never "Needs you" (owner decision B).
+    expect(getByTestId('crew-root-summary')).toHaveTextContent('Approval needed · 1')
+    expect(getByTestId('crew-root-summary')).not.toHaveTextContent('Needs you')
     // Only the root wears the card.
     expect(getAllByTestId('crew-eyebrow')).toHaveLength(1)
   })
@@ -400,6 +402,15 @@ describe('chat sidebar — conductor lane', () => {
     // k-deep needs input (two levels down) and k-worker-a is running.
     expect(getByTestId('conductor-needs-you-k-conductor').textContent).toBe('1')
     expect(getByTestId('conductor-running-k-conductor').textContent).toBe('1')
+  })
+
+  it('a Crew Mode worker raises no needs-your-answer count on its conductor (S3)', () => {
+    // Its question goes to the conductor; its unread reply is the conductor's to read.
+    localStorage.setItem('mc-sidebar-lane', 'conductor')
+    openAllBut('k-conductor')
+    const crew = NESTED.map(row => (row.key === 'k-conductor' ? row : { ...row, crew_root: 'k-conductor' }))
+    const { queryByTestId } = renderSidebar(crew, [], null, {}, ['k-worker-b'])
+    expect(queryByTestId('conductor-needs-you-k-conductor')).toBeNull()
   })
 
   it('stops bubbling once expanded, so no session is counted twice on screen', () => {

@@ -1,8 +1,9 @@
+import { useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { i18nT } from '../../i18n/t'
 import { useAppDispatch, useAppSelector } from '../../store'
-import { crewWorkerGroup, crewWorkerGroupOfRow, type CrewWorkerRowLike } from '../../lib/crewWorkers'
-import { openCrewSession, useCrewWorkerSummary } from '../../pages/chat/command-center/CrewWorkerList'
+import { crewWorkerGroup, crewWorkerGroupOfRow, type CrewWorkerGroup, type CrewWorkerRowLike } from '../../lib/crewWorkers'
+import { openCrewSession, reopenCrewWorker, useCrewWorkerSummary } from '../../pages/chat/command-center/CrewWorkerList'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import ErrorNotice from '../ErrorNotice'
 import { CrewGhostBadge, CrewStatusDot } from './CrewModeMarks'
@@ -13,17 +14,37 @@ import { CrewGhostBadge, CrewStatusDot } from './CrewModeMarks'
  * pane holds one of a Crew Mode root's workers, so the person always sees whose
  * worker this is and has one click back. The root title is a button too.
  */
+/** The last title each root was seen with, so a worker whose root's tab closed
+ *  still names it (the closed root has no live row to read it from). */
+const lastRootTitle = new Map<string, string>()
+
 export function CrewWorkerBreadcrumb({ root, worker }: { root: string; worker: CrewWorkerRowLike & { key: string; title?: string } }) {
   const dispatch = useAppDispatch()
-  const rootTitle = useAppSelector(s => s.dashboard.slots.find(item => item.key === root)?.title) || i18nT('components.crewMode.eyebrow')
+  const rootRow = useAppSelector(s => s.dashboard.slots.find(item => item.key === root))
+  // Closed, not deleted: the root's tab is gone but its saved transcript stays,
+  // so Back reopens it rather than switching to a session that is not listed.
+  const rootClosed = !rootRow
+  if (rootRow?.title) lastRootTitle.set(root, rootRow.title)
+  const rootTitle = rootRow?.title || lastRootTitle.get(root) || i18nT('components.crewMode.eyebrow')
   const isMobile = useIsMobile()
+  const [reopenFailed, setReopenFailed] = useState(false)
   // The server's group, as the panel and the root's row show it; the row's own
-  // live flags until the worker list answers, and again while a read fails (the
-  // hook hands back no workers then), so the status is never an older read's.
+  // live flags until the worker list answers. With the root closed its list
+  // cannot be read, so the last group read stays (a finished worker stays done).
   const { workers, failed } = useCrewWorkerSummary(root)
   const listed = workers?.find(w => w.key === worker.key)
-  const group = listed ? crewWorkerGroup(listed) : crewWorkerGroupOfRow(worker)
-  const back = () => openCrewSession(dispatch, root, !isMobile)
+  const lastGroup = useRef<CrewWorkerGroup | null>(null)
+  if (listed) lastGroup.current = crewWorkerGroup(listed)
+  const group = listed ? crewWorkerGroup(listed) : (rootClosed && lastGroup.current) || crewWorkerGroupOfRow(worker)
+  const back = () => {
+    if (!rootClosed) {
+      openCrewSession(dispatch, root, !isMobile)
+      return
+    }
+    setReopenFailed(false)
+    void reopenCrewWorker(dispatch, root, rootTitle, !isMobile).then(ok => { if (!ok) setReopenFailed(true) })
+  }
+  const backLabel = rootClosed ? i18nT('components.crewMode.reopen_conductor') : i18nT('components.crewMode.back_to_conductor')
   return (
     <div className="flex flex-col gap-1 min-w-0 w-full">
       <nav aria-label={i18nT('components.crewMode.breadcrumb_label')} data-testid="crew-worker-breadcrumb" className="@container/crumb flex items-center gap-2 min-w-0 w-full pointer-events-auto">
@@ -42,16 +63,21 @@ export function CrewWorkerBreadcrumb({ root, worker }: { root: string; worker: C
             as the tooltip. The status is a dot there (its word stays for readers). */}
         <span className="font-semibold text-text truncate min-w-[3rem] shrink @[30rem]/crumb:shrink-0 @[30rem]/crumb:max-w-[65%]" aria-current="page" title={worker.title || undefined} data-testid="crew-breadcrumb-worker">{worker.title || i18nT('commandCenter.worker_untitled')}</span>
         <CrewStatusDot group={group} withLabel={!isMobile} />
-        <button type="button" onClick={back} data-testid="crew-back-to-conductor" aria-label={i18nT('components.crewMode.back_to_conductor')} title={i18nT('components.crewMode.back_to_conductor')}
+        <button type="button" onClick={back} data-testid="crew-back-to-conductor" data-root-closed={rootClosed ? 'true' : undefined} aria-label={backLabel} title={backLabel}
           className="ml-auto shrink-0 inline-flex items-center justify-center gap-1 h-8 min-h-11 min-w-11 md:min-h-8 md:min-w-0 px-2.5 rounded-lg border border-border bg-bg-elevated text-[12px] text-text hover:bg-bg-hover cursor-pointer [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11">
           <ChevronLeft size={14} aria-hidden="true" />
-          <span className="hidden @[30rem]/crumb:inline">{i18nT('components.crewMode.back_to_conductor')}</span>
+          <span className="hidden @[30rem]/crumb:inline">{backLabel}</span>
         </button>
       </nav>
       {/* A failed worker-list read is said on its own line under the row, beside
           nothing else, so the row keeps its two controls. The composer draft is
           saved per chat, so the hand-off is safe. */}
-      {failed && <ErrorNotice variant="inline" className="pointer-events-auto" message={i18nT('commandCenter.workers_error')} askAgent />}
+      {/* A closed root is said plainly, not as a failed read: its list cannot be
+          read until it is reopened, and steering waits for it. */}
+      {rootClosed
+        ? <p role="status" className="pointer-events-auto text-[12px] text-muted" data-testid="crew-root-closed">{i18nT('components.crewMode.root_closed', { name: rootTitle })}</p>
+        : failed && <ErrorNotice variant="inline" className="pointer-events-auto" message={i18nT('commandCenter.workers_error')} askAgent />}
+      {reopenFailed && <ErrorNotice variant="inline" className="pointer-events-auto" message={i18nT('commandCenter.worker_reopen_failed')} />}
     </div>
   )
 }

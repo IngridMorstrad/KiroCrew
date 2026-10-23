@@ -28,8 +28,9 @@ describe('Workers on a Crew Mode slot (U1)', () => {
 })
 
 describe('status text contrast (U4)', () => {
-  it('needs-you, working and done text use the mixed tones, not the raw hue', () => {
-    expect(CREW_GROUP_TONE.needs_you).toBe('crew-tone-warn')
+  it('approval, working and done text use the mixed tones, not the raw hue', () => {
+    expect(CREW_GROUP_TONE.approval).toBe('crew-tone-warn')
+    expect(CREW_GROUP_TONE.with_conductor).toBe('crew-tone-muted')
     expect(CREW_GROUP_TONE.done).toBe('crew-tone-ok')
     expect(CREW_GROUP_TONE.working).toBe('crew-tone-aim')
   })

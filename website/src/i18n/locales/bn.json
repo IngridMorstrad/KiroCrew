@@ -126,7 +126,6 @@
     "worker_untitled": "শিরোনামহীন ওয়ার্কার",
     "workers_description": "Crew Mode চ্যাট যে চ্যাটগুলো খুলেছে, কোনটায় তোমাকে দরকার সেই হিসেবে সাজানো।",
     "workers_not_crew": "এটা Crew Mode চ্যাট নয়, তাই এর কোনো ওয়ার্কার নেই।",
-    "worker_group_needs_you": "তোমাকে দরকার",
     "worker_group_working": "কাজ চলছে",
     "worker_group_waiting": "অপেক্ষায়",
     "worker_group_done": "শেষ",
@@ -159,7 +158,15 @@
     "timeline_model_default": "ডিফল্ট মডেল",
     "timeline_gap_served_model_unreported": "auto-তে ব্যাকএন্ড কোন মডেল বেছেছে",
     "timeline_model_default_named": "ডিফল্ট ({{name}})",
-    "timeline_scale_compressed": "প্রতি অংশে এক মিনিটের বেশি সময় ছোট করে আঁকা; ওপরে আসল সময়"
+    "timeline_scale_compressed": "প্রতি অংশে এক মিনিটের বেশি সময় ছোট করে আঁকা; ওপরে আসল সময়",
+    "worker_group_approval": "অনুমোদন দরকার",
+    "worker_group_with_conductor": "কন্ডাক্টরের অপেক্ষায়",
+    "worker_status_asking": "কন্ডাক্টরকে জিজ্ঞেস করছে",
+    "timeline_not_started": "শুরু হয়নি",
+    "timeline_loading": "টাইমলাইন লোড হচ্ছে…",
+    "workers_loading": "ওয়ার্কার লোড হচ্ছে…",
+    "worker_reopen": "পড়তে {{title}} আবার খুলুন",
+    "worker_reopen_failed": "সেশনটি আবার খোলা যায়নি। আবার চেষ্টা করুন।"
   },
   "terminalTab": {
     "rename": "নাম বদলাও",
@@ -9758,7 +9765,6 @@
       "flow_needs_you": "তোমাকে দরকার",
       "side_panel_open": "টাস্ক বোর্ড",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "তোমাকে দরকার · {{count}}",
       "summary_done": "শেষ {{done}}/{{total}}",
       "composer_chip_label": "এই চ্যাটে Crew Mode চালু আছে",
       "breadcrumb_label": "Crew Mode ওয়ার্কার",
@@ -9767,7 +9773,19 @@
       "steer_placeholder": "{{name}}-কে দিক দাও…",
       "steer_hint_running": "এটি চলতি উত্তরে ঢুকে পড়বে।",
       "steer_hint_idle": "{{name}}-এ একটি নতুন পালা শুরু করবে।",
-      "steer_too_long": "নির্দেশ সর্বোচ্চ {{max}} অক্ষরের হতে পারে। পাঠাতে এটি ছোট করুন।"
+      "steer_too_long": "নির্দেশ সর্বোচ্চ {{max}} অক্ষরের হতে পারে। পাঠাতে এটি ছোট করুন।",
+      "summary_approval": "অনুমোদন দরকার · {{n}}",
+      "approvals_label": "ওয়ার্কারদের টুল অনুমোদন: {{n}}",
+      "approval_title": "{{name}}-এর অনুমোদন দরকার",
+      "approval_tool_unknown": "অজানা টুল",
+      "approval_input_label": "টুলের সঠিক ইনপুট",
+      "approval_failed": "সিদ্ধান্তটি পাঠানো যায়নি। হয়তো আগেই নেওয়া হয়েছে।",
+      "approval_approve": "অনুমোদন",
+      "approval_reject": "প্রত্যাখ্যান",
+      "approval_trust": "এই ওয়ার্কারকে বিশ্বাস করুন",
+      "approval_trust_hint": "এটি অনুমোদন করে এবং গেটওয়ে রিস্টার্ট না হওয়া পর্যন্ত এই ওয়ার্কারকে না জিজ্ঞেস করে টুল চালাতে দেয়।",
+      "reopen_conductor": "কন্ডাক্টর আবার খুলুন",
+      "root_closed": "{{name}} বন্ধ। এই ওয়ার্কারকে নির্দেশ দিতে থাকতে এটি আবার খুলুন।"
     },
     "guideLayer": {
       "region_label": "গাইড",

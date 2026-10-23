@@ -135,7 +135,6 @@
     "worker_untitled": "Worker senza titolo",
     "workers_description": "Le chat aperte da una chat Crew Mode, raggruppate in base a cosa ha bisogno di te.",
     "workers_not_crew": "Questa non è una chat Crew Mode, quindi non ha worker.",
-    "worker_group_needs_you": "Ha bisogno di te",
     "worker_group_working": "In corso",
     "worker_group_waiting": "In attesa",
     "worker_group_done": "Fatto",
@@ -168,7 +167,15 @@
     "timeline_model_default": "Modello predefinito",
     "timeline_gap_served_model_unreported": "Quale modello ha scelto il backend con auto",
     "timeline_model_default_named": "Predefinito ({{name}})",
-    "timeline_scale_compressed": "Il tempo oltre un minuto per tratto è disegnato più corto; in alto c’è il tempo reale"
+    "timeline_scale_compressed": "Il tempo oltre un minuto per tratto è disegnato più corto; in alto c’è il tempo reale",
+    "worker_group_approval": "Approvazione necessaria",
+    "worker_group_with_conductor": "In attesa del direttore",
+    "worker_status_asking": "Chiede al suo direttore",
+    "timeline_not_started": "Non iniziato",
+    "timeline_loading": "Caricamento della cronologia…",
+    "workers_loading": "Caricamento dei worker…",
+    "worker_reopen": "Riapri {{title}} per leggerlo",
+    "worker_reopen_failed": "Impossibile riaprire la sessione. Riprova."
   },
   "terminalTab": {
     "rename": "Rinomina",
@@ -9901,7 +9908,6 @@
       "flow_needs_you": "Serve a te",
       "side_panel_open": "Bacheca delle attività",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "Ha bisogno di te · {{count}}",
       "summary_done": "Fatto {{done}}/{{total}}",
       "composer_chip_label": "Crew Mode è attivo per questa chat",
       "breadcrumb_label": "Worker del Crew Mode",
@@ -9910,7 +9916,19 @@
       "steer_placeholder": "Guida {{name}}…",
       "steer_hint_running": "Interrompe la risposta in corso.",
       "steer_hint_idle": "Avvia un nuovo turno in {{name}}.",
-      "steer_too_long": "Un'indicazione può avere al massimo {{max}} caratteri. Accorciala per inviarla."
+      "steer_too_long": "Un'indicazione può avere al massimo {{max}} caratteri. Accorciala per inviarla.",
+      "summary_approval": "Approvazione necessaria · {{n}}",
+      "approvals_label": "Approvazioni di strumenti dai worker: {{n}}",
+      "approval_title": "{{name}} ha bisogno di approvazione",
+      "approval_tool_unknown": "Strumento sconosciuto",
+      "approval_input_label": "L'input esatto dello strumento",
+      "approval_failed": "Impossibile inviare la decisione. Forse è già stata presa.",
+      "approval_approve": "Approva",
+      "approval_reject": "Rifiuta",
+      "approval_trust": "Fidati di questo worker",
+      "approval_trust_hint": "Approva e lascia che questo worker usi strumenti senza chiedere fino al riavvio del gateway.",
+      "reopen_conductor": "Riapri il direttore",
+      "root_closed": "{{name}} è chiuso. Riaprilo per continuare a guidare questo worker."
     },
     "guideLayer": {
       "region_label": "Guida",

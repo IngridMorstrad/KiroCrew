@@ -70,7 +70,7 @@ export default function CrewTimeline({ root, viewing, active, onOpen }: {
   root: string
   viewing: string | null
   active: boolean
-  onOpen: (key: string) => void
+  onOpen: (key: string, title?: string, closed?: boolean) => void
 }) {
   const { t } = useTranslation()
   const reduced = useReducedMotion()
@@ -95,16 +95,22 @@ export default function CrewTimeline({ root, viewing, active, onOpen }: {
   const scale = useMemo(() => (data && window ? timelineScale(data, window) : null), [data, window])
   // A read failure with nothing to lose (the composer draft is saved per chat).
   if (query.isError) return <div className="p-3"><ErrorNotice message={t('commandCenter.timeline_error')} askAgent /></div>
-  if (!data) return null
+  // The first read is in flight: say so, so a slow read is not an empty panel.
+  if (!data) return <p role="status" aria-busy="true" className="p-3 text-sm text-muted" data-testid="crew-timeline-loading">{t('commandCenter.timeline_loading')}</p>
   const lanes = data.lanes
+  const stateKey = timelineStateKey(data)
+  const notStarted = stateKey === 'commandCenter.timeline_not_started'
   return <div className="flex flex-col gap-3 p-3 min-w-0" data-testid="crew-timeline" data-live={data.live ? 'true' : 'false'}>
     <header className="flex items-center gap-2 text-[12px] text-muted" data-testid="crew-timeline-header">
       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${data.live ? 'crew-grad' : 'bg-bg-hover text-text'}`}>
-        {t(timelineStateKey(data))}
+        {t(stateKey)}
       </span>
-      <Elapsed data={data} start={window?.start ?? null} receivedAt={receivedAt} ticking={ticking} />
-      <span aria-hidden="true">·</span>
-      <span data-testid="crew-timeline-credits">{t('commandCenter.timeline_credits', { value: fmtCredits(data.credits) })}</span>
+      {/* No elapsed time or spend for a run with nothing recorded yet. */}
+      {!notStarted && <>
+        <Elapsed data={data} start={window?.start ?? null} receivedAt={receivedAt} ticking={ticking} />
+        <span aria-hidden="true">·</span>
+        <span data-testid="crew-timeline-credits">{t('commandCenter.timeline_credits', { value: fmtCredits(data.credits) })}</span>
+      </>}
     </header>
     {!window || !scale || lanes.every(lane => lane.segments.length === 0 && lane.marks.length === 0)
       ? <p className="text-sm text-muted">{t('commandCenter.timeline_empty')}</p>
@@ -130,7 +136,7 @@ function Lanes({ data, window, scale, viewing, onOpen, receivedAt, ticking, redu
   window: TimelineWindow
   scale: TimeScale
   viewing: string | null
-  onOpen: (key: string) => void
+  onOpen: (key: string, title?: string, closed?: boolean) => void
   receivedAt: number
   ticking: boolean
   reduced: boolean
@@ -280,8 +286,11 @@ function useServerNow(data: CrewTimelineData | undefined, receivedAt: number, ti
  *  Workers list's own group name for the ones still open. */
 export function timelineStateKey(data: CrewTimelineData): string {
   if (data.live) return 'commandCenter.timeline_live'
+  // Nothing recorded on any lane: the run has not started, so it is not finished.
+  if (!data.lanes.some(lane => lane.segments.length > 0 || lane.marks.length > 0)) return 'commandCenter.timeline_not_started'
   const open = data.lanes.filter(lane => lane.role === 'worker' && lane.group !== 'done')
-  if (open.some(lane => lane.group === 'needs_you')) return 'commandCenter.worker_group_needs_you'
+  if (open.some(lane => lane.group === 'approval')) return 'commandCenter.worker_group_approval'
+  if (open.some(lane => lane.group === 'with_conductor')) return 'commandCenter.worker_group_with_conductor'
   if (open.length > 0) return 'commandCenter.worker_group_waiting'
   return 'commandCenter.timeline_done'
 }
@@ -329,7 +338,7 @@ const Lane = memo(function Lane({ lane, scale, current, onOpen }: {
   lane: CrewTimelineLane
   scale: TimeScale
   current: boolean
-  onOpen: (key: string) => void
+  onOpen: (key: string, title?: string, closed?: boolean) => void
 }) {
   useLanguageGeneration() // memo() bails out of the provider-level repaint; subscribe directly
   const { t } = useTranslation()
@@ -378,8 +387,10 @@ const Lane = memo(function Lane({ lane, scale, current, onOpen }: {
     : track
   const cls = `flex items-center gap-2 w-full rounded-md px-1 py-1 ${current ? 'crew-card' : ''}`
   return <div role="listitem" data-testid="crew-timeline-lane" data-lane={lane.key} data-role={lane.role}>
-    {closed
-      ? <div className={`${cls} opacity-60`} title={noRecord ? undefined : t('commandCenter.timeline_closed_lane')}>{head}{body}</div>
+    {closed && noRecord
+      ? <div className={`${cls} opacity-60`}>{head}{body}</div>
+      : closed
+      ? <button type="button" className={`${cls} cursor-pointer hover:bg-bg-hover min-h-11`} aria-label={t('commandCenter.worker_reopen', { title })} title={t('commandCenter.timeline_closed_lane')} data-testid="crew-timeline-reopen" onClick={() => onOpen(lane.key, title, true)}>{head}{body}</button>
       : <button type="button" className={`${cls} cursor-pointer hover:bg-bg-hover min-h-11`} aria-current={current ? 'true' : undefined} aria-label={t('commandCenter.timeline_open_lane', { title })} onClick={() => onOpen(lane.key)}>{head}{track}</button>}
   </div>
 })

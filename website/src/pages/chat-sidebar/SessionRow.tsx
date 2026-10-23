@@ -240,7 +240,8 @@ function CrewRootSummaryLine({ root, fallback }: { root: string; fallback: React
   // The server's groups (the worker list API), so the row, the panel and the
   // breadcrumb agree; the fallback until the list has answered.
   const { workers, failed } = useCrewWorkerSummary(root)
-  const { groups, needsYou: needs, done, total } = summarizeCrewWorkers(workers ?? [])
+  // Only tool approvals reach the person; a worker's question is its conductor's.
+  const { groups, approval, done, total } = summarizeCrewWorkers(workers ?? [])
   // A failed read is said on the same one line, never as stale counts. The draft
   // is saved per chat, so the hand-off has nothing to lose.
   if (failed) {
@@ -254,9 +255,9 @@ function CrewRootSummaryLine({ root, fallback }: { root: string; fallback: React
   return (
     <div className={ROW_STATUS_LINE_CLS} data-testid="crew-root-summary">
       <CrewWorkerStack groups={groups} />
-      <span className={`ml-auto text-[12px] truncate ${needs > 0 ? 'crew-tone-warn font-medium' : 'crew-tone-muted'}`}>
-        {needs > 0
-          ? i18nT('components.crewMode.summary_needs_you', { count: needs })
+      <span className={`ml-auto text-[12px] truncate ${approval > 0 ? 'crew-tone-warn font-medium' : 'crew-tone-muted'}`}>
+        {approval > 0
+          ? i18nT('components.crewMode.summary_approval', { n: approval })
           : i18nT('components.crewMode.summary_done', { done, total })}
       </span>
     </div>

@@ -126,7 +126,6 @@
     "worker_untitled": "Worker ohne Titel",
     "workers_description": "Die Chats, die ein Chat im Crew Mode geöffnet hat, danach gruppiert, was dich braucht.",
     "workers_not_crew": "Das ist kein Chat im Crew Mode, darum hat er keine Worker.",
-    "worker_group_needs_you": "Braucht dich",
     "worker_group_working": "Arbeitet",
     "worker_group_waiting": "Wartet",
     "worker_group_done": "Fertig",
@@ -159,7 +158,15 @@
     "timeline_model_default": "Standardmodell",
     "timeline_gap_served_model_unreported": "Welches Modell das Backend bei auto gewählt hat",
     "timeline_model_default_named": "Standard ({{name}})",
-    "timeline_scale_compressed": "Zeit über eine Minute pro Abschnitt wird kürzer gezeichnet; oben steht die echte Zeit"
+    "timeline_scale_compressed": "Zeit über eine Minute pro Abschnitt wird kürzer gezeichnet; oben steht die echte Zeit",
+    "worker_group_approval": "Freigabe nötig",
+    "worker_group_with_conductor": "Wartet auf den Dirigenten",
+    "worker_status_asking": "Fragt seinen Dirigenten",
+    "timeline_not_started": "Nicht begonnen",
+    "timeline_loading": "Zeitleiste wird geladen…",
+    "workers_loading": "Mitarbeiter werden geladen…",
+    "worker_reopen": "{{title}} zum Lesen wieder öffnen",
+    "worker_reopen_failed": "Die Sitzung ließ sich nicht wieder öffnen. Versuche es erneut."
   },
   "terminalTab": {
     "rename": "Umbenennen",
@@ -9758,7 +9765,6 @@
       "flow_needs_you": "Braucht dich",
       "side_panel_open": "Aufgabenboard",
       "eyebrow": "Crew Mode",
-      "summary_needs_you": "Braucht dich · {{count}}",
       "summary_done": "Fertig {{done}}/{{total}}",
       "composer_chip_label": "Crew Mode ist für diesen Chat an",
       "breadcrumb_label": "Worker im Crew Mode",
@@ -9767,7 +9773,19 @@
       "steer_placeholder": "{{name}} lenken …",
       "steer_hint_running": "Unterbricht die laufende Antwort.",
       "steer_hint_idle": "Startet einen neuen Durchgang in {{name}}.",
-      "steer_too_long": "Eine Steuerung darf höchstens {{max}} Zeichen lang sein. Kürze sie zum Senden."
+      "steer_too_long": "Eine Steuerung darf höchstens {{max}} Zeichen lang sein. Kürze sie zum Senden.",
+      "summary_approval": "Freigabe nötig · {{n}}",
+      "approvals_label": "Tool-Freigaben von Mitarbeitern: {{n}}",
+      "approval_title": "{{name}} braucht eine Freigabe",
+      "approval_tool_unknown": "Unbekanntes Tool",
+      "approval_input_label": "Die genaue Tool-Eingabe",
+      "approval_failed": "Die Entscheidung ließ sich nicht senden. Vielleicht ist sie schon gefallen.",
+      "approval_approve": "Freigeben",
+      "approval_reject": "Ablehnen",
+      "approval_trust": "Diesem Mitarbeiter vertrauen",
+      "approval_trust_hint": "Gibt dies frei und lässt diesen Mitarbeiter Tools ohne Nachfrage nutzen, bis das Gateway neu startet.",
+      "reopen_conductor": "Dirigenten wieder öffnen",
+      "root_closed": "{{name}} ist geschlossen. Öffne ihn wieder, um diesen Mitarbeiter weiter zu steuern."
     },
     "guideLayer": {
       "region_label": "Anleitung",
