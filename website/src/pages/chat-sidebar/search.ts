@@ -6,17 +6,22 @@ import { folderNameText, collectFolderSubtreeIds } from '../../utils/folderTree'
 import type { ChatFolder } from '../../types'
 
 /** How much of this machine's session store a search read, present only when its
- *  scan window (`session.search_scan_window`) left older sessions unsearched. */
-export interface SessionSearchScan { searched: number; total: number }
+ *  scan window (`session.search_scan_window`) left older sessions unsearched.
+ *  `local` is set by the federated search, whose rows also come from other crews
+ *  while the count is this machine's alone. */
+export interface SessionSearchScan { searched: number; total: number; local: boolean }
 
-/** The response's `scan`, or `null` when it is absent or not two counts. */
+/** The response's `scan`, or `null` when it is absent or not two sane counts. */
 export function sessionSearchScan(d: unknown): SessionSearchScan | null {
-  const scan = (d as { scan?: unknown } | null | undefined)?.scan as Partial<SessionSearchScan> | undefined
+  const scan = (d as { scan?: unknown } | null | undefined)?.scan as
+    | { searched?: unknown; total?: unknown; scope?: unknown }
+    | undefined
   if (!scan || typeof scan !== 'object') return null
   const { searched, total } = scan
-  return Number.isInteger(searched) && Number.isInteger(total) && (searched as number) < (total as number)
-    ? { searched: searched as number, total: total as number }
-    : null
+  if (!Number.isSafeInteger(searched) || !Number.isSafeInteger(total)) return null
+  const s = searched as number
+  const t = total as number
+  return s >= 0 && s < t ? { searched: s, total: t, local: scan.scope === 'local' } : null
 }
 
 /**

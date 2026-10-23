@@ -25,14 +25,16 @@ _SNIPPET_MAX_LEN = 320  # hard cap on a returned snippet
 def _search_history_scan() -> int:
     """Upper bound on ranked candidates pulled from the backend per search.
 
-    The backend's own scan window, read at each search like the backend reads it,
-    so we consider every ranked match (bounded I/O) and post-filtering can't starve
-    a caller whose hits rank past a small page -- and the two can't drift apart.
-    Imported here rather than at module scope, so the facade does not serve it.
+    The ceiling of ``session.search_scan_window``, not its current value: the
+    backend reads the window itself and returns at most that many rows, so asking
+    for the ceiling takes every ranked match it scanned (bounded I/O) and
+    post-filtering can't starve a caller whose hits rank past a small page. Reading
+    the window here as well would be a second config read that a change landing
+    between the two could make smaller than the scan.
     """
-    from kiro_crew.history_search import _facade_search_scan_window
+    from kiro_crew.config.sections_limits import SEARCH_SCAN_WINDOW_MAX
 
-    return _facade_search_scan_window()
+    return SEARCH_SCAN_WINDOW_MAX
 
 
 def _history_is_incognito(meta: dict) -> bool:

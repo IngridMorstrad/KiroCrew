@@ -1232,11 +1232,12 @@ async def api_instances_search_sessions(request: web.Request) -> web.Response:
             break
     _audit("search_sessions", "success", request_id=f"{len(connected)} peers")
     body: dict[str, object] = {"sessions": merged, "unreachable": unreachable}
-    # THIS machine's scan window, as /api/sessions/search reports it; a peer's
-    # own window is its own and is not carried here.
+    # THIS machine's scan window, as /api/sessions/search reports it, marked
+    # ``local`` so the page says the count is this machine's; a peer's own window
+    # is its own and is not carried here.
     coverage = search_coverage(local_rows)
     if coverage is not None:
-        body["scan"] = {"searched": coverage[0], "total": coverage[1]}
+        body["scan"] = {"searched": coverage[0], "total": coverage[1], "scope": "local"}
     return web.json_response(body)
 
 

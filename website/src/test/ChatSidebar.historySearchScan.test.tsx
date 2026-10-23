@@ -51,6 +51,7 @@ Object.defineProperty(window, 'matchMedia', {
 globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }) as unknown as typeof fetch
 
 import ChatSidebar from '../pages/ChatSidebar'
+import { sessionSearchScan } from '../pages/chat-sidebar/search'
 import type { ChatSlot, ChatHistoryItem } from '../types'
 import type { RootState } from '../store'
 
@@ -160,5 +161,37 @@ describe('ChatSidebar – history search scan-window note', () => {
     await search('platypus')
     await screen.findByText('Platypus plan')
     expect(screen.queryByTestId('history-search-scan-note')).toBeNull()
+  })
+
+  it('names this machine when the federated search reports a local count', async () => {
+    sessionsSearchMock.mockResolvedValue({
+      sessions: [{ key: 'dashboard_chat-9', title: 'Platypus plan', modified: 3_000_000 }],
+      scan: { searched: 2000, total: 2150, scope: 'local' },
+    })
+    renderSidebar()
+    await search('platypus')
+    const note = await screen.findByTestId('history-search-scan-note')
+    expect(note).toHaveAttribute('role', 'status')
+    expect(note).toHaveTextContent(
+      'Searched the 2,000 most recent of 2,150 sessions on this machine; older sessions here were not searched.',
+    )
+  })
+})
+
+describe('sessionSearchScan', () => {
+  it.each([
+    [{ scan: { searched: -1, total: 5 } }],
+    [{ scan: { searched: 5, total: 5 } }],
+    [{ scan: { searched: 1, total: Number.MAX_SAFE_INTEGER + 2 } }],
+    [{ scan: { searched: 1.5, total: 5 } }],
+    [{ scan: null }],
+    [null],
+  ])('rejects %j', (d) => {
+    expect(sessionSearchScan(d)).toBeNull()
+  })
+
+  it('reads the counts and the local scope', () => {
+    expect(sessionSearchScan({ scan: { searched: 0, total: 3 } })).toEqual({ searched: 0, total: 3, local: false })
+    expect(sessionSearchScan({ scan: { searched: 2, total: 3, scope: 'local' } })).toEqual({ searched: 2, total: 3, local: true })
   })
 })

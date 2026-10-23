@@ -209,7 +209,8 @@ class SearchRows(list[dict]):
     the query could have reached, and *searched* the ones inside the scan window.
     ``searched < eligible`` means the window cut the search short, so a session
     it left out may also match. Both are ``0`` when the count is not known (a
-    search restricted to a caller's own keys judges only the window's sessions).
+    search restricted by *keys* alone judges only the window's sessions; one that
+    is also ``title:``-scoped counts the caller's own title matches).
     """
 
     def __init__(self, rows: Iterable[dict] = (), *, searched: int = 0, eligible: int = 0):
@@ -838,7 +839,7 @@ class SessionCatalogProjection:
         """The scoring and snippet half of :meth:`_search_sessions`.
 
         *title_filter*, when given (a ``title:`` query's term), makes the window
-        the newest ``_SEARCH_SCAN_WINDOW`` sessions whose title it accepts, chosen
+        the newest scan-window count of sessions whose title it accepts, chosen
         from every session after the memo prune. Judging a title reads no
         transcript, so an older session that ``title:x`` finds is still searched
         for ``title:x more``, and the cap still bounds the transcripts scored.

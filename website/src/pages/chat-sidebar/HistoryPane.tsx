@@ -363,8 +363,10 @@ export function renderHistoryPane(shell: SidebarScope): React.ReactNode {
                   Under the results AND under the empty state, gated on the same
                   "search active" test the list uses. */}
               {historySearchScan && historySearchResults && historyFilter.trim().length >= SEARCH_MIN_CHARS && (
-                <div className="px-3 pt-2 pb-1 text-[11px] text-muted text-center" data-testid="history-search-scan-note">
-                  {i18nT('pages.chatSidebar.search_scan_cut_short', {
+                <div role="status" className="px-3 pt-2 pb-1 text-[11px] text-muted text-center" data-testid="history-search-scan-note">
+                  {i18nT(historySearchScan.local
+                    ? 'pages.chatSidebar.search_scan_cut_short_local'
+                    : 'pages.chatSidebar.search_scan_cut_short', {
                     searched: fmtNumber(historySearchScan.searched),
                     total: fmtNumber(historySearchScan.total),
                   })}

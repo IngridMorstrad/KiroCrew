@@ -216,6 +216,33 @@ def test_search_chat_history_says_when_older_sessions_were_not_searched(
     assert "dashboard_chat-1" in out and "Searched the" not in out
 
 
+def test_search_chat_history_reads_the_window_once(tmp_path: Path, monkeypatch) -> None:
+    """The tool asks for the window's ceiling, so only the backend reads the window.
+
+    Two reads could disagree when the config changes between them, and a smaller
+    first read would cap the candidates below what the backend scanned.
+    """
+    monkeypatch.setenv("KIROCREW_HOME", str(tmp_path))
+    monkeypatch.setenv("KIROCREW_SESSION_KEY", "dashboard:global-v1")
+    log = ConversationLog(base_dir=tmp_path / "sessions")
+    log.append("dashboard_chat-1", "user", "the platypus plan")
+    monkeypatch.setattr(history, "_SEARCH_SCAN_WINDOW", None)
+    reads: list[int] = []
+    cfg = SimpleNamespace(session=SimpleNamespace(search_scan_window=500))
+
+    def _snapshot() -> SimpleNamespace:
+        reads.append(1)
+        return cfg
+
+    monkeypatch.setattr(live, "snapshot", _snapshot)
+    assert mcp_core._search_history_scan() == SEARCH_SCAN_WINDOW_MAX
+    assert reads == []
+    assert "dashboard_chat-1" in mcp_core._call_tool_inner(
+        "search_chat_history", {"query": "platypus"}
+    )
+    assert reads == [1]
+
+
 class _CutShortLog(_ConversationLog):
     """A shared search whose scan window left older sessions out."""
 
