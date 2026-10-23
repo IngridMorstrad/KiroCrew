@@ -238,11 +238,20 @@ def _register_config_appliers(self: GatewayOrchestrator) -> None:
         ),
         live.subscribe(
             *channel_prefixes,
+            # ``credentials`` carries the watcher's synthetic ``.env`` credential
+            # changes, so a token edited in ``.env`` restarts its channel through
+            # the same applier a ``config.json`` connection-parameter edit does.
+            live.CREDENTIAL_CHANGE_PREFIX,
             callback=self._on_channel_config_change,
             name="GatewayOrchestrator.channel_restart",
         ),
         live.subscribe(
             *self._SLACK_APPLIER_PREFIXES,
+            # ``credentials`` too: a Slack token changed in ``.env`` cannot be
+            # applied to the host-managed socket in process, so the applier logs
+            # a restart-needed notice for it (the honest fallback, like
+            # ``slack.command``) rather than silently ignoring the edit.
+            live.CREDENTIAL_CHANGE_PREFIX,
             callback=self._on_slack_config_change,
             name="GatewayOrchestrator.slack",
         ),

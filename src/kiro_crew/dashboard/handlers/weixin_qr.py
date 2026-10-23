@@ -350,7 +350,9 @@ async def weixin_qr_status(request: web.Request) -> web.Response:
 
     token = resp.get("bot_token", "")
     base_url = resp.get("baseurl") or ILINK_BASE_URL
-    account_id = resp.get("ilink_bot_id") or resp.get("account_id") or resp.get("ilink_user_id") or ""
+    account_id = (
+        resp.get("ilink_bot_id") or resp.get("account_id") or resp.get("ilink_user_id") or ""
+    )
     if not token or not account_id:
         await client.close()
         _SESSIONS.pop(session_id, None)
@@ -382,14 +384,14 @@ async def weixin_qr_status(request: web.Request) -> web.Response:
         # A corrupt config.json or an un-restrictable credential file must NOT be
         # reported as a successful sign-in.
         logger.exception("weixin: failed to persist QR sign-in")
-        return web.json_response(
-            {"error": "persist_failed", "detail": str(exc)[:200]}, status=500
-        )
+        return web.json_response({"error": "persist_failed", "detail": str(exc)[:200]}, status=500)
     finally:
         await client.close()
         _SESSIONS.pop(session_id, None)
 
-    logger.info("weixin: QR login confirmed; account_id=%s persisted. Restart to connect.", account_id[:8])
+    logger.info(
+        "weixin: QR login confirmed; account_id=%s persisted. Restart to connect.", account_id[:8]
+    )
     return web.json_response({"status": "confirmed", "connected": True, "account_id": account_id})
 
 
@@ -406,7 +408,12 @@ async def weixin_config_get(request: web.Request) -> web.Response:
 
     def _load() -> tuple[Any, bool]:
         cfg = KiroCrewConfig.load()
-        creds = cfg.load_credentials()
+        # propagate=False: a post-boot dashboard read must not re-seed
+        # os.environ. A setdefault here on a worker thread could restore a
+        # credential the live watcher just popped (an external .env removal
+        # racing this read), silently undoing the removal. Boot owns the one
+        # propagation; the live applier owns every mutation after.
+        creds = cfg.load_credentials(propagate=False)
         return cfg.weixin, bool(creds.get(CRED_WEIXIN_TOKEN, "") or cfg.weixin.token)
 
     # Off-loop: both config.json and the .env credential store are read from disk.
@@ -500,7 +507,9 @@ async def weixin_config_save(request: web.Request) -> web.Response:
             _state = request.app.get("state")
             if _state is not None:
                 await ensure_channel_folder(
-                    _state, "weixin", _folder_name,
+                    _state,
+                    "weixin",
+                    _folder_name,
                     relabel="session_folder" in body,
                 )
 

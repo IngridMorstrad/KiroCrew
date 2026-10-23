@@ -130,6 +130,36 @@ class TestOnlyAbsoluteDirectoriesPass:
         assert added == [os.path.expanduser("~/bin")]
         assert os.path.isabs(added[0])
 
+    def test_a_tilde_account_entry_still_expands_via_expanduser(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``~otheruser`` entry keeps resolving through ``os.path.expanduser``.
+
+        The event-loop stall this guards against is removed by expanding the
+        PATH additions OFF the loop (``ConfigWatch._prepare_path_additions`` ->
+        :func:`env.prepare_env_path_additions`), NOT by narrowing what expands.
+        So a ``~someaccount/bin`` line that resolved to an absolute dir before
+        still does -- here ``expanduser`` is patched to a deterministic absolute
+        path, standing in for the ``pwd.getpwnam`` result.
+        """
+        account_home = tmp_path / "accounts" / "someaccount"
+        real_expanduser = os.path.expanduser
+
+        def _fake(p: str) -> str:
+            if p.startswith("~someaccount"):
+                return str(account_home) + p[len("~someaccount") :]
+            return real_expanduser(p)
+
+        monkeypatch.setattr(os.path, "expanduser", _fake)
+        base = _dirs(tmp_path, "sys")[0]
+        _setup(monkeypatch, tmp_path, ["PATH=~someaccount/bin"], base)
+        _load()
+        added = [entry for entry in _path() if entry != base]
+        # The fake keeps the ``/bin`` suffix as written, so build the expected
+        # value the same way rather than with ``Path`` joining, which would use
+        # ``\`` on Windows and never match.
+        assert added == [str(account_home) + "/bin"]
+
 
 class TestPathIsASupportedKey:
     def test_a_path_line_draws_no_unknown_key_warning_but_a_plain_unknown_key_still_does(
