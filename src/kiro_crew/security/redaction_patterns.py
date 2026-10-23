@@ -325,26 +325,31 @@ _ARN_PREFIX_MAX_LOOKBACK = 256
 # redacts, when either shape below holds. Each one gives up some real ARNs to
 # over-redaction, which is the safe way to be wrong.
 #
-# The secret half of a Telegram token Telegram issues today: 35 characters, starting
-# `AA` (BotFather's documented example is `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`).
-# Telegram does not promise the prefix, so this is a signature, not a definition --
-# which is why the padded-id rule below exists beside it. It is matched as a PREFIX
-# of the tail: one appended character must not turn a complete secret back into a
-# resource name. A CDK resource name of 35 or more characters starting `AA` redacts.
-_TELEGRAM_SECRET_SIGNATURE_RE = re.compile(r"AA[A-Za-z0-9_-]{33}")
-# Leading zeros in front of a 6-10 digit value: a bot id padded out to 12. A real
-# account id can start `00`; one that does, followed by a 30+ character resource
-# name, redacts.
-_PADDED_BOT_ID_RE = re.compile(r"0+[1-9][0-9]{5,9}")
+# How every secret Telegram issues today begins (BotFather's documented example is
+# `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`). The tail reaching this check has
+# already cleared the Telegram branch's 30-character floor, so a tail starting `AA`
+# is withheld whatever its length: truncating, padding or extending a secret cannot
+# turn it back into a resource name. Telegram does not promise the prefix, which is
+# why the padded-id rule below stands beside it. A CDK resource name of 30 or more
+# characters starting `AA` redacts.
+_TELEGRAM_SECRET_PREFIX = "AA"
+# A Telegram bot id is 6-10 digits. Leading zeros in front of one pad it out to 12;
+# a real account id can start `00`, and one that does, followed by a 30+ character
+# resource name, redacts.
+_BOT_ID_LENGTHS = range(6, 11)
 
 
 def _arn_exemption_withheld(hit: str) -> bool:
     """Whether a Telegram-shaped hit inside an ARN is still a bot token.
 
-    *hit* is the whole Telegram-branch match, ``<12 digits>:<run>``.
+    *hit* is the whole Telegram-branch match, ``<12 digits>:<run>``. String tests
+    only: no pattern here can backtrack on a long run of one character.
     """
     account, _, tail = hit.partition(":")
-    return bool(_TELEGRAM_SECRET_SIGNATURE_RE.match(tail) or _PADDED_BOT_ID_RE.fullmatch(account))
+    if tail.startswith(_TELEGRAM_SECRET_PREFIX):
+        return True
+    unpadded = account.lstrip("0")
+    return unpadded != account and len(unpadded) in _BOT_ID_LENGTHS
 
 
 # Leftmost start of a non-JWT branch, found in linear time. Unguarded, the Telegram

@@ -168,7 +168,7 @@ DOCS_STYLE_SECRET = "ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 def test_the_bot_token_fixtures_are_what_they_claim() -> None:
     assert len(AA_SECRET) == 35 and AA_SECRET.startswith("AA")
     assert len(DOCS_STYLE_SECRET) == 34 and not DOCS_STYLE_SECRET.startswith("AA")
-    assert not _rp._TELEGRAM_SECRET_SIGNATURE_RE.fullmatch(DOCS_STYLE_SECRET)
+    assert not DOCS_STYLE_SECRET.startswith(_rp._TELEGRAM_SECRET_PREFIX)
     # The issue's own example tail is ALSO 35 characters: length alone cannot be the
     # distinguisher, or the fix would re-break #22475.
     assert len(FIRING_ARNS[0].rsplit(":", 1)[1]) == 35
@@ -213,7 +213,7 @@ def test_a_non_zero_padded_bot_id_with_a_trailing_character_is_redacted(
     """Padding with non-zero digits skips the padded-id rule; a trailing character
     must not then lift the secret signature, or the whole token survives."""
     padded = "9" * (12 - len(bot_id)) + bot_id
-    assert not _rp._PADDED_BOT_ID_RE.fullmatch(padded)
+    assert not padded.startswith("0")
     text = f"arn:aws:sns:us-west-2:{padded}:{AA_SECRET}{suffix}"
     result, warnings = redact_credentials(text)
     assert f"{bot_id}:{AA_SECRET}" not in result
@@ -222,23 +222,37 @@ def test_a_non_zero_padded_bot_id_with_a_trailing_character_is_redacted(
     assert warnings
 
 
+@pytest.mark.parametrize("keep", [30, 33, 34])
+def test_a_truncated_aa_secret_behind_a_non_zero_padded_id_is_redacted(keep: int) -> None:
+    """All but a few characters of a secret is still a secret: no length rule may leave
+    a prefix of it exposed."""
+    fragment = AA_SECRET[:keep]
+    text = f"arn:aws:sns:us-west-2:999110201543:{fragment}"
+    result, warnings = redact_credentials(text)
+    assert fragment not in result
+    assert TAG in result
+    assert warnings
+
+
 @pytest.mark.parametrize(
     ("resource", "redacts"),
     [
-        # 35 or more characters starting `AA`: the tail begins with a complete bot
-        # secret, so it redacts. Over-redaction is the safe direction.
+        # Any tail long enough to reach the Telegram branch (30+) that starts `AA`
+        # redacts. Over-redaction is the safe direction.
+        ("AAStackMyTopicA1B2C3D4-N1zQX9yJZ", True),
         ("AAStackAATopicA1B2C3D4-N1zQX9yJZ8wK", True),
         ("AAStackMyQueueA1B2C3D4E5F6G7H8I9J0KLMN", True),
-        # Starting `AA` but shorter than a secret: stays exempt.
-        ("AAStackMyTopicA1B2C3D4-N1zQX9yJZ8", False),
+        # Under the branch's 30-character floor: never a Telegram hit at all.
+        ("AAStackMyTopicA1B2C3D4", False),
+        # A single `A` is not the prefix.
+        ("AStackMyTopicA1B2C3D4-N1zQX9yJZ8wK", False),
     ],
 )
-def test_a_cdk_name_starting_aa_redacts_from_the_secret_length_up(
+def test_a_cdk_name_starting_aa_redacts_once_it_reaches_the_branch(
     resource: str, redacts: bool
 ) -> None:
     arn = f"arn:aws:sns:us-west-2:123456789012:{resource}"
-    assert resource.startswith("AA")
-    assert (len(resource) >= 35) is redacts
+    assert (resource.startswith("AA") and len(resource) >= 30) is redacts
     result, _ = redact_credentials(arn)
     assert (result != arn) is redacts
 
