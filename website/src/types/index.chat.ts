@@ -249,8 +249,9 @@ export interface ChatSlot extends TurnIdentityFields {
    *  worker): that root's key. The person's session list leaves such a row out;
    *  the side panel lists it under its root. Absent on every other row. */
   crew_root?: string
-  /** The agent Crew Mode turned on with (`crew_mode_agent` on the slot), "" when it
-   *  never did: the chat stays in Crew Mode on it after `agent.crew_mode_agent` changes. */
+  /** The conductor the chat runs in Crew Mode (`crew_mode_agent` on the slot), "" when
+   *  it never turned on: it marks the chat as Crew Mode until the gateway moves it onto
+   *  the configured `agent.crew_mode_agent`. */
   crew_mode_agent?: string
   /** Whether THIS gateway process stamped `created_by` at mint, rather than
    * rehydrating it from the transcript. `created_by` is restored from a metadata

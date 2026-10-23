@@ -408,21 +408,26 @@ releases only the captured identity, preserving any replacement session carrier.
 
 **Crew Mode** has no field of its own. It is a UI over a conductor template
 (`kiro_crew/crew_mode.py`): a chat is in Crew Mode exactly when it is a root
-session whose agent is in the Crew Mode family (`crew_mode.crew_mode_agents`: the
-configured `agent.crew_mode_agent` plus `CONDUCTOR_ALIASES`, the deprecated
-`kirocrew-ledger-conductor` while that agent is `kirocrew-conductor`), or is the agent
-its own stamp names, in the `template` namespace (`crew_mode.runs_crew_mode`). The
-pipeline, security and team-lead conductors are not in it: their sessions keep their
-folders and stay in the person's lists. `agent.crew_mode_agent` (default
-`kirocrew-conductor`) is the one place that names the conductor the switch turns on.
-Turning Crew Mode on stamps that agent on the slot (`crew_mode_agent`, persisted on
-the metadata line and in the slot row; `crew_mode.stamp_for_switch`), so changing the
-key swaps the conductor for new Crew Mode chats while a chat already in Crew Mode
-keeps the one it started on; the stamp counts only while the chat is still on that
-agent. The agent catalog
-(`GET /api/agents/catalog`) carries `crew_mode_agent`, `conductor_agents` (the
-picker's list) and `crew_mode_agents` (the family), which the dashboard reads
-instead of naming a conductor itself (`runsCrewMode` adds the slot's stamp).
+session on a conductor template, in the `template` namespace. Every conductor is Crew
+Mode: `crew_mode.conductor_agents` and `crew_mode.crew_mode_agents` are one set, every
+shipped conductor (the Crew Mode conductor, team lead, pipeline, security and ledger
+conductors) plus the configured `agent.crew_mode_agent` and `CONDUCTOR_ALIASES`. A
+chat on the agent its own stamp names is Crew Mode too (`crew_mode.runs_crew_mode`):
+the stamp (`crew_mode_agent`, on the metadata line and the slot row) only marks the
+chat as Crew Mode until the migration moves it. `agent.crew_mode_agent` is the one
+place that names the conductor; when it changes, or an update ships a new default,
+`dashboard/crew_mode_migration.py` moves every Crew Mode root onto it through
+`switch_slot_agent` (busy roots at their next idle point), keeps the work ledger keyed
+on the session, and writes one `crew_mode.migrate` audit line per move. Its start pass
+stamps existing conductor roots and learns closed roots from saved metadata
+(`crew_mode.note_roots`), so a worker whose root's tab is closed stays out of the
+session list and History (`history_reads._without_crew_workers`) by the persisted
+lineage. Switching a Crew Mode root to any other agent is refused `409
+crew_mode_locked` (`agent_switch._crew_mode_lock_refusal`), and a provider-side switch
+mid-turn is vetoed in `chat_runner`; the migration is the one exception. The agent
+catalog (`GET /api/agents/catalog`) carries `crew_mode_agent`, `conductor_agents` and
+`crew_mode_agents` (the same set), which the dashboard reads instead of naming a
+conductor itself (`runsCrewMode` adds the slot's stamp).
 The composer switch is one way: an ordinary
 `POST /api/chat/slots/{slot}/agent` naming the configured conductor in the `template`
 namespace. The chip shows only on an empty chat's welcome state, and its hint
@@ -430,17 +435,16 @@ reads "Turn on Crew Mode: each task runs in its own chat and reports back here."
 Pressing it hides both the memory-mode chip and the Crew Mode chip for that chat
 at once, and neither comes back: the composer has no off control and no off note.
 If the server refuses the switch, the chat never turned on and both chips return.
-A normal chat's agent picker lists no conductor at all (`withoutConductors` over the catalog's `conductor_agents`: every shipped conductor plus the configured one),
+A normal chat's agent picker lists no conductor at all (`withoutConductors` over the catalog's `conductor_agents`),
 and the keyboard agent cycle steps over the same list (`agentCycleTarget`; a
 Crew Mode chat does not cycle at all), so Crew Mode is the way into one. A
-Crew Mode chat's composer offers no agent picker (another conductor's chat keeps
-its picker and shows no Crew Mode label): a Crew Mode mark
+Crew Mode chat's composer offers no agent picker: a Crew Mode mark
 (`CrewModeComposerChip`, a read-only status named "Crew Mode is on for this
 chat": the ghost and gradient text, no pill, no hover or pressed state, not
 focusable) sits where the agent chip would, and the workspace and model
 controls stay. The pressed chip moves into that mark (a shared Framer Motion
-`layoutId`); under reduced motion the mark only fades in. The server route itself is
-unchanged: an empty agent name still stamps the configured default template.
+`layoutId`); under reduced motion the mark only fades in. An empty agent name on the
+switch route still stamps the configured default template.
 
 Every slot row says where it sits in Crew Mode (`crew_mode.stamp_rows`, run by
 `serialize_slots` after the parents): `crew_mode_root` is true on a Crew Mode root,

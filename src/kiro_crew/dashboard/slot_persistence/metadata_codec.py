@@ -727,8 +727,8 @@ def _read_agent_kind(r: _Read) -> None:
 
 
 def _read_crew_mode_agent(r: _Read) -> None:
-    # The agent Crew Mode turned on with: a chat stays in Crew Mode on it after
-    # ``agent.crew_mode_agent`` changes (``crew_mode.runs_crew_mode``).
+    # The conductor the chat runs in Crew Mode: it marks the chat as Crew Mode until
+    # the migration moves it onto ``agent.crew_mode_agent`` (``crew_mode.runs_crew_mode``).
     value = r.meta.get("crew_mode_agent")
     if isinstance(value, str) and value:
         r.slot.crew_mode_agent = value
