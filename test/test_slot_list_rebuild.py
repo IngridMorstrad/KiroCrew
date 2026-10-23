@@ -914,12 +914,37 @@ class TestPartialDeadline:
         state.arm_slot_list_rebuild_deadline()
 
         await await_until(deadline_fired, what="deadline during slot construction")
-        assert state.slot_list_rebuilding is False
+        # The per-key construction hold is always present here because
+        # end_slot_construction has not been called yet.
         assert state.slot_list_held_keys() == [dropped_key]
+        # Verify _expire_slot_list_rebuild had its intended effect. Two paths
+        # are both correct:
+        #
+        # a) Elapsed path (fast runner, elapsed >= deadline): expire cleared the
+        #    global label immediately and called push_slots_update, which broadcast
+        #    the flip.  deadline handle is now None; cleared is set.
+        #
+        # b) Retry path (slow runner, elapsed < deadline): expire saw the
+        #    construction hold within the deadline window and re-armed the timer
+        #    for 1 s.  The global label stays True; the deadline handle is set.
+        #
+        # Either way _expire_slot_list_rebuild must have taken one of these two
+        # actions; the assertion below catches a broken expire that does nothing.
+        if state.slot_list_rebuilding:
+            # Retry path: a new 1 s retry handle must have been armed.
+            assert state._slot_list_rebuild_deadline is not None
+        else:
+            # Elapsed path: label is already cleared and the handle was disposed.
+            assert state._slot_list_rebuild_deadline is None
+            assert cleared.is_set()
 
         state.end_slot_construction(slot.key)
+        # push_slots_update clears the global label now that the construction
+        # hold is gone (retry path), or broadcasts again on the already-cleared
+        # elapsed path; either way the signals are in their final state after.
         state.push_slots_update()
 
+        assert state.slot_list_rebuilding is False
         assert state.slot_list_held_keys() == []
         assert cleared.is_set()
         assert state._slot_list_rebuild_deadline is None
