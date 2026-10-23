@@ -555,7 +555,48 @@ async def api_crew_worker_steer(request: web.Request) -> web.Response:
 
     if is_relay_archive(slot):
         return _bad(RELAY_ARCHIVE_CODE, RELAY_ARCHIVE_ERROR, status=409)
-    return web.json_response(await _deliver_as_person(state, slot, message))
+    delivered = await _deliver_as_person(state, slot, message)
+    # The steer is also the person's word on the worker's item: one ``steer`` event
+    # on the root's own ledger, which the conductor reads before it decides and
+    # never overrules. A worker with no item there still got the text; nothing is
+    # written for it.
+    delivered["ledger_event"] = await _record_steer(state, root, worker, message)
+    return web.json_response(delivered)
+
+
+#: The longest steer text one ledger event keeps (the store's event text cap).
+STEER_EVENT_MAX_CHARS = 500
+
+
+def _steer_text(message: str) -> str:
+    """*message* redacted, then cut to the event cap. Redaction runs first, so a cut
+    can never leave a credential's prefix that the patterns no longer match."""
+    from kiro_crew.security import redact
+
+    return redact(message)[:STEER_EVENT_MAX_CHARS]
+
+
+async def _record_steer(state: Any, root: str, worker: str, message: str) -> str:
+    """Write the person's steer as a ``steer`` event on *worker*'s item. Best effort.
+
+    *worker*'s item is the one on *root*'s own ledger (:func:`_ledger_items`), so a
+    worker bound by another worker's ledger records nothing. Returns the item id it
+    landed on, or ``""`` (no item, a closed item, or a write that did not land).
+    The write itself is the work-ledger seam's (``record_person_steer``).
+    """
+    from kiro_crew import session_ledger
+    from kiro_crew.dashboard.handlers import work_ledger as wl
+
+    item_id = (await asyncio.to_thread(_ledger_items, root)).get(worker, NO_LEDGER).item
+    if not item_id:
+        return ""
+    try:
+        return await wl.record_person_steer(
+            state, session_ledger.ledger_key(root), item_id, _steer_text(message)
+        )
+    except Exception:
+        logger.warning("crew steer: the ledger event was not written", exc_info=True)
+        return ""
 
 
 async def _deliver_as_person(state: Any, slot: Any, message: str) -> dict[str, Any]:

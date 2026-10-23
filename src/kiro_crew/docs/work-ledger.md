@@ -196,6 +196,20 @@ it says so, e.g. `{"tests": "not run: harness unavailable"}`.
 are wrong or oversized: a truncated pointer is a broken pointer, while prose cut
 at the cap still reads.
 
+## A person's steer
+
+In a Crew Mode chat you can type into any worker from the side panel. The text
+reaches the worker as your own message, and when that worker holds an item on the
+chat's own ledger the item also gets one `steer` event: the time, actor `person`,
+and your text, redacted and cut to 500 characters. `work_ledger_read` shows it in
+the item's events. A steer moves no field: status, acceptance and verdict stay
+where they were, and acceptance stays the evaluator's.
+
+A person's steer outranks the conductor's decision. The shipped conductor
+guidance reads an item's new `steer` events before any `action=decide` and never
+overrules them. A worker with no item on the chat's ledger still gets the steer,
+and nothing is written.
+
 ## Why `done` is a claim
 
 A worker's `done` never closes an item. The conductor reads its whole ledger

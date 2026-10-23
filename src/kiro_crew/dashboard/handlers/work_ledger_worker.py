@@ -383,3 +383,63 @@ def _report(
         pr=pr,
         reason=reason,
     )
+
+
+# ── the person's steer ────────────────────────────────────────────────────
+
+
+async def record_person_steer(state: Any, board_key: str, item_id: str, text: str) -> str:
+    """One ``steer`` event on *item_id* of *board_key*'s ledger, as the person wrote it.
+
+    Called by the Crew Mode worker steer route (``crew_workers``) after the text was
+    delivered. Identity is server-resolved there: *board_key* is a live Crew Mode
+    root the dashboard owner holds, and *item_id* is its own ledger's item for the
+    steered worker. *text* is already redacted and length-capped.
+
+    The write takes the board lock, commits the event (no item field moves),
+    appends one ``work/recorded`` entry (actor ``person``, action ``steer``) to the
+    root's crew-log unit, and undoes the event when that entry does not land, as
+    every ledger write does. Returns the item id, or ``""`` when nothing landed (the
+    crew log is off, the cache is dirty, the item is closed, the record failed).
+    """
+    unit, refused = _acting_unit(state, board_key, "crew_mode.steer", item_id)
+    if refused is not None or unit is None:
+        return ""
+    async with _board_lock(board_key):
+        if await _refuse_if_dirty(board_key, board_key, "crew_mode.steer") is not None:
+            return ""
+        snapshot = await asyncio.to_thread(
+            functools.partial(work_ledger.snapshot_for_write, board_key, item_id=item_id)
+        )
+        result = await asyncio.to_thread(work_ledger.apply_person_steer, board_key, item_id, text)
+        if result is None:
+            return ""
+        item, event = result["item"], result["event"]
+        board = await asyncio.to_thread(work_ledger.read_conductor, board_key)
+        established, board = await _board_header(board_key, board)
+        landed = established and await asyncio.to_thread(
+            crew_log_emit.on_work_recorded,
+            unit,
+            _entry_with_baseline(
+                board_key,
+                item,
+                board,
+                actor="person",
+                by=board_key,
+                action="steer",
+                item_id=item.item_id,
+                generation=getattr(board, "generation", None) or None,
+                event=event.text,
+                event_kind="steer",
+                event_id=event.id or None,
+                event_ts=event.ts or None,
+            ),
+        )
+        if not landed:
+            await _refuse_unrecorded(
+                board_key, "crew_mode.steer", item.item_id, board_key, snapshot
+            )
+            return ""
+        await asyncio.to_thread(_mark_recorded, board_key, item.item_id)
+        _audit(board_key, "crew_mode.steer", "ok", resources=item.item_id)
+    return item.item_id
