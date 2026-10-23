@@ -24,7 +24,9 @@ from mcp_dashboard_folders_helpers import _FOLDERS, _call, _writes  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _reset_crew_mode_agent():
+def _reset_crew_mode_agent(monkeypatch):
+    monkeypatch.setattr(crew_mode, "_known_roots", set())
+    monkeypatch.setattr(crew_mode, "persisted_parents", lambda: {})
     yield
     crew_mode.remember(SimpleNamespace(agent=SimpleNamespace(crew_mode_agent="")))
 
@@ -59,41 +61,76 @@ def test_swapping_the_key_swaps_the_conductor_and_joins_the_family():
     assert "better-conductor" in crew_mode.conductor_agents()
 
 
-def test_the_family_is_the_crew_mode_agent_and_its_deprecated_name(monkeypatch):
-    """Only the Crew Mode conductor is Crew Mode: the pipeline, security and team-lead
-    conductors stay ordinary roots, so their dispatched sessions keep their folders
-    and stay in the person's lists. Every conductor still stays out of a normal
-    chat's agent picker. A custom agent brings no alias with it."""
+def test_every_conductor_is_crew_mode(monkeypatch):
+    """Decision 3: every shipped conductor is Crew Mode, the two lists are one set,
+    and a root on any of them (team lead and the scheduled pipeline conductor
+    included) is a Crew Mode root whose workers leave the person's list."""
     monkeypatch.setattr(crew_mode, "_live_cfg", lambda: None)
     monkeypatch.setattr(crew_mode, "_configured", crew_mode.DEFAULT_CREW_MODE_AGENT)
-    assert crew_mode.crew_mode_agents() == {"kirocrew-conductor", "kirocrew-ledger-conductor"}
-    others = ("kirocrew-pipeline-conductor", "kirocrew-security-conductor", "kirocrew-team-lead")
-    for other in others:
-        assert not crew_mode.runs_crew_mode(other, "template")
-        assert other in crew_mode.conductor_agents()
-    rows = _stamped(_row("p", agent="kirocrew-pipeline-conductor"), _row("w", created_by="p"))
-    assert rows["p"][crew_mode.ROOT_FIELD] is False
-    assert crew_mode.WORKER_FIELD not in rows["w"]
+    shipped = {
+        "kirocrew-conductor",
+        "kirocrew-ledger-conductor",
+        "kirocrew-pipeline-conductor",
+        "kirocrew-security-conductor",
+        "kirocrew-team-lead",
+    }
+    assert crew_mode.crew_mode_agents() == shipped
+    assert crew_mode.conductor_agents() == crew_mode.crew_mode_agents()
+    for name in shipped:
+        assert crew_mode.runs_crew_mode(name, "template")
+        rows = _stamped(_row("p", agent=name), _row("w", created_by="p"))
+        assert rows["p"][crew_mode.ROOT_FIELD] is True
+        assert rows["w"][crew_mode.WORKER_FIELD] == "p"
     custom = SimpleNamespace(agent=SimpleNamespace(crew_mode_agent="better-conductor"))
-    assert crew_mode.crew_mode_agents(custom) == {"better-conductor"}
+    assert crew_mode.crew_mode_agents(custom) == shipped | {"better-conductor"}
 
 
-def test_a_chat_stays_in_crew_mode_on_its_stamped_conductor_after_the_key_changes():
-    """Turning Crew Mode on stamps the agent; a later ``agent.crew_mode_agent`` change
-    swaps the conductor for new chats only."""
+def test_the_stamp_marks_a_chat_crew_mode_until_it_is_migrated():
+    """Decision 4: the stamp only marks the chat as Crew Mode. A root on a custom
+    conductor the key no longer names stays Crew Mode until the migration moves it;
+    the stamp counts only while the chat is still on that agent."""
     crew_mode.remember(SimpleNamespace(agent=SimpleNamespace(crew_mode_agent="new-one")))
     rows = _stamped(
         _row("root", agent="old-one", crew_mode_agent="old-one"), _row("w", created_by="root")
     )
     assert rows["root"][crew_mode.ROOT_FIELD] is True
     assert rows["w"][crew_mode.WORKER_FIELD] == "root"
-    # The stamp counts only while the chat is still on that agent.
     moved = _stamped(_row("root", agent="kirocrew", crew_mode_agent="old-one"))
     assert moved["root"][crew_mode.ROOT_FIELD] is False
-    # Only Crew Mode's own family stamps a switch.
     assert crew_mode.stamp_for_switch("new-one", "template") == "new-one"
     assert crew_mode.stamp_for_switch("new-one", "member") == ""
-    assert crew_mode.stamp_for_switch("kirocrew-pipeline-conductor", "template") == ""
+    assert crew_mode.stamp_for_switch("kirocrew-pipeline-conductor", "template") == (
+        "kirocrew-pipeline-conductor"
+    )
+    assert crew_mode.stamp_for_switch("kirocrew", "template") == ""
+
+
+def test_a_worker_whose_root_tab_closed_stays_out_of_the_list():
+    """Decision 5: a known closed root still holds its live workers, directly or
+    through a closed middle worker by the persisted lineage."""
+    crew_mode.note_roots(["closed-root"])
+    rows = _stamped(_row("w", created_by="closed-root"))
+    assert rows["w"][crew_mode.WORKER_FIELD] == "closed-root"
+    out = [_row("g", created_by="closed-mid")]
+    crew_mode.stamp_rows(out, parents={"closed-mid": "closed-root"})
+    assert out[0][crew_mode.WORKER_FIELD] == "closed-root"
+
+
+def test_a_history_row_is_a_worker_by_the_persisted_lineage():
+    parents = {"w2": "w1"}
+    created = {"w1": "root"}
+    assert crew_mode.persisted_root_of("w2", parents, {"root"}, created) == "root"
+    assert crew_mode.persisted_root_of("root", parents, {"root"}, created) == ""
+    assert crew_mode.persisted_root_of("loose", parents, {"root"}, created) == ""
+    # A cycle ends the walk.
+    assert crew_mode.persisted_root_of("a", {"a": "b", "b": "a"}, {"root"}) == ""
+
+
+def test_saved_metadata_of_a_conductor_root_is_a_root():
+    assert crew_mode.saved_row_is_root({"agent": "kirocrew-team-lead"})
+    assert not crew_mode.saved_row_is_root({"agent": "kirocrew-team-lead", "created_by": "x"})
+    assert not crew_mode.saved_row_is_root({"agent": "kirocrew"})
+    assert not crew_mode.saved_row_is_root({"agent": "kirocrew-conductor", "agent_kind": "member"})
 
 
 def test_a_crewmate_named_like_a_conductor_is_not_one():

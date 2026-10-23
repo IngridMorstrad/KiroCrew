@@ -137,6 +137,7 @@ from kiro_crew.context_blocks import (
     split_blocks,
 )
 from kiro_crew.crew_log import emit as crew_log_emit
+from kiro_crew.crew_mode import slot_is_crew_mode_root as crew_mode_is_root
 from kiro_crew.dashboard import chat_turn as _chat_turn
 from kiro_crew.dashboard import directive_queue
 from kiro_crew.dashboard import git_repo_touches as _git_repo_touches
@@ -2645,6 +2646,35 @@ async def _run_chat(
                     # finally block's session reset tears the switched session
                     # down, the same way the tool-rejection paths in _on_permission_prompt bail
                     # out of a turn that must not continue.
+                    break
+                elif new_agent and new_agent != slot.agent and crew_mode_is_root(slot):
+                    # Crew Mode is one way (``crew_mode_locked`` on every switch
+                    # route): the backend switching its own agent mid-turn would
+                    # take the chat off its conductor by the one door the HTTP
+                    # lock cannot reach. Vetoed like a member pin: the slot keeps
+                    # its agent, the denial is audited and shown, and the session
+                    # resets so the next turn starts on the conductor again.
+                    logger.warning(
+                        "agent switch to %r vetoed on Crew Mode chat %s", new_agent, slot.key
+                    )
+                    sel().log_api_access(
+                        caller=f"slot={slot.key}",
+                        operation="chat_runner.agent_switch",
+                        outcome="denied",
+                        source="crew_mode_locked",
+                        resources=f"slot={slot.key} agent={new_agent}",
+                        error="a Crew Mode chat stays on its conductor",
+                    )
+                    slot.append(
+                        "notice",
+                        f"📌 Agent switch to {new_agent} was blocked — this chat is in "
+                        "Crew Mode, which stays on its conductor. The next turn restarts "
+                        "on the conductor.",
+                        "msg msg-info",
+                    )
+                    needs_session_reset = True
+                    turn.needs_session_reset = needs_session_reset
+                    turn._produced_visible_output = True
                     break
                 elif new_agent:
                     # A live provider event can change a template selection.

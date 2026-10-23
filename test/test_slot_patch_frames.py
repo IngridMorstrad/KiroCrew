@@ -230,39 +230,21 @@ class TestSlotRemoved:
             }
         ]
 
-    def test_a_closed_crew_mode_roots_workers_come_back_to_the_lists(
+    def test_a_closed_crew_mode_roots_workers_stay_out_of_the_lists(
         self, state: DashboardState
     ) -> None:
-        """The full frame stops stamping ``crew_root`` once the root is gone, so the
-        removal patch restates it: otherwise the person's lists keep hiding the
-        workers under a root no list shows."""
+        """Decision 5: closing a Crew Mode root's tab keeps its workers out of the
+        person's lists (the root is a known root, persisted in its metadata), so
+        the removal patch never restates them as ordinary rows."""
+        from kiro_crew import crew_mode
+
         root = _slot(state, "root")
         root.agent = "kirocrew-conductor"
         worker = _slot(state, "worker")
         worker._created_by = "root"
         [row] = [r for r in state.serialize_slots() if r["key"] == "worker"]
         assert row["crew_root"] == "root"
-        capable = _WS(patch_capable=True)
-        state.register_ws(capable)  # type: ignore[arg-type]
-
-        del state._slots["root"]
-        state.push_slot_removed("root")
-
-        [frame] = capable.frames()
-        assert frame["data"]["removed"] == ["root"]
-        [patched] = [r for r in frame["data"]["slots"] if r["key"] == "worker"]
-        assert patched["crew_root"] == "" and patched["crew_mode_root"] is False
-
-    def test_a_closed_roots_workers_are_restated_with_a_legacy_client_connected(
-        self, state: DashboardState
-    ) -> None:
-        """The legacy push serializes the remaining slots first, which rebuilds the
-        root cache without the closed root; the patch must still restate."""
-        root = _slot(state, "root")
-        root.agent = "kirocrew-conductor"
-        worker = _slot(state, "worker")
-        worker._created_by = "root"
-        state.serialize_slots()
+        assert "root" in crew_mode.known_roots()
         capable = _WS(patch_capable=True)
         legacy = _WS(patch_capable=False)
         state.register_ws(capable)  # type: ignore[arg-type]
@@ -272,8 +254,12 @@ class TestSlotRemoved:
         state.push_slot_removed("root")
 
         [frame] = [f for f in capable.frames() if f["type"] == "slot_patch"]
-        [patched] = [r for r in frame["data"]["slots"] if r["key"] == "worker"]
-        assert patched["crew_root"] == ""
+        assert frame["data"]["removed"] == ["root"]
+        patched = [r for r in frame["data"]["slots"] if r["key"] == "worker"]
+        assert all(r.get("crew_root", "root") == "root" for r in patched)
+        [after] = [r for r in state.serialize_slots() if r["key"] == "worker"]
+        assert after["crew_root"] == "root"
+        crew_mode._known_roots.discard("root")
 
     def test_a_reregistered_key_is_not_removed(self, state: DashboardState) -> None:
         _slot(state, "chat-a")

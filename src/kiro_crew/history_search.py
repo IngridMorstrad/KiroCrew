@@ -375,6 +375,7 @@ class SessionCatalogProjection:
                 meta["memory_mode"] = d.get("memory_mode", "persistent")
                 if d.get("folder_id"):
                     meta["folder_id"] = d["folder_id"]
+                _copy_lineage(d, meta)
             else:
                 # Read only the first line for metadata
                 try:
@@ -392,6 +393,7 @@ class SessionCatalogProjection:
                             meta["memory_mode"] = d.get("memory_mode", "persistent")
                             if d.get("folder_id"):
                                 meta["folder_id"] = d["folder_id"]
+                            _copy_lineage(d, meta)
                             # Guarded publish — discard the fill if a write
                             # invalidated this key inside the stat → read
                             # window (see the generation snapshot above).
@@ -1435,3 +1437,16 @@ _sys.modules[__name__].__class__ = _facade_mirror.MirroredModule
 
 if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and IDEs
     from kiro_crew.history_search_query import _search_ref_resolver  # noqa: F401
+
+
+#: Metadata fields a session row carries only when set: the birth stamp and the Crew
+#: Mode marks, which the History list reads to keep a Crew Mode chat's workers out
+#: (``crew_mode.persisted_root_of``) without opening each transcript again.
+_LINEAGE_FIELDS: tuple[str, ...] = ("created_by", "agent_kind", "crew_mode_agent")
+
+
+def _copy_lineage(src: dict, dst: dict) -> None:
+    for name in _LINEAGE_FIELDS:
+        value = src.get(name)
+        if isinstance(value, str) and value:
+            dst[name] = value

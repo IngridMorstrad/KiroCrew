@@ -150,6 +150,10 @@ class SlotAgentSwitchCaller(NamedTuple):
     #: Append the session-switch boundary row on commit. Off for a caller that
     #: writes its own ``/agent`` announcement line, so the switch is marked once.
     notice: bool = True
+    #: The Crew Mode migration (``dashboard/crew_mode_migration.py``) moving a Crew
+    #: Mode root onto the configured conductor: the one switch the Crew Mode lock
+    #: lets through, and only onto ``agent.crew_mode_agent``.
+    crew_mode_migration: bool = False
 
     @classmethod
     def for_request(cls, request: web.Request) -> SlotAgentSwitchCaller:
@@ -168,6 +172,13 @@ class SlotAgentSwitchCaller(NamedTuple):
         # own request could do, never widened to the dashboard's.
         # The in-turn command appends its own announcement line, so no notice.
         return cls(app=slot._app or "", remote="", owner=False, own_turn=True, notice=False)
+
+    @classmethod
+    def for_crew_mode_migration(cls) -> SlotAgentSwitchCaller:
+        # The gateway itself, applying the owner's own ``agent.crew_mode_agent``:
+        # owner authority (the config is the owner's), no app scope, and the
+        # boundary row so the transcript shows where the conductor changed.
+        return cls(app="", remote="crew_mode_migration", owner=True, crew_mode_migration=True)
 
     @property
     def scope(self) -> web.Request | Mapping[str, Any]:
@@ -251,6 +262,52 @@ def agent_switch_outcome(resp: web.Response) -> tuple[bool, dict[str, Any]]:
     if not isinstance(body, dict):
         body = {}
     return resp.status == 200 and bool(body.get("ok")), body
+
+
+#: The refusal code for a switch that would take a Crew Mode root off Crew Mode.
+CREW_MODE_LOCKED = "crew_mode_locked"
+
+
+def _crew_mode_lock_refusal(
+    slot: _ChatSlot, agent_name: str, agent_kind: Any, caller: SlotAgentSwitchCaller
+) -> web.Response | None:
+    """409 ``crew_mode_locked`` when *slot* is a Crew Mode root and this switch moves it.
+
+    Crew Mode is one way: a Crew Mode root never moves to another agent, whoever
+    asks (the picker, the in-turn ``/agent`` command, a session-control send of
+    ``/agent``). A re-pick of the agent it is on is a session reset and passes.
+    The one move allowed is the Crew Mode migration onto the configured conductor
+    (``agent.crew_mode_agent``), in the template namespace. Read under the slot
+    lock, so a switch that turned Crew Mode on just before this one is seen.
+    """
+    from kiro_crew import crew_mode
+
+    if not crew_mode.slot_is_crew_mode_root(slot):
+        return None
+    same = agent_name == slot.agent and agent_kind in ("", "template", slot.agent_kind)
+    if same:
+        return None
+    if (
+        caller.crew_mode_migration
+        and agent_name == crew_mode.crew_mode_agent()
+        and agent_kind in ("", "template")
+    ):
+        return None
+    sel().log_api_access(
+        caller=caller.remote or caller.app or "dashboard",
+        operation="chat.slot_agent",
+        outcome="denied",
+        source=CREW_MODE_LOCKED,
+        resources=f"slot={slot.key}",
+        error="a Crew Mode chat stays on its conductor",
+    )
+    return web.json_response(
+        {
+            "error": "this chat is in Crew Mode, which stays on its conductor",
+            "code": CREW_MODE_LOCKED,
+        },
+        status=409,
+    )
 
 
 async def switch_slot_agent(
@@ -379,6 +436,9 @@ async def switch_slot_agent(
         denied = _app_cancel_denied(caller.scope, slot, "chat.slot_agent", session_key)
         if denied is not None:
             return denied
+        locked = _crew_mode_lock_refusal(slot, agent_name, agent_kind, caller)
+        if locked is not None:
+            return locked
         owner_request = caller.owner
         if not owner_request:
             # Permitted chat users keep template and legacy V1 choices, but

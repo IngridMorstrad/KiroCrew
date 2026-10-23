@@ -288,6 +288,9 @@ async def api_sessions(request: web.Request) -> web.Response:
             ]
 
         all_sessions = await asyncio.to_thread(_user_rows, all_sessions)
+        # A Crew Mode chat's workers are listed in its side panel, never in the
+        # person's own lists, History included, even after their root's tab closed.
+        all_sessions = _without_crew_workers(state, all_sessions)
     # Count AFTER the exclusion so the page, ``total`` and ``has_more`` describe
     # one list. The client advances its offset by the number of rows it received,
     # so filtering on its side instead would skip or repeat rows across pages.
@@ -343,6 +346,47 @@ async def api_sessions(request: web.Request) -> web.Response:
             "has_more": offset + (len(page) if request_app else limit) < total,
         }
     )
+
+
+def _without_crew_workers(state: DashboardState, sessions: list[dict]) -> list[dict]:
+    """*sessions* without the ones a Crew Mode root dispatched. No I/O.
+
+    By the persisted lineage: the crew log's session tree and each row's saved
+    ``created_by``, walked up to a known Crew Mode root (a live one, one the
+    gateway learned from saved metadata, or a row here that is one). Any fault
+    keeps the list as it is: hiding is never worth losing a session from view.
+    """
+    from kiro_crew import crew_mode
+    from kiro_crew.dashboard.crew_mode_migration import history_slot_key
+
+    try:
+        parents = crew_mode.persisted_parents()
+        created_by: dict[str, str] = {}
+        roots = set(crew_mode.known_roots())
+        roots.update(
+            key
+            for key, slot in list(state._slots.items())
+            if crew_mode.slot_is_crew_mode_root(slot)
+        )
+        for row in sessions:
+            slot_key = history_slot_key(str(row.get("key") or ""))
+            creator = row.get("created_by")
+            if isinstance(creator, str) and creator:
+                created_by[slot_key] = creator
+            elif crew_mode.saved_row_is_root(row):
+                roots.add(slot_key)
+        if not roots:
+            return sessions
+        return [
+            row
+            for row in sessions
+            if not crew_mode.persisted_root_of(
+                history_slot_key(str(row.get("key") or "")), parents, roots, created_by
+            )
+        ]
+    except Exception:
+        logger.debug("history: Crew Mode worker filter failed", exc_info=True)
+        return sessions
 
 
 class _AppOwnedKeys:

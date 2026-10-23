@@ -299,9 +299,9 @@ class AgentConfig:
         metadata=_meta(
             "Crew Mode conductor",
             "The agent template a chat runs when Crew Mode is turned on. The only "
-            "place that names it: changing it swaps the conductor for new Crew Mode "
-            "chats, and chats already in Crew Mode keep the one they started on. "
-            "Takes effect when the dashboard is reloaded; no gateway restart.",
+            "place that names it: changing it moves every Crew Mode chat, new and "
+            "old, onto the new conductor (a busy chat at its next idle point). "
+            "Takes effect live; no gateway restart.",
         ),
     )
     deepseek_env: dict[str, str] = field(

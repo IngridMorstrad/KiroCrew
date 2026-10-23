@@ -1,26 +1,34 @@
 """Crew Mode: which agents are conductors, which sessions are Crew Mode roots, and
 which sessions a root dispatched.
 
-Crew Mode is a chat on the Crew Mode conductor TEMPLATE. ``agent.crew_mode_agent``
-names the one a chat switches to when Crew Mode is turned on, and it is the only place
-that names it, so a better conductor is swapped in by changing that one key.
+Every conductor is Crew Mode. :func:`conductor_agents` and :func:`crew_mode_agents`
+are one set: every shipped conductor template (the Crew Mode conductor, the team
+lead, the pipeline, security and ledger conductors), the configured
+``agent.crew_mode_agent`` and the deprecated names that resolve to it. The dashboard
+keeps all of them out of a normal chat's agent picker, and a ROOT session on any of
+them is a Crew Mode root, so an existing conductor session (a team lead, a scheduled
+pipeline conductor) is a Crew Mode root as soon as it is loaded and its workers move
+to its side panel. No session, folder or transcript is deleted or moved for that.
 
-Two lists, for two questions. :func:`conductor_agents` is every shipped conductor plus
-the configured one: the dashboard keeps all of them out of a normal chat's agent
-picker. :func:`crew_mode_agents` is the Crew Mode family, the configured agent and the
-deprecated name that resolves to it: only a chat on one of those is Crew Mode. The
-pipeline, security and team-lead conductors are not, so their sessions keep their
-folders and stay in the person's lists.
+``agent.crew_mode_agent`` is the one place that names THE conductor: the agent a chat
+switches to when Crew Mode is turned on, and the agent every Crew Mode root is moved
+onto when that key changes or an update ships a new default
+(``dashboard/crew_mode_migration.py``). The switch is one way: the server refuses to
+move a Crew Mode root onto another agent (``crew_mode_locked``), except that
+migration.
 
-Turning Crew Mode on stamps the agent on the chat (``crew_mode_agent`` on the slot,
-persisted with it), so a chat stays in Crew Mode on the conductor it started on after
-``agent.crew_mode_agent`` changes; new chats get the new one.
+The chat keeps a stamp (``crew_mode_agent`` on the slot, persisted with it) only to
+mark it as Crew Mode: a root on a custom conductor that the config no longer names
+stays Crew Mode until the migration moves it, and a closed root is still known as a
+root from its saved metadata, so its workers stay out of the person's lists.
 
-A **Crew Mode root** is a ROOT session (nothing dispatched it) running the family's
-agent, or the agent its stamp names, as a template, never as a crewmate. Every session it dispatched, directly
-or through a session it dispatched, is its **worker**: the slot list stamps each worker
-with ``crew_root`` (its root's key) so the person's own session list can leave it out
-and the side panel can list it under its root instead.
+A **Crew Mode root** is a ROOT session (nothing dispatched it) running a conductor as
+a template, never as a crewmate. Every session it dispatched, directly or through a
+session it dispatched, is its **worker**: the slot list stamps each worker with
+``crew_root`` (its root's key) so the person's own session list and History can
+leave it out and the side panel can list it under its root instead. The walk follows
+the persisted lineage (``created_by`` and the crew log's session tree) past closed
+sessions, so a worker whose root's tab is closed stays out of the list too.
 
 A leaf on purpose: it reads slot payload dicts and config objects, never the dashboard
 state, so the slot serializer, the session-control handlers and the MCP tools can all
@@ -120,25 +128,26 @@ def remember(cfg: Any) -> None:
 
 
 def conductor_agents(cfg: Any = None) -> frozenset[str]:
-    """Every conductor: the shipped ones plus the configured Crew Mode agent.
+    """Every conductor: the shipped templates, the configured agent and its aliases.
 
-    The list a normal chat's agent picker leaves out. Being on one is not Crew Mode
-    (:func:`crew_mode_agents` is).
+    The list a normal chat's agent picker leaves out, and the same set as
+    :func:`crew_mode_agents`: every conductor is Crew Mode.
     """
-    return CONDUCTOR_TEMPLATES | {crew_mode_agent(cfg)}
+    agent = crew_mode_agent(cfg)
+    aliases = {alias for alias, to in CONDUCTOR_ALIASES.items() if to == agent}
+    return frozenset(CONDUCTOR_TEMPLATES | {agent} | aliases)
 
 
 def crew_mode_agents(cfg: Any = None) -> frozenset[str]:
-    """The Crew Mode family: the configured agent and every deprecated name of it."""
-    agent = crew_mode_agent(cfg)
-    return frozenset({agent} | {alias for alias, to in CONDUCTOR_ALIASES.items() if to == agent})
+    """The agents a Crew Mode root runs on: every conductor (:func:`conductor_agents`)."""
+    return conductor_agents(cfg)
 
 
 def stamp_for_switch(agent: object, agent_kind: object) -> str:
     """The stamp a switch to *agent* records: *agent* when that turns Crew Mode on, else ``""``.
 
-    A switch in the template namespace onto the family's agent is Crew Mode turning
-    on. A crewmate carrying the name is that crewmate.
+    A switch in the template namespace onto a conductor is Crew Mode turning on. A
+    crewmate carrying the name is that crewmate.
     """
     if agent_kind == "member" or not isinstance(agent, str):
         return ""
@@ -148,16 +157,64 @@ def stamp_for_switch(agent: object, agent_kind: object) -> str:
 def runs_crew_mode(
     agent: object, agent_kind: object, mode: object = "", stamp: object = ""
 ) -> bool:
-    """Whether a session on *agent* (in namespace *agent_kind*) is on Crew Mode's agent.
+    """Whether a session on *agent* (in namespace *agent_kind*) runs Crew Mode.
 
-    The family's agent, or the agent *stamp* names (a chat that turned Crew Mode on
-    before ``agent.crew_mode_agent`` changed): a stamp counts only while the chat is
-    still on that agent, so a later switch away ends Crew Mode with no clean-up. A
-    crewmate that carries a conductor's name is that crewmate, not a conductor.
+    Any conductor, or the agent *stamp* names: a chat that turned Crew Mode on with
+    a custom conductor that ``agent.crew_mode_agent`` no longer names stays Crew Mode
+    until the migration moves it onto the configured one. The stamp counts only
+    while the chat is still on that agent. A crewmate that carries a conductor's
+    name is that crewmate, not a conductor.
     """
     if agent_kind == "member" or mode == "member" or not isinstance(agent, str) or not agent:
         return False
     return agent in crew_mode_agents() or (isinstance(stamp, str) and stamp == agent)
+
+
+#: Slot keys known to be Crew Mode roots, live or closed. Every root a slot frame
+#: stamps is added, and the gateway adds the closed roots it finds in saved session
+#: metadata once at start (:func:`note_roots`), so a worker whose root's tab is
+#: closed is still that root's worker. In memory only; never shrinks while the
+#: process runs, because a root key is never reused for another session.
+_known_roots: set[str] = set()
+
+
+def note_roots(keys: Iterable[str]) -> None:
+    """Record *keys* as Crew Mode roots (live or closed)."""
+    for key in keys:
+        if isinstance(key, str) and key:
+            _known_roots.add(key)
+
+
+def known_roots() -> frozenset[str]:
+    """Every Crew Mode root key this process has seen or loaded."""
+    return frozenset(_known_roots)
+
+
+def persisted_parents() -> dict[str, str]:
+    """``{slot: creator slot}`` from the crew log's session tree, closed slots included.
+
+    The persisted lineage: the session tree folds every session the crew log saw
+    created, so it names a closed worker's creator after its tab is gone. Empty
+    when the crew log is off or its tree is not seeded. In memory; never raises.
+    """
+    try:
+        from kiro_crew.crew_log import emit as crew_log_emit
+
+        if not crew_log_emit.enabled():
+            return {}
+        from kiro_crew.crew_log.session_tree_projection import projection
+
+        tree = projection()
+        if not tree.seeded_for_current_store:
+            return {}
+        nodes = tree.nodes()
+    except Exception:
+        return {}
+    return {
+        slot: node.parent_slot
+        for slot, node in nodes.items()
+        if node.parent_slot and not node.cycle
+    }
 
 
 def _row_is_root(row: Mapping[str, Any]) -> bool:
@@ -234,16 +291,24 @@ def _live_ancestor_of(row: Mapping[str, Any]) -> str:
     return ""
 
 
-def stamp_rows(rows: Iterable[dict[str, Any]], *, settled: bool = False) -> None:
+def stamp_rows(
+    rows: Iterable[dict[str, Any]],
+    *,
+    settled: bool = False,
+    parents: Mapping[str, str] | None = None,
+) -> None:
     """Stamp :data:`ROOT_FIELD` on every row and :data:`WORKER_FIELD` on each worker. IN PLACE.
 
-    A worker is found by walking its creators up to a live Crew Mode root, so a
+    A worker is found by walking its creators up to a Crew Mode root, so a
     grandchild is a worker of the same root. The walk stops on a repeat, which ends
     it on any input (a cycle in forged records nests nothing). Past a creator that
-    is not listed (a closed worker) the walk follows the live ancestor the slot
-    frame resolved for that row (``parent.key``), so a worker whose own creator
-    closed stays in its root's tree; with no live ancestor the walk ends, and a
-    worker whose root has closed is shown like any other session.
+    is not listed (a closed session) the walk follows the live ancestor the slot
+    frame resolved for that row (``parent.key``); failing that, a closed creator
+    that is a known Crew Mode root (:func:`known_roots`) holds the row, and any
+    other closed creator is followed through the persisted lineage (*parents*,
+    default :func:`persisted_parents`, read only when a walk needs it). So a worker
+    whose root's tab is closed stays that root's worker and out of the person's
+    list, and it is listed under the root again when the root is reopened.
     """
     rows = list(rows)
     by_key: dict[str, dict[str, Any]] = {}
@@ -252,25 +317,90 @@ def stamp_rows(rows: Iterable[dict[str, Any]], *, settled: bool = False) -> None
         if isinstance(key, str):
             by_key[key] = row
     roots = {key for key, row in by_key.items() if _row_is_root(row)}
+    note_roots(roots)
+    closed_roots = known_roots() - set(by_key)
+    lineage: list[Mapping[str, str] | None] = [parents]
+
+    def persisted(key: str) -> str:
+        known = lineage[0]
+        if known is None:
+            known = lineage[0] = persisted_parents()
+        return known.get(key, "") or ""
+
     for key, row in by_key.items():
         row[ROOT_FIELD] = key in roots
         row.pop(WORKER_FIELD, None)
         if key in roots:
             continue
         seen = {key}
-        current = row
+        current: Mapping[str, Any] | None = row
         creator = _creator_of(row, settled)
         while creator and creator not in seen:
-            if creator in roots:
+            if creator in roots or creator in closed_roots:
                 row[WORKER_FIELD] = creator
                 break
             seen.add(creator)
             above = by_key.get(creator)
             if above is None:
-                creator = _live_ancestor_of(current)
+                live_ancestor = _live_ancestor_of(current) if current is not None else ""
+                current = None
+                creator = live_ancestor or persisted(creator)
                 continue
             current = above
             creator = _creator_of(above, settled)
+
+
+def persisted_root_of(
+    key: str,
+    parents: Mapping[str, str],
+    roots: Iterable[str],
+    created_by: Mapping[str, str] | None = None,
+) -> str:
+    """The Crew Mode root that holds slot *key* by the persisted lineage, or ``""``.
+
+    For a session with no live row (a History entry): walk *parents* (the crew
+    log's session tree, :func:`persisted_parents`) and *created_by* (each saved
+    session's birth stamp) up to one of *roots*. Stops on a repeat.
+    """
+    root_set = set(roots)
+    if key in root_set:
+        return ""
+    seen = {key}
+    current = key
+    while True:
+        creator = parents.get(current) or (created_by or {}).get(current) or ""
+        if not creator or creator in seen:
+            return ""
+        if creator in root_set:
+            return creator
+        seen.add(creator)
+        current = creator
+
+
+def saved_row_is_root(meta: Mapping[str, Any]) -> bool:
+    """Whether a saved session's metadata (a closed session) describes a Crew Mode root.
+
+    The same rule a live row meets (:func:`_row_is_root`), read off the fields a
+    session's metadata line keeps: no creator, not an app's, Persistent, and on a
+    conductor template or on the agent its Crew Mode stamp names.
+    """
+    return _row_is_root(
+        {
+            "created_by": meta.get("created_by"),
+            "app": meta.get("app"),
+            "instance_id": meta.get("instance_id"),
+            "memory_mode": meta.get("memory_mode"),
+            "agent": meta.get("agent"),
+            "agent_kind": meta.get("agent_kind"),
+            "mode": meta.get("mode"),
+            STAMP_FIELD: meta.get(STAMP_FIELD),
+        }
+    )
+
+
+def slot_is_crew_mode_root(slot: Any) -> bool:
+    """Whether live slot *slot* is a Crew Mode root, by the rule the slot list stamps."""
+    return _row_is_root(_live_row(slot))
 
 
 def in_crew_tree(row: Mapping[str, Any] | None) -> bool:
