@@ -3,6 +3,7 @@ import { OverlayPortal } from '../../components/overlayRoot'
 import { Command, Loader2 } from 'lucide-react'
 
 import { useAppDispatch, useAppSelector, useAppStore } from '../../store'
+import { selectPersonSlots } from '../../store/dashboardSlice'
 import { findReport } from '../../utils/errorReport'
 import { errMessage } from '../../utils/thunkError'
 import ErrorNotice from '../../components/ErrorNotice'
@@ -207,6 +208,10 @@ export default function CommandBarOverlay({
   // owe the user something without issuing a request: the facts are already here,
   // and the alternative surfaces (sidebar, recents) are reading the same three.
   const liveSlots = useAppSelector(s => s.dashboard.slots)
+  // The person's own sessions: a Crew Mode chat's workers are listed in its side
+  // panel, never in the Needs You or Recent sessions rows (the full set stays for
+  // the engines, which key navigation and the mates' running state on it).
+  const personSlots = useAppSelector(selectPersonSlots)
   const unreadSlots = useAppSelector(s => s.dashboard.unreadSlots)
   const slotStatusDetail = useAppSelector(s => s.chat.slotStatusDetail ?? {})
   const simplifiedToolNames = useSimplifiedToolNames()
@@ -317,7 +322,7 @@ export default function CommandBarOverlay({
   commandByIdRef.current = commandById
 
   const ranked = useCommandBarOverlayRootRows({
-    liveSlots, unreadSlots, slotStatusDetail, simplifiedToolNames, dispatch, navigate, store, cycleTheme,
+    liveSlots: personSlots, unreadSlots, slotStatusDetail, simplifiedToolNames, dispatch, navigate, store, cycleTheme,
     crewPreview, commandById, apps, settingsGovernance, resolved, scope, query, usage, attentionExpanded,
     setAttentionExpanded,
   })

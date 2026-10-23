@@ -1123,9 +1123,15 @@ async def api_instances_search_sessions(request: web.Request) -> web.Response:
     async def _local() -> list[dict]:
         if not state.conversation_log:
             return []
-        return await asyncio.get_running_loop().run_in_executor(
-            None, state.conversation_log.search_sessions, q, limit
+        from kiro_crew.dashboard.handlers.sessions_parts.history_reads import (
+            _without_crew_workers,
         )
+
+        rows = await asyncio.get_running_loop().run_in_executor(
+            None, state.conversation_log.search_sessions, q, min(limit * 4, 800)
+        )
+        # The person's search leaves Crew Mode workers out, as History does.
+        return _without_crew_workers(state, rows)[:limit]
 
     results = await asyncio.gather(_local(), *peer_calls, return_exceptions=True)
 

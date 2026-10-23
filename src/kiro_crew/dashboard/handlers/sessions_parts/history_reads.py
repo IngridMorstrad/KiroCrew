@@ -437,9 +437,14 @@ async def api_sessions_search(request: web.Request) -> web.Response:
         sessions = await asyncio.to_thread(_app_search, log, request_app, q, limit)
         _audit_app_allow(request_app, "session_search", f"sessions={len(sessions)}")
     else:
+        # Ranked over a wider window, then the person's view is applied, so the
+        # Crew Mode workers it leaves out cannot shorten the page below *limit*.
         sessions = await asyncio.get_running_loop().run_in_executor(
-            None, state.conversation_log.search_sessions, q, limit
+            None, state.conversation_log.search_sessions, q, min(limit * 4, 800)
         )
+        # A Crew Mode chat's workers stay out of the person's search too, the same
+        # rule the History list applies (``_without_crew_workers``).
+        sessions = _without_crew_workers(state, sessions)[:limit]
     for s in sessions:
         for field in SESSION_SEARCH_TEXT_FIELDS:
             value = s.get(field)

@@ -1479,3 +1479,25 @@ describe('CommandBarOverlay root ordering under a query', () => {
     expect(renderedHeaders()).toContain('Commands')
   })
 })
+
+describe('Crew Mode workers stay out of the Command Bar (edge review R1 X3)', () => {
+  it('lists neither a waiting nor a recent worker, only the root and plain chats', () => {
+    // A worker is its conductor's to show: the person's lists, this one included,
+    // leave it out even while it waits on a question or was visited last.
+    storeState.dashboard = {
+      slots: [
+        { key: 'root', title: 'Ship the review', crew_mode_root: true, messages: 3 },
+        { key: 'w-ask', title: 'Approval: list empty workspace', crew_root: 'root', needs_input: true, messages: 2 },
+        { key: 'w-done', title: 'Done: answer cat', crew_root: 'root', messages: 4, last_activity_ts: 9_000 },
+        { key: 'plain', title: 'Fleet notes', pending_approval: true, messages: 2 },
+      ],
+      unreadSlots: ['w-done'],
+    }
+    mount()
+    const text = screen.getAllByRole('option').map(r => r.textContent ?? '').join('\n')
+    expect(text).toContain('Fleet notes')
+    expect(text).toContain('Ship the review')
+    expect(text).not.toContain('Approval: list empty workspace')
+    expect(text).not.toContain('Done: answer cat')
+  })
+})
