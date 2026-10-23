@@ -35,7 +35,7 @@ import posixpath
 from typing import Any, Mapping
 
 
-class GuestPathParams(dict):
+class GuestPathParams(dict[str, Any]):
     """The arguments of one remote-workspace tool call; ``root`` is the guest workdir.
 
     A plain ``dict`` in every other respect, so every consumer that reads the

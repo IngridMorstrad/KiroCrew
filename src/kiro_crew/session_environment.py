@@ -131,6 +131,8 @@ REMOTE_AGENT_RESTRICTED = (
     "this agent's own rules limit shell commands or file paths, and a remote "
     "workspace cannot enforce them yet; remove those rules or run on This machine"
 )
+
+
 def choices_path() -> Path:
     """Where every session's environment choice is stored; the one spelling of it."""
     from kiro_crew.config.paths import data_home

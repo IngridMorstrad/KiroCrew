@@ -21,7 +21,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from kiro_crew import session_environment
 from kiro_crew.acp import runtime as runtime_mod
 from kiro_crew.acp.kas_permissions import KAS_TOOL_IDS_BY_KIRO_TOOL
 from kiro_crew.acp.runtime import AcpRuntime, AcpRuntimeError
