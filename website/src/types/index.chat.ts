@@ -391,6 +391,20 @@ export interface TagColumn {
   state_key?: SessionLaneKey | ''
 }
 
+/** `GET /api/chat/slots/{slot}/side`: the side conversation the gateway holds in
+ *  memory, which a reloaded panel restores from. Texts arrive redacted, as the
+ *  side frames carry them; `id` is the one the frame that announced the row
+ *  carried as `message_id`. */
+export interface SideSnapshot {
+  open: boolean
+  created_at?: string
+  last_run_id?: string
+  /** A side turn is in flight, so a submit would steer or queue. */
+  running?: boolean
+  messages?: Array<{ id: string; run_id?: string; role: 'user' | 'assistant'; content: string; ts: string; steer?: boolean; is_error?: boolean }>
+  queue?: Array<{ id: string; content: string; ts: string }>
+}
+
 export interface ChatMessage {
   role: string; content: string; cls: string; ts?: string
   /** Original unprocessed text — source of truth for reparse on stream completion. */
@@ -578,6 +592,8 @@ export interface Notification {
   kind: string; title: string; body: string; ts: string
   acked?: boolean; job_id?: string; task_id?: string; approval_id?: string
   slot?: string; session_key?: string; slack_link?: string
+  /** Transcript identity used to resume a closed slot; the slot name alone may name no history. */
+  history_key?: string
   // RFC Phase 3: schema-v2 routing + per-channel settings stamps
   source?: string; channel?: string; priority?: string; silenced?: boolean
   // RFC Phase 4: inline actions, stacking, dashboard-internal deep link

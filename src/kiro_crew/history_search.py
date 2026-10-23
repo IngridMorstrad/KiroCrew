@@ -21,8 +21,9 @@ import json
 import math
 import os
 import sys as _sys
+import threading
 import time as _time
-from collections.abc import Container, Iterable, Iterator
+from collections.abc import Callable, Container, Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -83,11 +84,13 @@ from kiro_crew.history_search_query import (  # noqa: F401 - facade re-exports
     _SEARCH_MAX_FORGE_REFS,
     _SEARCH_MAX_SCORING_EXTRAS,
     _SHORT_NEEDLE_MAX_CHARS,
+    _TITLE_SCOPE_PREFIX,
     CJK_SEGMENT_MAX_RUN_CHARS,
     CJK_SEGMENT_MAX_RUNS,
     SEARCH_MAX_TOKENS,
     CjkSegmenter,
     SearchNeedle,
+    TitleScope,
     _cjk_slot,
     _cjk_words,
     _cjk_words_lock,
@@ -118,6 +121,7 @@ from kiro_crew.history_search_query import (  # noqa: F401 - facade re-exports
     reset_search_ref_resolver_for_tests,
     snippet_needle_tiers,
     snippet_needles,
+    split_title_scope,
     tiered_first_hit,
 )
 from kiro_crew.jsonl_util import bounded_records
@@ -185,6 +189,29 @@ def _jsonl_stem(name: str) -> str:
     the name, so only a name longer than the six-character suffix loses it.
     """
     return name[:-6] if len(name) > 6 else name
+
+
+#: Session files whose stat failed with something other than ENOENT, already
+#: warned about. One such file marks every listing incomplete, which keeps the
+#: dashboard's unread drain held for the process lifetime, so the warning must
+#: be visible; the listing runs every few seconds, so it is also logged only
+#: once per path per process rather than on every pass.
+_unreadable_session_files_warned: set[str] = set()
+#: Listings run on executor threads, so the check and the add share one lock.
+_unreadable_session_files_lock = threading.Lock()
+
+
+def _warn_unreadable_session_file(path: str, error: OSError) -> None:
+    with _unreadable_session_files_lock:
+        if path in _unreadable_session_files_warned:
+            return
+        _unreadable_session_files_warned.add(path)
+    logger.warning(
+        "Session file %s cannot be stat'd (%s); the session list is reported "
+        "incomplete and unread dots stay held until it is readable or removed",
+        path,
+        error,
+    )
 
 
 class SessionCatalogProjection:
@@ -298,6 +325,15 @@ class SessionCatalogProjection:
         return [(stem, mtime) for mtime, stem in newest], counted > max_entries
 
     def list_sessions(self, *, keys: Iterable[str] | None = None) -> list[dict]:
+        return self._list_sessions_status(keys=keys)[0]
+
+    def list_sessions_status(self) -> tuple[list[dict], bool]:
+        """Return sessions plus whether the directory listing was complete."""
+        return self._list_sessions_status()
+
+    def _list_sessions_status(
+        self, *, keys: Iterable[str] | None = None
+    ) -> tuple[list[dict], bool]:
         """Return metadata for session files, newest first.
 
         Deduplicates stacked ``dashboard_`` prefix files, keeping the
@@ -307,8 +343,13 @@ class SessionCatalogProjection:
         holding one transcript lock can refresh its row without a directory scan.
         """
         sessions: list[dict] = []
-        if not self._log._dir.exists():
-            return sessions
+        try:
+            self._log._dir.stat()
+        except FileNotFoundError:
+            return sessions, True
+        except OSError:
+            return sessions, False
+        complete = True
         # Deduplicate stacked dashboard_ prefixes by canonical key, keeping newer
         by_canon: dict[str, dict] = {}
         if keys is None:
@@ -329,7 +370,7 @@ class SessionCatalogProjection:
                         if os.path.normcase(e.name).endswith(".jsonl")
                     ]
             except OSError:
-                entries = []
+                return [], False
         else:
             entries = []
             for key in keys:
@@ -346,7 +387,11 @@ class SessionCatalogProjection:
                 # identity would never equal the one every other reader takes
                 # from path.stat(); there the entry answers only is_symlink.
                 stat = os.stat(path) if entry is None or os.name == "nt" else entry.stat()
-            except OSError:
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                _warn_unreadable_session_file(path, exc)
+                complete = False
                 continue
             identity = self._log._cache_identity(stat)
             # Skip symlinks — these are handoff aliases pointing to the real session
@@ -461,7 +506,7 @@ class SessionCatalogProjection:
                 by_canon[canon] = meta
         sessions = list(by_canon.values())
         sessions.sort(key=lambda s: s.get("modified", 0), reverse=True)
-        return sessions
+        return sessions, complete
 
     def agent_usage(self) -> dict[str, tuple[int, float]]:
         """Return ``{agent_name: (session_count, last_used_mtime)}`` per agent.
@@ -631,9 +676,26 @@ class SessionCatalogProjection:
         crowd an allowed one off the page; an app-token caller passes the keys
         it owns. Membership is re-judged under the transcript lock through snippet
         extraction for each output row; a failed check or lock timeout drops the row.
+
+        A query that starts with ``title:`` (see :func:`split_title_scope`) is
+        scoped to titles: only sessions whose title matches its term qualify, and
+        any text after the term is searched as above among them. With nothing after
+        the term, :meth:`_search_titles` answers from titles alone. A bare
+        ``title:`` names no title yet and matches nothing.
         """
         if not query or limit <= 0 or not self._log._dir.exists():
             return []
+        title_filter: Callable[[str], bool] | None = None
+        scope = split_title_scope(query)
+        if scope is not None:
+            if not scope.term:
+                return []
+            title_filter = scope.title_filter()
+            if not scope.rest:
+                return self._search_titles(title_filter, limit, keys)
+            # The rest is the query from here on: it is what the content gate
+            # and the snippet look for, and the term only narrows the window.
+            query = scope.rest
         needles, phrase, adjacency_floor = parse_search_query(query)
         if not needles:
             # Whitespace-only query: no needles to require, so nothing can match.
@@ -655,7 +717,31 @@ class SessionCatalogProjection:
             _pinned(self._count_memo, gate.memo_keys),
             _pinned(self._snippet_memo, [snippet_group]),
         ):
-            return self._search_parsed(query, limit, keys, needles, phrase, adjacency_floor, gate)
+            return self._search_parsed(
+                query, limit, keys, needles, phrase, adjacency_floor, gate, title_filter
+            )
+
+    def _search_titles(
+        self, title_filter: Callable[[str], bool], limit: int, keys: Container[str] | None
+    ) -> list[dict]:
+        """A ``title:`` query with nothing after its term: match on titles alone.
+
+        Reads no transcript: ``list_sessions`` already carries every title, so
+        this skips the index shortlist, the content folds and the snippets a
+        content search pays for. For the same reason it is not held to the scan
+        window, so a known chat older than the newest ``_SEARCH_SCAN_WINDOW``
+        sessions is still found by its name. Rows keep ``list_sessions`` order,
+        newest first, and carry no snippet. *keys* restricts the rows exactly as
+        in :meth:`_search_parsed`, re-judged under the lock for each output row.
+        """
+        picked = [
+            (meta, False)
+            for meta in self._log.list_sessions()
+            # The title first: it is a string test, while an app caller's *keys*
+            # judges ownership per key.
+            if title_filter(meta.get("title") or "") and (keys is None or meta["key"] in keys)
+        ]
+        return self._result_rows(picked[:limit], keys, "")
 
     def _search_parsed(
         self,
@@ -666,22 +752,42 @@ class SessionCatalogProjection:
         phrase: str,
         adjacency_floor: bool,
         gate: "_MemoGate",
+        title_filter: Callable[[str], bool] | None = None,
     ) -> list[dict]:
-        """The scoring and snippet half of :meth:`_search_sessions`."""
+        """The scoring and snippet half of :meth:`_search_sessions`.
+
+        *title_filter*, when given (a ``title:`` query's term), makes the window
+        the newest ``_SEARCH_SCAN_WINDOW`` sessions whose title it accepts, chosen
+        from every session after the memo prune. Judging a title reads no
+        transcript, so an older session that ``title:x`` finds is still searched
+        for ``title:x more``, and the cap still bounds the transcripts scored.
+        Like *keys*, it skips the content-memo prune, which must see every
+        window session's row; the per-session cache prune still sees the usual
+        window. What an older match adds to the caches and memos stays inside
+        their byte budgets, and the next unrestricted search under pressure
+        releases it.
+        """
         multi = gate.multi
         now = _time.time()
         # (verbatim runs hit, score, -rank, meta, needs_snippet)
         scored: list[tuple[int, float, int, dict, bool]] = []
-        window = self._log.list_sessions()[: _facade_search_scan_window()]
+        sessions = self._log.list_sessions()
+        scan_window = _facade_search_scan_window()
+        window = sessions[:scan_window]
         self._log._prune_search_memos({m["key"] for m in window})
+        if title_filter is not None:
+            window = [m for m in sessions if title_filter(m.get("title") or "")]
         if keys is not None:
             # After the prune, which must see the whole window: the memos are
             # shared with every unrestricted search.
             window = [m for m in window if m["key"] in keys]
+        if title_filter is not None:
+            window = window[:scan_window]
         allowed, rowids = self._index_shortlist(window, needles)
-        if keys is None:
-            # Only an unrestricted search sees every live session's row; a
-            # restricted one would prune entries other callers still reach.
+        if keys is None and title_filter is None:
+            # Only an unrestricted search sees every live session's row; one
+            # restricted by *keys* or by a title would prune entries other
+            # callers still reach.
             self._prune_content_memos(rowids)
         needle_keys = gate.needle_keys
         phrase_key = gate.phrase_key
@@ -775,8 +881,19 @@ class SessionCatalogProjection:
         # original text, so offsets line up), so building one per match put a
         # full re-read back on the hot path — dominating the query once the fold
         # itself was memoized.
+        picked = [(meta, needs_snippet) for _v, _s, _r, meta, needs_snippet in scored[:limit]]
+        return self._result_rows(picked, keys, query)
+
+    def _result_rows(
+        self, picked: list[tuple[dict, bool]], keys: Container[str] | None, query: str
+    ) -> list[dict]:
+        """The output rows for ranked *picked* ``(meta, needs_snippet)`` pairs.
+
+        A row flagged for a snippet gets the excerpt of *query* from its transcript.
+        With *keys*, each row is re-judged under its transcript lock first.
+        """
         out: list[dict] = []
-        for _verbatim, _score, _rank, meta, needs_snippet in scored[:limit]:
+        for meta, needs_snippet in picked:
             if keys is not None:
                 # Scoring-time folds may race ownership and affect ranking/inclusion
                 # only; the lock-held re-judge keeps foreign rows/snippets out of output.

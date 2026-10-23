@@ -464,7 +464,14 @@ def _url_payload_command(n: int) -> str:
 #: Six more for its ``keep_sri_digests=False`` switch: a streamed segment whose delta
 #: boundary split an SRI value saves main's verdict on the digest, not the notice.
 #:
-#: Raised again, from 32,188, for a real new rule in ``redaction_patterns.py``: the
+#: Raised again, from 32,188, for the ``self-protection-skills-authority-retire`` floor,
+#: which denies the operator-only ``kirocrew skills authority-retire`` recovery
+#: through an agent shell: one argv matcher in ``argv_floor_self``, its facade
+#: manifest line, its rule id and reason in ``denied_rules_tables``, its ``deny_gate``
+#: registration, its facade export, and its name in the ungated-floor comment. No pass
+#: widened and no threshold moved.
+#:
+#: Raised again, from 32,206, for a real new rule in ``redaction_patterns.py``: the
 #: Telegram-bot-token branch (``_CREDENTIAL_PATTERNS``) false-positives on a long
 #: CDK-generated ARN, whose account-id/resource boundary shares that branch's bare
 #: ``<digits>:<30+ run>`` shape. Two new compiled patterns (an alternation with the
@@ -483,7 +490,7 @@ def _url_payload_command(n: int) -> str:
 #: facade's ``TYPE_CHECKING`` mirror manifest (the two ARN-prefix regexes, the lookback
 #: constant, the 12-digit account-id regex and the sans-Telegram alternation), which
 #: ``test_facade_mirror_guards`` requires name everything the facade forwards.
-_PACKAGE_LINE_BUDGET = 32_241
+_PACKAGE_LINE_BUDGET = 32_259
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

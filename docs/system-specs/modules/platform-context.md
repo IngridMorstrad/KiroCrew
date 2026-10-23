@@ -853,10 +853,10 @@ Wired sites:
 - `apps/registry_pipeline/sources.py` / `apps/routes.py` — clone-sandbox-mode decision routes
   through `current_context().registry` (`_context_clone_sandbox_mode`).
 - Telemetry `record_event` sites — `dashboard/server_runtime/diagnostics.py` records `gateway_start`
-  at boot; `dashboard/chat_runner.py` and `slack/handler_runtime/turn.py` record one
-  `interaction` event per successful chat turn (immediately after the
-  `record_success` call, non-cancelled / non-retrying branch only; cancelled
-  turns emit nothing). **The interaction payload is strictly metadata —
+  at boot; `_turn_context_usage` (`dashboard/chat_turn/turn_stats.py`) and
+  `slack/handler_runtime/turn.py` record one `interaction` event per successful chat turn
+  (immediately after the `record_success` call, non-cancelled / non-retrying branch only;
+  cancelled turns emit nothing). **The interaction payload is strictly metadata —
   `session_key`, `surface` (`"dashboard"` / `"slack"`), and `model` — never
   prompt/response text or file contents.** All sites are best-effort
   (try/except-Exception, debug log); the Default provider is a no-op so
@@ -1087,6 +1087,10 @@ is byte-identical) with no `CONTRACT_VERSION` bump.
   winner's identity. Merged at the
   consumption sites, never inside `KiroCrewConfig`, so a config save can never
   persist an edition default into the operator's file. Default `[]`.
+  A row may carry `allowDefaultInstall: true`, which lets that registry's index
+  mark apps `defaultInstall` for a one-time install and trust grant on first
+  boot. Honoured only for a pinned row in force at the `owner` tier; contract in
+  [app-kit-platform](app-kit-platform.md) §15.1.
 - `TelemetryProvider.otlp_destinations(cfg) -> Sequence[OtlpDestination]` — the
   OTLP collectors this edition sends telemetry to. Read by
   `metrics/provider.py::_otlp_destinations` once per recorder build (through

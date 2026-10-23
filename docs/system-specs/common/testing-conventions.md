@@ -179,7 +179,10 @@ The test floor clears live session and run execution records between tests so a
 reused temporary home cannot inherit another test's routing or retention mode.
 Dispatch doubles provide a concrete `get_agent_selection()` tuple, including
 `("template", "")` for the default template. An unconstrained mock is not a
-valid member or template identity. Session context doubles implement the async
+valid member or template identity. Runtime fixtures that bypass the constructor
+with `__new__` explicitly set `_remote_workspace = None` for a local session,
+so activation exercises its real local path rather than an incomplete object.
+Session context doubles implement the async
 `memory_mode_for_session()` accessor and return a concrete retention mode.
 Session-start collector tests declare their
 MCP roster explicitly rather than inheriting the installed agent's tools.
@@ -3350,7 +3353,7 @@ went red, or the fix lands in the wrong file and the leak stays.
   the number unreachable.
 - **`network`: rank the address before you file the finding.** The UDP `connect` to
   `198.51.100.1:53` / `2001:db8::1:53` in `argv_floor_hosts._own_interface_addresses` is the
-  packet-less local-IP trick over TEST-NET, a hardening item: `test_security.py` now routes
+  packet-less local-IP trick over TEST-NET, a hardening item: `test_security_denied_commands.py` now routes
   it through an inert `_InertDatagramSocket` at the module's `socket` binding (datagram
   construction only; every other socket kind passes through) that records the peer and
   answers a documentation address from `getsockname`, and asserts the peers it WOULD have
@@ -5674,7 +5677,8 @@ and it refuses to run while a file under proof carries uncommitted edits.
 
 ```bash
 python3 src/kiro_crew/builtin_skills/kirocrew-dev/kirocrew-prepare-pr/scripts/prove.py
-# 0 PROVEN · 20 NOT_PROVEN · 21 INCONCLUSIVE · 10 nothing to prove · 30 baseline red
+# 0 PROVEN · 20 NOT_PROVEN · 21 INCONCLUSIVE · 10 nothing to prove · 11 frontend tests · 30 baseline red
+# it also prints the `Proof:` line a fix PR pastes under `## Tests`
 # add --per-hunk to name the hunks no test catches
 ```
 
