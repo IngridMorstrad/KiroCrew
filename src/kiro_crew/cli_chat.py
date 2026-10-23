@@ -78,10 +78,27 @@ _DEFAULT_KIRO_AGENT = "kirocrew"
 #: record is attributed to the CLI even if the key ever gains a suffix.
 _CLI_SEL_SOURCE = "cli"
 
-#: The only answer that approves a tool call, and the key advertised for
-#: refusing one. Matched exactly -- see :func:`_prompt_allows`.
-_ALLOW_KEY = "a"
-_DENY_KEY = "d"
+#: The answer that approves a tool call, and the key advertised for refusing
+#: one. Matched exactly -- see :func:`_prompt_allows`. ``y`` / ``n`` are Kiro
+#: CLI's own tool-permission keys (``crates/chat-cli/src/cli/chat/mod.rs``), so
+#: muscle memory from ``kiro-cli chat`` carries over instead of a habitual ``y``
+#: being read as a denial.
+_ALLOW_KEY = "y"
+_DENY_KEY = "n"
+#: The keys this prompt used before it matched Kiro CLI, still honoured but no
+#: longer advertised, so a user who learned them is not suddenly refused. Kept
+#: for one release; ``d`` needs no entry because every unrecognised answer
+#: already denies.
+_LEGACY_ALLOW_KEYS = frozenset({"a"})
+#: Kiro CLI's "trust this tool for the session". Not honoured here: this CLI
+#: has no persistent approval (see :func:`_answer_permission`), so ``t`` denies
+#: like any other unrecognised answer, but says why instead of looking like a
+#: misread allow.
+_TRUST_KEY = "t"
+_TRUST_UNSUPPORTED_NOTICE = (
+    "   Denied: trusting a tool for the session is not available in kirocrew chat. "
+    f"Answer {_ALLOW_KEY} to allow each call once."
+)
 
 #: Audit codes. Stable and machine-readable, mirroring the dashboard's own
 #: ``error="hook_deny"``: an audit record must not restate the path or command a
@@ -660,11 +677,14 @@ def _kind_text(event: LLMEvent) -> str:
 
 
 async def _prompt_allows(event: LLMEvent) -> bool:
-    """Ask the human, and return True ONLY for the exact allow token.
-    Matched exactly rather than by first letter: a prefix match reads ``abort``
-    as an allow, which is the opposite of what the person typing it means.
-    Anything else -- an unrecognised word, a blank line, EOF -- denies, so the
-    safe answer is the one a user gets by doing nothing.
+    """Ask the human, and return True ONLY for an exact allow token.
+    The allow tokens are ``y`` and the unadvertised legacy ``a``. Matched
+    exactly rather than by first letter: a prefix match reads ``yank`` or
+    ``abort`` as an allow, which is the opposite of what the person typing it
+    means. Anything else -- an unrecognised word, a blank line, EOF -- denies,
+    so the safe answer is the one a user gets by doing nothing. ``t`` (Kiro
+    CLI's trust-for-session) denies too, with a notice, because there is no
+    session grant here to honour it with.
 
     A shell call also shows its command, and any call with a trusted identity
     shows that identity. ``title`` is LLM-authored prose, so approving on it
@@ -707,7 +727,11 @@ async def _prompt_allows(event: LLMEvent) -> bool:
     if target:
         print(f"Path: {_display_path(target)}")
     answer = await _read_line(f"   [{_ALLOW_KEY}] allow once  [{_DENY_KEY}] deny (default): ")
-    return answer.strip().lower() == _ALLOW_KEY
+    token = answer.strip().lower()
+    if token == _TRUST_KEY:
+        print(_TRUST_UNSUPPORTED_NOTICE)
+        return False
+    return token == _ALLOW_KEY or token in _LEGACY_ALLOW_KEYS
 
 
 async def _audit_off_loop(

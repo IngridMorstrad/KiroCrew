@@ -127,6 +127,9 @@ Override with `PORT=` in `~/.kiro/crew/pods/<name>.env`.
 | `kirocrew chat -m "message"` | Single message (non-interactive) |
 | `kirocrew chat --model MODEL_ID` | Use a specific model (default `auto`; any id the model picker lists) |
 
+When `kirocrew chat` asks to run a tool, answer `y` to allow that call once or
+`n` to deny it, the same keys `kiro-cli chat` uses. Anything else denies.
+
 ## Browsing (`browser` MCP tool, then `playwright-cli`)
 
 Browsing is not a `kirocrew` subcommand. Start with the **`browser` MCP tool**

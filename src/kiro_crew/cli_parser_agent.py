@@ -47,6 +47,10 @@ Examples:
   kirocrew chat                      # Interactive mode
   kirocrew chat -m 'check my CRs'    # Single message
   kirocrew chat --model claude-opus  # Use specific model
+
+Tool permission prompt (same keys as kiro-cli chat):
+  y  allow this call once
+  n  deny (default; anything else also denies)
 """,
         formatter_class=_fmt,
         parents=[_jail_opts],
