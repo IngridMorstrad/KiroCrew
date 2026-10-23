@@ -328,8 +328,9 @@ _ARN_PREFIX_MAX_LOOKBACK = 256
 # The secret half of a Telegram token Telegram issues today: 35 characters, starting
 # `AA` (BotFather's documented example is `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`).
 # Telegram does not promise the prefix, so this is a signature, not a definition --
-# which is why the padded-id rule below exists beside it. A CDK resource name that
-# is exactly 35 characters and starts `AA` redacts.
+# which is why the padded-id rule below exists beside it. It is matched as a PREFIX
+# of the tail: one appended character must not turn a complete secret back into a
+# resource name. A CDK resource name of 35 or more characters starting `AA` redacts.
 _TELEGRAM_SECRET_SIGNATURE_RE = re.compile(r"AA[A-Za-z0-9_-]{33}")
 # Leading zeros in front of a 6-10 digit value: a bot id padded out to 12. A real
 # account id can start `00`; one that does, followed by a 30+ character resource
@@ -343,9 +344,7 @@ def _arn_exemption_withheld(hit: str) -> bool:
     *hit* is the whole Telegram-branch match, ``<12 digits>:<run>``.
     """
     account, _, tail = hit.partition(":")
-    return bool(
-        _TELEGRAM_SECRET_SIGNATURE_RE.fullmatch(tail) or _PADDED_BOT_ID_RE.fullmatch(account)
-    )
+    return bool(_TELEGRAM_SECRET_SIGNATURE_RE.match(tail) or _PADDED_BOT_ID_RE.fullmatch(account))
 
 
 # Leftmost start of a non-JWT branch, found in linear time. Unguarded, the Telegram

@@ -205,23 +205,40 @@ def test_a_real_shaped_bot_token_outside_any_arn_is_redacted() -> None:
     assert warnings
 
 
+@pytest.mark.parametrize("bot_id", ["110201543", "1234567890", "123456"])
+@pytest.mark.parametrize("suffix", ["-", "x", "_trailer"])
+def test_a_non_zero_padded_bot_id_with_a_trailing_character_is_redacted(
+    bot_id: str, suffix: str
+) -> None:
+    """Padding with non-zero digits skips the padded-id rule; a trailing character
+    must not then lift the secret signature, or the whole token survives."""
+    padded = "9" * (12 - len(bot_id)) + bot_id
+    assert not _rp._PADDED_BOT_ID_RE.fullmatch(padded)
+    text = f"arn:aws:sns:us-west-2:{padded}:{AA_SECRET}{suffix}"
+    result, warnings = redact_credentials(text)
+    assert f"{bot_id}:{AA_SECRET}" not in result
+    assert AA_SECRET not in result
+    assert TAG in result
+    assert warnings
+
+
 @pytest.mark.parametrize(
     ("resource", "redacts"),
     [
-        # Exactly 35 characters and starting `AA`: indistinguishable from a bot
+        # 35 or more characters starting `AA`: the tail begins with a complete bot
         # secret, so it redacts. Over-redaction is the safe direction.
         ("AAStackAATopicA1B2C3D4-N1zQX9yJZ8wK", True),
-        # Starting `AA` but not 35 characters: not the secret shape, stays exempt.
-        ("AAStackMyQueueA1B2C3D4E5F6G7H8I9J0KLMN", False),
+        ("AAStackMyQueueA1B2C3D4E5F6G7H8I9J0KLMN", True),
+        # Starting `AA` but shorter than a secret: stays exempt.
         ("AAStackMyTopicA1B2C3D4-N1zQX9yJZ8", False),
     ],
 )
-def test_a_cdk_name_starting_aa_redacts_only_at_the_secret_length(
+def test_a_cdk_name_starting_aa_redacts_from_the_secret_length_up(
     resource: str, redacts: bool
 ) -> None:
     arn = f"arn:aws:sns:us-west-2:123456789012:{resource}"
     assert resource.startswith("AA")
-    assert (len(resource) == 35) is redacts
+    assert (len(resource) >= 35) is redacts
     result, _ = redact_credentials(arn)
     assert (result != arn) is redacts
 
