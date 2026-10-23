@@ -10052,7 +10052,8 @@
       "steer_label": "Направить · {{name}}",
       "steer_placeholder": "Направь {{name}}…",
       "steer_hint_running": "Прерывает текущий ответ.",
-      "steer_hint_idle": "Начинает новый ход в {{name}}."
+      "steer_hint_idle": "Начинает новый ход в {{name}}.",
+      "steer_too_long": "Указание может содержать не более {{max}} символов. Сократите его, чтобы отправить."
     },
     "guideLayer": {
       "region_label": "Руководство",

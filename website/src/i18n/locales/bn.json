@@ -9766,7 +9766,8 @@
       "steer_label": "দিক দাও · {{name}}",
       "steer_placeholder": "{{name}}-কে দিক দাও…",
       "steer_hint_running": "এটি চলতি উত্তরে ঢুকে পড়বে।",
-      "steer_hint_idle": "{{name}}-এ একটি নতুন পালা শুরু করবে।"
+      "steer_hint_idle": "{{name}}-এ একটি নতুন পালা শুরু করবে।",
+      "steer_too_long": "নির্দেশ সর্বোচ্চ {{max}} অক্ষরের হতে পারে। পাঠাতে এটি ছোট করুন।"
     },
     "guideLayer": {
       "region_label": "গাইড",

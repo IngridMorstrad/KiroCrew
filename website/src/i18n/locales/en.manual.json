@@ -4017,7 +4017,8 @@
       "steer_label": "Steer · {{name}}",
       "steer_placeholder": "Steer {{name}}…",
       "steer_hint_running": "Cuts into its current reply.",
-      "steer_hint_idle": "Starts a new turn in {{name}}."
+      "steer_hint_idle": "Starts a new turn in {{name}}.",
+      "steer_too_long": "A steer can be at most {{max}} characters. Shorten it to send."
     },
     "guideLayer": {
       "region_label": "Guide",

@@ -9766,7 +9766,8 @@
       "steer_label": "Lenken · {{name}}",
       "steer_placeholder": "{{name}} lenken …",
       "steer_hint_running": "Unterbricht die laufende Antwort.",
-      "steer_hint_idle": "Startet einen neuen Durchgang in {{name}}."
+      "steer_hint_idle": "Startet einen neuen Durchgang in {{name}}.",
+      "steer_too_long": "Eine Steuerung darf höchstens {{max}} Zeichen lang sein. Kürze sie zum Senden."
     },
     "guideLayer": {
       "region_label": "Anleitung",

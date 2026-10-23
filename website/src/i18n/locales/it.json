@@ -9909,7 +9909,8 @@
       "steer_label": "Guida · {{name}}",
       "steer_placeholder": "Guida {{name}}…",
       "steer_hint_running": "Interrompe la risposta in corso.",
-      "steer_hint_idle": "Avvia un nuovo turno in {{name}}."
+      "steer_hint_idle": "Avvia un nuovo turno in {{name}}.",
+      "steer_too_long": "Un'indicazione può avere al massimo {{max}} caratteri. Accorciala per inviarla."
     },
     "guideLayer": {
       "region_label": "Guida",

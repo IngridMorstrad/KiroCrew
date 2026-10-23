@@ -392,32 +392,91 @@ def _report(
 # ── the person's steer ────────────────────────────────────────────────────
 
 
-async def record_person_steer(state: Any, board_key: str, item_id: str, text: str) -> str:
+#: Why a person's steer wrote no ledger event (the route's ``ledger_error``).
+STEER_CREW_LOG_OFF = "crew_log_off"
+STEER_NO_UNIT = "crew_log_unit_unknown"
+STEER_NOT_RECORDED = "not_recorded"
+
+
+def _steer_unit(state: Any, keys: tuple[str, ...], board_key: str) -> str:
+    """The crew-log unit a person's steer appends to, or ``""``. BLOCKING (a listing).
+
+    The live unit of the first of *keys* that has one (the steered worker first, the
+    way a worker's own report records into the worker's unit), then the board's
+    live unit, then the board's newest recorded work unit: a root with no live
+    session (reset by the migration, reaped while idle, before its first turn after
+    a restart) still holds its ledger, and the fold reads every unit recorded
+    under the board, so the steer lands where the conductor will read it.
+    """
+    from kiro_crew import session_ledger
+    from kiro_crew.crew_log.resolve import UNKNOWN, unit_for_session_key
+
+    sessions = getattr(state, "sessions", None)
+    for key in (*keys, board_key):
+        unit = unit_for_session_key(sessions, key)
+        if unit and unit != UNKNOWN:
+            return unit
+    try:
+        recorded = session_ledger.work_crew_log_units(board_key)
+    except Exception:
+        recorded = ()
+    return recorded[-1] if recorded else ""
+
+
+async def record_person_steer(
+    state: Any,
+    board_key: str,
+    item_id: str,
+    text: str,
+    *,
+    unit_keys: tuple[str, ...] = (),
+) -> str:
+    """:func:`record_person_steer_result`'s item id alone (``""`` when nothing landed)."""
+    landed, _code = await record_person_steer_result(
+        state, board_key, item_id, text, unit_keys=unit_keys
+    )
+    return landed
+
+
+async def record_person_steer_result(
+    state: Any,
+    board_key: str,
+    item_id: str,
+    text: str,
+    *,
+    unit_keys: tuple[str, ...] = (),
+) -> tuple[str, str]:
     """One ``steer`` event on *item_id* of *board_key*'s ledger, as the person wrote it.
 
-    Called by the Crew Mode worker steer route (``crew_workers``) after the text was
-    delivered. Identity is server-resolved there: *board_key* is a live Crew Mode
-    root the dashboard owner holds, and *item_id* is its own ledger's item for the
-    steered worker. *text* is already redacted and length-capped.
+    The one person-steer transaction: the Crew Mode worker steer route and the
+    worker's own composer (``POST /api/chat`` on a worker) both call it, through
+    ``crew_workers.person_steer``, after the text was delivered. Identity is
+    server-resolved there: *board_key* is the ledger that holds the worker's item
+    (its root's, or a sub-conductor's under that root), and *item_id* is that item.
+    *text* is already redacted and length-capped. *unit_keys* are the sessions whose
+    live crew-log unit is preferred (the worker); see :func:`_steer_unit`.
 
     The write takes the board lock, commits the event (no item field moves),
-    appends one ``work/recorded`` entry (actor ``person``, action ``steer``) to the
-    root's crew-log unit, and undoes the event when that entry does not land, as
-    every ledger write does. Returns the item id, or ``""`` when nothing landed (the
-    crew log is off, the cache is dirty, the item is closed, the record failed).
+    appends one ``work/recorded`` entry (actor ``person``, action ``steer``,
+    ``by`` the board), and undoes the event when that entry does not land, as every
+    ledger write does. Returns ``(item id, "")`` or ``("", why)``.
     """
-    unit, refused = _acting_unit(state, board_key, "crew_mode.steer", item_id)
-    if refused is not None or unit is None:
-        return ""
+    if not crew_log_emit.enabled():
+        _audit(board_key, "crew_mode.steer", "denied", resources=item_id, error="crew_log_off")
+        return "", STEER_CREW_LOG_OFF
+    unit = await asyncio.to_thread(_steer_unit, state, unit_keys, board_key)
+    if not unit:
+        _audit(board_key, "crew_mode.steer", "denied", resources=item_id, error=STEER_NO_UNIT)
+        return "", STEER_NO_UNIT
     async with _board_lock(board_key):
         if await _refuse_if_dirty(board_key, board_key, "crew_mode.steer") is not None:
-            return ""
+            return "", STEER_NOT_RECORDED
         snapshot = await asyncio.to_thread(
             functools.partial(work_ledger.snapshot_for_write, board_key, item_id=item_id)
         )
         result = await asyncio.to_thread(work_ledger.apply_person_steer, board_key, item_id, text)
         if result is None:
-            return ""
+            return "", STEER_NOT_RECORDED
         item, event = result["item"], result["event"]
         board = await asyncio.to_thread(work_ledger.read_conductor, board_key)
         established, board = await _board_header(board_key, board)
@@ -443,7 +502,7 @@ async def record_person_steer(state: Any, board_key: str, item_id: str, text: st
             await _refuse_unrecorded(
                 board_key, "crew_mode.steer", item.item_id, board_key, snapshot
             )
-            return ""
+            return "", STEER_NOT_RECORDED
         await asyncio.to_thread(_mark_recorded, board_key, item.item_id)
         _audit(board_key, "crew_mode.steer", "ok", resources=item.item_id)
-    return item.item_id
+    return item.item_id, ""

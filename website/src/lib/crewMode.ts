@@ -15,6 +15,11 @@
 /** The conductor Crew Mode runs while the gateway has not said otherwise. */
 export const DEFAULT_CREW_MODE_AGENT = 'kirocrew-conductor'
 
+/** The longest steer a person may type into a worker: the server's
+ *  `MAX_SEND_MESSAGE_CHARS`, which the steer route and the worker's own composer
+ *  send both refuse past (`message_too_long`). */
+export const CREW_STEER_MAX_CHARS = 50_000
+
 /** The shipped conductors, every one of them Crew Mode, until the catalog lands. */
 export const SHIPPED_CONDUCTORS: readonly string[] = [
   DEFAULT_CREW_MODE_AGENT,

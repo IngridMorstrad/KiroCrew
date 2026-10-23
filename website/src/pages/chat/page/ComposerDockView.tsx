@@ -1,8 +1,9 @@
 import type { NavigateFunction } from 'react-router-dom'
-import { useId, type RefObject, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
+import { useId, useState, type RefObject, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
 import { OverlayPortal } from '../../../components/overlayRoot'
 import { Send, Undo2 } from 'lucide-react'
 import { CrewModeComposerChip, CrewModeMarkSource } from '../../../components/crew/CrewModeMarks'
+import { CREW_STEER_MAX_CHARS } from '../../../lib/crewMode'
 import { Composer, type ComposerHandle, type ComposerVoiceOptions } from '../../../chat-core/composer/Composer'
 import type { ComposerPasteSlice } from '../../../chat-core/composer/composerPastes'
 import type { ComposerDraftStore } from '../../../chat-core/composer/draftStore'
@@ -297,6 +298,15 @@ export default function ComposerDockView({
   const crewModeBusy = slotRunning || !!currentSlot?.running
   // A done worker takes a send as a new turn, whatever a stale turn flag says.
   const steerRunning = crewModeBusy && !steerWorkerDone
+  // A worker's steer is refused past the steer route's limit BEFORE the draft is
+  // cleared, so an over-long paste stays in the box with the reason beside it.
+  const [steerTooLong, setSteerTooLong] = useState(false)
+  const steerFits = (text?: string): boolean => {
+    if (steerWorker === undefined) return true
+    const fits = (text ?? composerDraft.get()).length <= CREW_STEER_MAX_CHARS
+    setSteerTooLong(!fits)
+    return fits
+  }
   // The chip's hint as a visible line, named by its `aria-describedby`, so a
   // keyboard, a screen reader and a touch reader all reach it, not only a mouse
   // hovering the title. It says, while a reply runs, when the chip works again.
@@ -519,10 +529,10 @@ export default function ComposerDockView({
               // (typing, paste, undo, picker inserts), never for a parent-driven
               // seed -- so it is the signal that arms the prefill hint's expiry.
               onChange={composerUserEdit}
-              onSend={() => send()}
+              onSend={() => { if (steerFits()) send() }}
               terminalCommands={activeSlot && !currentSlot ? 'pending' : currentSlot?.executor === 'remote' ? 'remote' : 'local'}
               canSteer={composerBusy}
-              onSteer={steer}
+              onSteer={opts => { if (steerFits(opts?.text)) steer(opts) }}
               // AND a turn actually running. `composerBusy` is also true when only
               // background sub-agents are working, and there is no turn to decide
               // ABOUT in that state: the send starts a fresh turn and the point
@@ -711,6 +721,7 @@ export default function ComposerDockView({
               connected={connected}
             />
               </Composer>
+              {steerWorker !== undefined && steerTooLong && <p role="alert" className="mt-1 px-1 text-[12px] text-danger-text" data-testid="crew-steer-too-long">{i18nT('components.crewMode.steer_too_long', { max: CREW_STEER_MAX_CHARS.toLocaleString() })}</p>}
               {steerWorker !== undefined && <p className="mt-1 px-1 text-[11px] text-muted" data-testid="crew-steer-hint" data-running={steerRunning ? 'true' : 'false'}>{steerRunning ? i18nT('components.crewMode.steer_hint_running') : i18nT('components.crewMode.steer_hint_idle', { name: steerWorker })}</p>}
               </div>
             </div>

@@ -9623,7 +9623,8 @@
       "steer_label": "引导 · {{name}}",
       "steer_placeholder": "引导 {{name}}…",
       "steer_hint_running": "会打断它正在进行的回复。",
-      "steer_hint_idle": "会在 {{name}} 中开始新一轮。"
+      "steer_hint_idle": "会在 {{name}} 中开始新一轮。",
+      "steer_too_long": "指示最多 {{max}} 个字符。请缩短后再发送。"
     },
     "guideLayer": {
       "region_label": "引导",

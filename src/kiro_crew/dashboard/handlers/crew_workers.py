@@ -557,13 +557,9 @@ async def api_crew_worker_steer(request: web.Request) -> web.Response:
         return _bad(RELAY_ARCHIVE_CODE, RELAY_ARCHIVE_ERROR, status=409)
     delivered = await _deliver_as_person(state, slot, message)
     # The steer is also the person's word on the worker's item: one ``steer`` event
-    # on the root's own ledger, which the conductor reads before it decides and
-    # never overrules. A worker with no item there still got the text; nothing is
-    # written for it.
-    delivered["ledger_event"] = await _record_steer(state, root, worker, message)
-    from kiro_crew.metrics import crew_mode as crew_mode_metrics
-
-    crew_mode_metrics.record_steer(on_item=bool(delivered["ledger_event"]))
+    # on the ledger that holds it, which the conductor reads before it decides and
+    # never overrules. The same transaction the worker's own composer runs.
+    delivered.update(await person_steer(state, root, worker, message, rows=rows))
     return web.json_response(delivered)
 
 
@@ -579,27 +575,84 @@ def _steer_text(message: str) -> str:
     return redact(message)[:STEER_EVENT_MAX_CHARS]
 
 
-async def _record_steer(state: Any, root: str, worker: str, message: str) -> str:
-    """Write the person's steer as a ``steer`` event on *worker*'s item. Best effort.
+#: ``ledger_error`` when the worker holds no open item on any ledger under its root.
+STEER_NO_ITEM = "no_item"
 
-    *worker*'s item is the one on *root*'s own ledger (:func:`_ledger_items`), so a
-    worker bound by another worker's ledger records nothing. Returns the item id it
-    landed on, or ``""`` (no item, a closed item, or a write that did not land).
-    The write itself is the work-ledger seam's (``record_person_steer``).
+
+def _worker_item(root: str, worker: str, tree: frozenset[str]) -> tuple[str, str]:
+    """``(board key, item id)`` of *worker*'s item, or ``("", "")``. BLOCKING.
+
+    The worker's own binding first (the one ``work_report`` reads), so a worker a
+    sub-conductor dispatched is steered on that sub-conductor's ledger; the binding
+    counts only when its board is the root or a session in the root's tree
+    (*tree*), so a forged or stale binding cannot point a steer at another crew.
+    Failing that, the item the root's own ledger lists for the worker.
     """
-    from kiro_crew import session_ledger
-    from kiro_crew.dashboard.handlers import work_ledger as wl
+    from kiro_crew import session_ledger, work_ledger
 
-    item_id = (await asyncio.to_thread(_ledger_items, root)).get(worker, NO_LEDGER).item
-    if not item_id:
-        return ""
+    folded_root = session_ledger.ledger_key(root)
     try:
-        return await wl.record_person_steer(
-            state, session_ledger.ledger_key(root), item_id, _steer_text(message)
-        )
+        binding = work_ledger.read_binding(session_ledger.ledger_key(worker))
     except Exception:
-        logger.warning("crew steer: the ledger event was not written", exc_info=True)
-        return ""
+        binding = None
+    if binding is not None:
+        board, item_id = binding
+        board = session_ledger.ledger_key(board)
+        if board == folded_root or board in tree:
+            return board, item_id
+    item_id = _ledger_items(root).get(session_ledger.ledger_key(worker), NO_LEDGER).item
+    return (folded_root, item_id) if item_id else ("", "")
+
+
+async def person_steer(
+    state: Any,
+    root: str,
+    worker: str,
+    message: str,
+    *,
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The one person-steer transaction: one ``steer`` event for a delivered message.
+
+    Run after *message* reached *worker* (a session of Crew Mode root *root*) as
+    the person's own text, by the side panel's steer route and by the worker's
+    own composer (``POST /api/chat`` on a worker). The event lands on the ledger
+    that holds the worker's item (:func:`_worker_item`), redacted and cut
+    (:func:`_steer_text`), into a crew-log unit that exists even when the root has
+    no live session (``record_person_steer_result``). Returns
+    ``{"ledger_event": item id or None, "ledger_error": why or None}``, so a
+    caller never reports a recorded steer that was only delivered.
+    """
+    from kiro_crew.dashboard.handlers import work_ledger as wl
+    from kiro_crew.metrics import crew_mode as crew_mode_metrics
+
+    if rows is None:
+        try:
+            rows = _stamped_rows(state)
+        except Exception:
+            rows = []
+    stamped = rows
+    tree = frozenset(
+        str(row.get("key")) for row in crew_mode.workers_of(stamped, root) if row.get("key")
+    )
+    board, item_id = await asyncio.to_thread(_worker_item, root, worker, tree)
+    landed, why = "", STEER_NO_ITEM
+    if item_id:
+        try:
+            landed, why = await wl.record_person_steer_result(
+                state, board, item_id, _steer_text(message), unit_keys=(worker,)
+            )
+        except Exception:
+            logger.warning("crew steer: the ledger event was not written", exc_info=True)
+            landed, why = "", "not_recorded"
+    crew_mode_metrics.record_steer(on_item=bool(landed))
+    return {"ledger_event": landed or None, "ledger_error": None if landed else why}
+
+
+async def _record_steer(state: Any, root: str, worker: str, message: str) -> str:
+    """:func:`person_steer`'s item id alone, or ``""``."""
+    out = await person_steer(state, root, worker, message)
+    return str(out.get("ledger_event") or "")
 
 
 async def _deliver_as_person(state: Any, slot: Any, message: str) -> dict[str, Any]:

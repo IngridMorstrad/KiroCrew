@@ -9909,7 +9909,8 @@
       "steer_label": "Guiar · {{name}}",
       "steer_placeholder": "Guiar {{name}}…",
       "steer_hint_running": "Interrompe a resposta em andamento.",
-      "steer_hint_idle": "Inicia uma nova vez em {{name}}."
+      "steer_hint_idle": "Inicia uma nova vez em {{name}}.",
+      "steer_too_long": "Uma orientação pode ter no máximo {{max}} caracteres. Encurte-a para enviar."
     },
     "guideLayer": {
       "region_label": "Guia",

@@ -211,8 +211,67 @@ async def decided_message_handling(slot: Any, message: str) -> tuple[bool, dict 
         return False, None
 
 
+#: Request key the send path stamps when the person typed into a Crew Mode worker:
+#: ``(root, worker, message)``, read by :func:`api_chat` once the send succeeded.
+_CREW_PERSON_STEER = "kirocrew_crew_person_steer"
+
+
+def _person_crew_worker_root(request: web.Request, state: Any, slot: Any, app: str) -> str:
+    """The Crew Mode root *slot* works for when the dashboard owner typed into it, else ``""``.
+
+    Only the person's own send counts: no app token, the owner's dashboard request,
+    and a slot the slot list stamps as some root's worker. No I/O.
+    """
+    if app:
+        return ""
+    try:
+        from kiro_crew import crew_mode
+        from kiro_crew.dashboard.handlers.source_providers import is_owner_dashboard_request
+
+        if not is_owner_dashboard_request(request):
+            return ""
+        crew_root, _is_root = crew_mode.live_stamps(state._slots).get(slot.key, ("", False))
+        return crew_root
+    except Exception:
+        logger.debug("crew steer: could not tell whether this send is to a worker", exc_info=True)
+        return ""
+
+
 async def api_chat(request: web.Request) -> web.StreamResponse:
-    """POST /api/chat — send message to a slot, stream response via SSE."""
+    """POST /api/chat — send message to a slot, stream response via SSE.
+
+    A send the person types into a Crew Mode worker's own composer is a steer, the
+    same as the side panel's steer route: once it was accepted, the one person-steer
+    transaction (``crew_workers.person_steer``) writes its ``steer`` event on the
+    ledger that holds the worker's item, and a JSON receipt carries ``ledger_event``
+    and ``ledger_error`` so the composer never shows a recorded steer that was only
+    delivered.
+    """
+    resp = await _api_chat_send(request)
+    pending = request.get(_CREW_PERSON_STEER)
+    if not pending or resp.status >= 300:
+        return resp
+    root, worker, message = pending
+    from kiro_crew.dashboard.handlers import crew_workers
+
+    try:
+        recorded = await crew_workers.person_steer(request.app["state"], root, worker, message)
+    except Exception:
+        logger.warning("crew steer: the composer's steer was not recorded", exc_info=True)
+        recorded = {"ledger_event": None, "ledger_error": "not_recorded"}
+    if isinstance(resp, web.Response) and resp.content_type == "application/json":
+        try:
+            receipt = json.loads(resp.text or "{}")
+        except ValueError:
+            return resp
+        if isinstance(receipt, dict):
+            receipt.update(recorded)
+            return web.json_response(receipt, status=resp.status)
+    return resp
+
+
+async def _api_chat_send(request: web.Request) -> web.StreamResponse:
+    """The send itself; :func:`api_chat` adds the Crew Mode worker steer record."""
     state: DashboardState = request.app["state"]
     body, body_err = await read_bounded_json(request, max_bytes=None)
     if body_err is not None:
@@ -699,6 +758,25 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
         return web.json_response(
             {"error": "message is required", "code": "message_required"}, status=400
         )
+
+    # The person typing into a Crew Mode worker steers it: the same length limit as
+    # the side panel's steer route, refused before anything is queued or shown, and
+    # the steer recorded on the worker's item once the send is accepted.
+    _crew_root = _person_crew_worker_root(request, state, slot, request_app)
+    if _crew_root:
+        from kiro_crew.dashboard.session_control_parts.session_messaging import (
+            MAX_SEND_MESSAGE_CHARS,
+        )
+
+        if len(message) > MAX_SEND_MESSAGE_CHARS:
+            return web.json_response(
+                {
+                    "error": f"message exceeds {MAX_SEND_MESSAGE_CHARS} characters",
+                    "code": "message_too_long",
+                },
+                status=400,
+            )
+        request[_CREW_PERSON_STEER] = (_crew_root, slot.key, message)
 
     from kiro_crew.dashboard import responsive_chat
 

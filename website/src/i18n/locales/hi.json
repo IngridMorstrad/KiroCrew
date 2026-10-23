@@ -9766,7 +9766,8 @@
       "steer_label": "दिशा दो · {{name}}",
       "steer_placeholder": "{{name}} को दिशा दो…",
       "steer_hint_running": "यह चल रहे जवाब में दख़ल देगा।",
-      "steer_hint_idle": "{{name}} में नई बारी शुरू करेगा।"
+      "steer_hint_idle": "{{name}} में नई बारी शुरू करेगा।",
+      "steer_too_long": "निर्देश अधिकतम {{max}} अक्षरों का हो सकता है। भेजने के लिए इसे छोटा करें।"
     },
     "guideLayer": {
       "region_label": "गाइड",

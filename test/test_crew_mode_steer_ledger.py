@@ -96,7 +96,8 @@ def _route(monkeypatch):
 
     entries: list[dict[str, Any]] = []
     for mod in (wlh, wlw):
-        monkeypatch.setattr(mod, "_acting_unit", lambda *_a, **_k: ("unit-1", None))
+        monkeypatch.setattr(mod, "_steer_unit", lambda *_a, **_k: "unit-1")
+    monkeypatch.setattr(crew_log_emit, "enabled", lambda: True)
 
     def fake_record(unit: str, data: dict[str, Any], **_k: Any) -> bool:
         entries.append(data)

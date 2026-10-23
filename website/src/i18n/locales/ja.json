@@ -9623,7 +9623,8 @@
       "steer_label": "誘導 · {{name}}",
       "steer_placeholder": "{{name}} を誘導…",
       "steer_hint_running": "実行中の返信に割り込みます。",
-      "steer_hint_idle": "{{name}} で新しいターンを始めます。"
+      "steer_hint_idle": "{{name}} で新しいターンを始めます。",
+      "steer_too_long": "指示は {{max}} 文字までです。短くしてから送信してください。"
     },
     "guideLayer": {
       "region_label": "ガイド",

@@ -9909,7 +9909,8 @@
       "steer_label": "Guider · {{name}}",
       "steer_placeholder": "Guider {{name}}…",
       "steer_hint_running": "Interrompt sa réponse en cours.",
-      "steer_hint_idle": "Lance un nouveau tour dans {{name}}."
+      "steer_hint_idle": "Lance un nouveau tour dans {{name}}.",
+      "steer_too_long": "Une consigne peut compter au plus {{max}} caractères. Raccourcissez-la pour l'envoyer."
     },
     "guideLayer": {
       "region_label": "Guide",

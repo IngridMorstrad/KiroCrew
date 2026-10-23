@@ -9623,7 +9623,8 @@
       "steer_label": "조정 · {{name}}",
       "steer_placeholder": "{{name}} 조정…",
       "steer_hint_running": "진행 중인 답변에 끼어듭니다.",
-      "steer_hint_idle": "{{name}}에서 새 턴을 시작합니다."
+      "steer_hint_idle": "{{name}}에서 새 턴을 시작합니다.",
+      "steer_too_long": "지시는 최대 {{max}}자까지입니다. 줄여서 보내세요."
     },
     "guideLayer": {
       "region_label": "가이드",
