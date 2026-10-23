@@ -449,3 +449,79 @@ def test_a_remote_workspace_attaches_on_any_gateway_os():
     AcpRuntime.check_remote_workspace_supported(runtime)
     assert not hasattr(se, "REMOTE_NEEDS_POSIX_GATEWAY")
     assert not hasattr(se, "gateway_matches_posix_paths")
+
+
+# ── calls a remote session cannot place for certain get both readings ────────
+
+
+def _remote_frame(tool, params, *, server="workspace", trusted=True, title=None):
+    tool_call_id = "tc-1"
+    event, _ = build_permission_event(
+        JsonRpcMessage(
+            id=1,
+            method="session/request_permission",
+            params={
+                "toolCall": {
+                    "toolCallId": tool_call_id,
+                    "title": title or f"@{server}/{tool}",
+                    "kind": "read",
+                },
+                "options": [{"optionId": "a", "kind": "allow_once"}],
+            },
+        ),
+        raw_params_cache={tool_call_id: dict(params)},
+        shell_cache={tool_call_id: False},
+        mcp_server_name_cache={tool_call_id: server} if trusted else None,
+        tool_name_cache={tool_call_id: tool} if trusted else None,
+        remote_workspace_server=se.WORKSPACE_SERVER_NAME,
+        remote_workspace_root=ROOT,
+    )
+    assert event is not None
+    return event
+
+
+def _gate(event):
+    call = ToolCall.from_event(event)
+    return hooks.HookManager().on_tool_call(event.title, session_key="chat-remote", **call.kwargs())
+
+
+@pytest.mark.parametrize("trusted, tool", [(True, "read_many"), (False, "read_file")])
+def test_an_unplaced_remote_call_must_pass_both_readings(monkeypatch, reading, trusted, tool):
+    event = _remote_frame(tool, {"path": "/workspace/app/secret/k"}, trusted=trusted)
+    assert isinstance(event.raw_tool_params, GuestPathParams)
+    assert event.raw_tool_params.also_local
+    # The guest reading binds a deny the gateway reading would miss on Windows ...
+    _policy(monkeypatch, read={"mode": "deny", "deny": ["/workspace/app/secret/**"]})
+    assert _denied(_gate(event))
+    # ... and an allow admits only what BOTH readings admit.
+    _policy(monkeypatch, read={"mode": "allow", "allow": ["/workspace/app/**"]})
+    assert _denied(_gate(event)) is (reading == "windows" or os.path is not posixpath)
+
+
+def test_a_trusted_non_workspace_call_on_a_remote_session_keeps_the_gateway_reading():
+    event = _remote_frame("file_send", {"path": "/srv/report.txt"}, server="kirocrew-core")
+    assert type(event.raw_tool_params) is dict
+
+
+def test_a_reading_title_on_a_remote_call_is_read_as_the_guest_path(monkeypatch, reading):
+    _policy(monkeypatch, read={"mode": "allow", "allow": ["/workspace/app/**"]})
+    pairs_title = "Reading /workspace/app/x"
+    params = GuestPathParams({"path": "/workspace/app/x"}, root=ROOT)
+    ceiling = hooks.current_context().governance
+    assert gate_decision(ceiling, None, pairs_title, tool_kind="read", raw_params=params).permitted
+    _policy(monkeypatch, read={"mode": "deny", "deny": ["/workspace/app/**"]})
+    ceiling = hooks.current_context().governance
+    decision = gate_decision(ceiling, None, pairs_title, tool_kind="read", raw_params=params)
+    assert not decision.permitted
+
+
+@pytest.mark.parametrize(
+    "diff_path, anchored",
+    [("/workspace/app/x", True), ("x", False), ("~/x", False), ("$HOME/x", False)],
+)
+def test_a_remote_diff_block_path_is_anchored_as_the_guest_reads_it(diff_path, anchored):
+    from kiro_crew.platform.tool_paths import edit_target_candidates
+
+    found = edit_target_candidates(GuestPathParams({}, root=ROOT), diff_path, tool_kind="edit")
+    assert found.unanchored is not anchored
+    assert (diff_path in found) is anchored

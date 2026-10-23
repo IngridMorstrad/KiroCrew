@@ -42,13 +42,28 @@ class GuestPathParams(dict[str, Any]):
     arguments reads them unchanged. ``root`` defaults to empty, which leaves a
     relative target unanchorable (judged unverifiable) rather than anchored at
     this gateway's working directory.
+
+    ``also_local`` marks a call on a remote session that the builder could not
+    place for certain -- an identity it does not trust, or a ``workspace``-server
+    tool it does not know. Its targets are then judged under BOTH readings, the
+    guest's and this gateway's, and every rule must pass under each: a deny binds
+    if either reading meets it, and an allow admits only what both readings admit.
     """
 
     root: str
+    also_local: bool
 
-    def __init__(self, params: Mapping[str, Any] | None = None, /, *, root: str = "") -> None:
+    def __init__(
+        self,
+        params: Mapping[str, Any] | None = None,
+        /,
+        *,
+        root: str = "",
+        also_local: bool = False,
+    ) -> None:
         super().__init__(params or {})
         self.root = root if isinstance(root, str) else ""
+        self.also_local = bool(also_local)
 
 
 class GuestPath(str):
@@ -84,6 +99,11 @@ def guest_root(params: object) -> str | None:
     if isinstance(params, GuestPathParams):
         return params.root
     return None
+
+
+def guest_also_local(params: object) -> bool:
+    """Whether *params*' targets are judged as this gateway's paths as well."""
+    return isinstance(params, GuestPathParams) and params.also_local
 
 
 def guest_norm(item: GuestPath) -> str | None:

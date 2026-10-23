@@ -15,7 +15,12 @@ from __future__ import annotations
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
 from kiro_crew.platform.governance_parts.matching import _url_host
-from kiro_crew.platform.guest_paths import GuestPath, guest_root, guest_unverifiable
+from kiro_crew.platform.guest_paths import (
+    GuestPath,
+    guest_also_local,
+    guest_root,
+    guest_unverifiable,
+)
 from kiro_crew.platform.tool_paths import (
     TARGET_PATH_KEYS,
     edit_target_candidates,
@@ -228,18 +233,25 @@ _UNANCHORED_TARGET_ITEM = "\x00<governance:edit-target-unanchored-unverifiable>"
 _GUEST_UNVERIFIABLE_ITEM = "\x00<governance:guest-target-unverifiable>"
 
 
-def _governed_targets(paths: Iterable[str], root: Optional[str]) -> Tuple[str, ...]:
+def _governed_targets(
+    paths: Iterable[str], root: Optional[str], also_local: bool = False
+) -> Tuple[str, ...]:
     """The governed items for *paths*: unchanged for a local call (``root`` None).
 
     For a remote-workspace call each path becomes a :class:`GuestPath` anchored in
     the guest workdir *root*, matched with POSIX rules, and any one
-    :func:`guest_unverifiable` adds :data:`_GUEST_UNVERIFIABLE_ITEM` once.
+    :func:`guest_unverifiable` adds :data:`_GUEST_UNVERIFIABLE_ITEM` once. With
+    *also_local* each plain path is kept beside its guest twin, so a call the
+    builder could not place for certain must pass every rule under both readings.
     """
+    paths = tuple(paths)
     if root is None:
-        return tuple(paths)
+        return paths
     items: list = [GuestPath(path, root) for path in paths]
     if any(guest_unverifiable(item) for item in items):
         items.append(_GUEST_UNVERIFIABLE_ITEM)
+    if also_local:
+        items[:0] = paths
     return tuple(items)
 
 
@@ -369,6 +381,7 @@ def classify_tool_args(
     # ``_governed_targets``). ``None`` for every other call, which keeps its
     # targets as the plain strings the gateway's own rules match.
     root = guest_root(raw_params)
+    also_local = guest_also_local(raw_params)
     if is_edit_call(tool_kind, diff_path):
         # The edit's judged target set is the params∪diff-block union, from the
         # same helper both edit gates consume — a diff-only edit (params carry
@@ -378,7 +391,7 @@ def classify_tool_args(
         # evidence whatever the spec-optional ``kind`` field says, so a
         # kindless (or mislabelled) call carrying one is classified here too.
         candidates = edit_target_candidates(params, diff_path, tool_kind=tool_kind)
-        targets = _governed_targets(candidates, root)
+        targets = _governed_targets(candidates, root, also_local)
         edit_pairs: list = [("filesystem.write", path) for path in targets]
         if candidates.truncated:
             edit_pairs.append(("filesystem.write", _TRUNCATED_SCAN_ITEM))
@@ -407,7 +420,7 @@ def classify_tool_args(
         return ()
     pairs: list = []
     found, paths_truncated = _tool_arg_paths(params)
-    paths = _governed_targets(found, root)
+    paths = _governed_targets(found, root, also_local)
     url = params.get("url") or params.get("uri")
     has_command = bool(params.get("command"))  # a shell tool → commands scope
     if tool_kind == _KIND_READ:

@@ -931,6 +931,19 @@ def build_permission_event(
         is_shell = is_shell or _runs_shell
         if _runs_shell and isinstance(_command, str) and _command:
             title = _redact(_command)
+    elif (
+        remote_workspace_server
+        and posixpath.isabs(remote_workspace_root)
+        and (not _mcp_identity_trusted or _mcp_server_name == remote_workspace_server)
+        and (_resolved_raw_params is None or isinstance(_resolved_raw_params, dict))
+    ):
+        # A remote session's call the branch above could not place: an identity
+        # this client did not establish, or a workspace-server tool it does not
+        # know. Its targets may be the guest's or this gateway's, so they are judged
+        # under both readings and must pass every rule under each.
+        _resolved_raw_params = GuestPathParams(
+            _resolved_raw_params, root=remote_workspace_root, also_local=True
+        )
     elif isinstance(_resolved_raw_params, GuestPathParams):
         # Only the branch above may tag a call: it is reached from the runtime's own
         # remote-workspace binding, never from anything the model or guest sent. A

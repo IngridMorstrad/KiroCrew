@@ -100,7 +100,14 @@ can reorder strictness or redefine matching):
   `~` or environment (the guest tool server expands neither). A target carrying
   a `$`, a `~` segment or a backslash is judged as the literal path the guest
   opens and also emits a never-permittable item, so an allow-mode confinement
-  refuses it. Patterns are expanded as before. A local call keeps the gateway's
+  refuses it. Patterns are expanded as before, with this gateway's `~` and
+  environment, so a `~/.ssh/**` or `$HOME/...` rule names the gateway's home
+  and does not bind the guest's: write a rule for guest files with the guest's
+  absolute path (the guest home spelled out, not `~`). A call on a remote session the
+  builder cannot place for certain (an untrusted identity, or a `workspace` tool
+  it does not know) is tagged `also_local` and must pass every rule under both
+  the guest's and the gateway's reading. A remote diff-block path is anchored by
+  `posixpath.isabs` (`edit_target_candidates`). A local call keeps the gateway's
   own `os.path` reading unchanged.
 
 `SCOPE_CATALOG` is the single place a scope name binds to its archetype +

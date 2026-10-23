@@ -62,6 +62,7 @@ from kiro_crew.platform.context import PlatformCompositionError
 from kiro_crew.platform.governance_health import mark_governance_incident  # noqa: F401 - re-export
 from kiro_crew.platform.guest_paths import (  # noqa: F401 - re-export
     GuestPath,
+    guest_also_local,
     guest_norm,
     guest_root,
     guest_unverifiable,
