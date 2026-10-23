@@ -5,8 +5,8 @@ import { api } from '../../api/client'
 import { sendTurn, SEND_ABORT_MS, type SendReceipt } from '../../chat-core/transport/sendTurn'
 import { sendFailureCopy, deliveryUnconfirmedCopy } from '../../chat-core/transport/receiptCopy'
 import { sideTurnWire } from './sideTurnWire'
-import { useAppSelector, useAppDispatch } from '../../store'
-import { sideClose, sideOptimisticAccepted, sideOptimisticAppend, sideOptimisticRollback, restoreSideConversation, awaitSideRestore, sseSideQueue, sideReleaseConsumed, sideSendStatus, queueEditBroadcastAt, stageToMainComposer, transcriptTsMs, type SideStandingNotice } from '../../store/chatSlice'
+import { useAppSelector, useAppDispatch, useAppStore } from '../../store'
+import { beginSideQueueEdit, finishSideQueueEdit, setSideQueueEditDraft, sideClose, sideOptimisticAccepted, sideOptimisticAppend, sideOptimisticRollback, restoreSideConversation, awaitSideRestore, sseSideQueue, sideReleaseConsumed, sideSendStatus, queueEditBroadcastAt, stageToMainComposer, takeSideQueueDroppedByClose, takeSideSteerDroppedByClose, transcriptTsMs, type SideStandingNotice } from '../../store/chatSlice'
 import QueueStack from '../../components/QueueStack'
 import ChatMessageList from '../../app-sdk/ChatMessageList'
 import FollowUpBar from '../../components/FollowUpBar'
@@ -106,6 +106,7 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
 }) {
   const connected = useConnected()
   const dispatch = useAppDispatch()
+  const chatStore = useAppStore()
   // The footer describes what the backend enforces, so it asks the gateway the
   // question the side turn asks itself: the selected harness, and on claude
   // whether the installed adapter honours the read-only session options. Keyed
@@ -378,9 +379,11 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
     dispatch(sideReleaseConsumed({ slot, consumed: releasedText }))
   }, [releasedText, slot, dispatch, mergeIntoDraft])
 
-  // A requeued steer's card arrives from the socket with its content REDACTED, and the
-  // reducer's cancel path releases the card's own content — it cannot reach the raw-text
-  // map, which lives in a ref here. Rewrite the card as soon as both halves are known.
+  // A requeued steer's card can arrive from the socket with its content redacted or
+  // identical to the submitted text, but without the `raw` ownership marker. The reducer's
+  // cancel path releases the card's own content and cannot reach the raw-text map in this ref.
+  // Rewrite the card as soon as both halves are known, and only while it lacks the
+  // marker: a marked card already holds this tab's latest wording, a saved edit included.
   // Fixing the CARD rather than each reader is what makes every path correct at once.
   const sideQueue = reduxSide?.queue
   useEffect(() => {
@@ -388,7 +391,7 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
     for (const entry of sideQueue) {
       if (!entry.steerId) continue
       const raw = submittedRaw.current.get(STEER_RAW_PREFIX + entry.steerId)
-      if (raw && entry.content !== raw) {
+      if (raw && !entry.raw) {
         dispatch(sseSideQueue({ slot, action: 'edit', queue_id: entry.id, content: raw, raw: true }))
       }
     }
@@ -496,8 +499,30 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
       // cancel. An older backend omits the field, so treat absent as true and
       // keep the round-4 behaviour rather than silently dropping the card.
       const stillQueued = res.still_queued ?? true
+      // A pending steer stays in the running turn unless that turn requeued it and
+      // the close dropped its card. A dropped-card record for its steer id is the
+      // proof that the text is owned by neither the running turn nor the queue.
+      if (res.steer_id && !res.queued && takeSideSteerDroppedByClose(vars.slot, res.steer_id)) {
+        recoverFor(vars.slot, handBack(vars))
+        return
+      }
       if (vars.optimistic && res.run_id && !res.queued) {
         dispatch(sideOptimisticAccepted({ slot: vars.slot, content: vars.q, runId: res.run_id }))
+      }
+      // Another tab closed the conversation while this question was on its way, and
+      // the gateway dropped the queue with it. The close records each dropped card's
+      // queue id and, for a requeued steer, its steer id because a demoted receipt has
+      // no queue id. That record survives a replacement conversation that reopens the
+      // slot before this receipt arrives. The slot's closed flag covers a close whose
+      // card never reached this tab. A chip's question comes back too because the close
+      // took the suggestion with the transcript.
+      const droppedByClose = res.queued && stillQueued && (
+        (!!res.queue_id && takeSideQueueDroppedByClose(vars.slot, res.queue_id))
+        || (!!res.steer_id && takeSideSteerDroppedByClose(vars.slot, res.steer_id))
+      )
+      if (res.queued && stillQueued && (droppedByClose || chatStore.getState().chat.slotSideClosed[vars.slot])) {
+        recoverFor(vars.slot, handBack(vars))
+        return
       }
       if (res.queued && res.queue_id) {
         // Record the raw text even when the entry has already drained: a cancel
@@ -540,12 +565,12 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
           submittedRaw.current.delete(oldest)
         }
       }
-      // If the requeued card already arrived on the socket it holds the REDACTED
-      // copy, and the reducer's own cancel path reads the card, not this map. Repair
-      // the card now so every consumer sees raw text.
+      // If the requeued card already arrived on the socket, its content can be
+      // redacted or identical while still lacking the `raw` ownership marker. The
+      // reducer's cancel path reads the card, not this map, so mark and repair it.
       if (res.steer_id) {
         const existing = reduxSide?.queue?.find(e => e.steerId === res.steer_id)
-        if (existing && existing.content !== vars.q) {
+        if (existing && !existing.raw) {
           dispatch(sseSideQueue({ slot: vars.slot, action: 'edit', queue_id: existing.id, content: vars.q, raw: true }))
           setCorrelatedQueueIds(prev => new Set(prev).add(existing.id))
         }
@@ -659,11 +684,13 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
   const editQueued = useMutation({
     mutationFn: ({ queueId, content, slot: target }: { queueId: string; content: string; slot: string }) =>
       api.sideQueueEdit(target, queueId, content),
-    onMutate: ({ queueId, slot: target }: { queueId: string; content: string; slot: string }) => {
+    onMutate: ({ queueId, content, slot: target }: { queueId: string; content: string; slot: string }) => {
       markQueuePending(queueId, true)
+      beginSideQueueEdit(target, queueId, content)
       return { broadcastAt: queueEditBroadcastAt(target, queueId) }
     },
     onSuccess: (_res, vars) => {
+      finishSideQueueEdit(vars.slot, vars.queueId)
       // The edit supersedes what this client had cached for the card. A cancel PREFERS
       // the cached copy over the card's content, so leaving it stale would restore the
       // pre-edit text and throw the user's newer wording away.
@@ -676,12 +703,16 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
       dispatch(sseSideQueue({ slot: vars.slot, action: 'edit', queue_id: vars.queueId, content: vars.content, raw: true }))
     },
     onError: (_err, vars, ctx) => {
+      // A close already returned this submitted edit while removing its card. The
+      // request result cannot return it again, whichever path settled the edit.
+      if (finishSideQueueEdit(vars.slot, vars.queueId)) return
       // The server broadcast an edit for this card after the request went out, so the edit DID
       // land and only its response was lost. Restoring here would leave the question both
-      // queued and in the composer, and it would be asked twice. The cache is refreshed
-      // instead, because a later cancel prefers it and the server now holds this wording.
+      // queued and in the composer, and it would be asked twice. Refresh both the cache
+      // and the card because a later cancel or close must use the wording the server holds.
       if (queueEditBroadcastAt(vars.slot, vars.queueId) > (ctx?.broadcastAt ?? 0)) {
         submittedRaw.current.set(vars.queueId, vars.content)
+        dispatch(sseSideQueue({ slot: vars.slot, action: 'edit', queue_id: vars.queueId, content: vars.content, raw: true }))
         return
       }
       setLocalError(i18nT('pages.chat.sideChat.queue_edit_failed'))
@@ -881,6 +912,10 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
     refreshMutation.mutate({ slot })
   }, [refreshMutation, slot])
 
+  const handleQueueEditDraft = useCallback((queueId: string, content: string | undefined) => {
+    setSideQueueEditDraft(slot, queueId, content)
+  }, [slot])
+
   // Fire-and-forget: the terminal frame the backend broadcasts drives the UI
   // back to idle, so there is nothing to await here.
   const handleStop = useCallback(() => {
@@ -996,6 +1031,7 @@ export default function SideChat({ slot, onFileOpen, onArtifactOpen }: {
             pendingIds={blockedQueueIds}
             onCancel={qid => { if (!blockedQueueIds.has(qid)) cancelQueued.mutate({ queueId: qid, slot }) }}
             onEdit={(qid, content) => { if (!blockedQueueIds.has(qid)) editQueued.mutate({ queueId: qid, content, slot }) }}
+            onEditDraft={handleQueueEditDraft}
           />
         </div>
       )}

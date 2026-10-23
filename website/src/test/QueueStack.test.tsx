@@ -59,6 +59,36 @@ describe('QueueStack inline edit', () => {
     expect(onEdit).toHaveBeenCalledWith('q1', 'new text')
   })
 
+  it('retires the live edit draft on commit', () => {
+    const onEditDraft = vi.fn()
+    render(<QueueStack messages={[queued('old text', 'q1')]} onEdit={vi.fn()} onEditDraft={onEditDraft} />)
+    const input = openEditor()
+    fireEvent.change(input, { target: { value: 'new text' } })
+    expect(onEditDraft).toHaveBeenLastCalledWith('q1', 'new text')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onEditDraft).toHaveBeenLastCalledWith('q1', undefined)
+  })
+
+  it('retires the live edit draft on cancel', () => {
+    const onEditDraft = vi.fn()
+    render(<QueueStack messages={[queued('old text', 'q1')]} onEdit={vi.fn()} onEditDraft={onEditDraft} />)
+    const input = openEditor()
+    fireEvent.change(input, { target: { value: 'discarded text' } })
+    expect(onEditDraft).toHaveBeenLastCalledWith('q1', 'discarded text')
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(onEditDraft).toHaveBeenLastCalledWith('q1', undefined)
+  })
+
+  it('retires the live edit draft when the editor unmounts', () => {
+    const onEditDraft = vi.fn()
+    const view = render(<QueueStack messages={[queued('old text', 'q1')]} onEdit={vi.fn()} onEditDraft={onEditDraft} />)
+    const input = openEditor()
+    fireEvent.change(input, { target: { value: 'abandoned text' } })
+    expect(onEditDraft).toHaveBeenLastCalledWith('q1', 'abandoned text')
+    view.unmount()
+    expect(onEditDraft).toHaveBeenLastCalledWith('q1', undefined)
+  })
+
   it('does NOT fire onEdit when the text is unchanged and the input blurs (no-op edit)', () => {
     const onEdit = vi.fn()
     render(<QueueStack messages={[queued('same text', 'q1')]} onEdit={onEdit} />)
