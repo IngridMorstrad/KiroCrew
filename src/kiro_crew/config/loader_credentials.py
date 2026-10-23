@@ -657,10 +657,18 @@ def apply_env_credential_changes(
                     "not logged).",
                     k,
                 )
+            # A value ``.env`` merely MATCHED is not one it took over: the
+            # process already held exactly this value from somewhere ``.env``
+            # does not own (a service unit or shell export), so the write below
+            # changes nothing. Recording ownership there would let a later
+            # removal of the line pop the inherited credential -- the very case
+            # boot's setdefault refuses to own. Any write that does change the
+            # entry (a new key, a rotation, an overwrite of a foreign value), or
+            # one ``.env`` already owns, is a genuine ``.env`` write and owns it.
+            merely_matched = prior is not None and prior == new[k] and not env_owns_key(k)
             os.environ[k] = new[k]
-            # A live set is a genuine ``.env`` write, so ``.env`` now owns the
-            # key regardless of what boot found -- a later removal may pop it.
-            note_env_owned_key(k)
+            if not merely_matched:
+                note_env_owned_key(k)
             applied.add(k)
         else:
             # A key removed from .env. Pop only what .env itself PROPAGATED, and

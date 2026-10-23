@@ -257,6 +257,48 @@ class TestLoaderCredentialHelpers:
             os.environ["WEBEX_BOT_TOKEN"] == "same-value"
         ), "an inherited value .env merely matched must survive a .env removal"
 
+    def test_a_live_add_that_matches_an_inherited_value_does_not_take_ownership(self, monkeypatch):
+        """The service supplies a token; the operator later ADDS the same value to
+        .env while the gateway runs, then deletes that line. The add changes
+        nothing in os.environ, so it must not record .env as the owner -- or the
+        removal would pop the inherited token and restart the channel with no
+        credential. (Fixes the Opus matching-value live-add finding.)"""
+        from kiro_crew.config import loader
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "from-service")
+        loader.discard_env_owned_key("TELEGRAM_BOT_TOKEN")
+
+        # Live add of the identical value: applied, but not owned.
+        loader.apply_env_credential_changes(
+            {"TELEGRAM_BOT_TOKEN"}, {"TELEGRAM_BOT_TOKEN": "from-service"}, {}
+        )
+        assert os.environ["TELEGRAM_BOT_TOKEN"] == "from-service"
+        assert not loader.env_owns_key("TELEGRAM_BOT_TOKEN")
+
+        # The line is deleted again: the inherited token stays.
+        loader.apply_env_credential_changes(
+            {"TELEGRAM_BOT_TOKEN"}, {}, {"TELEGRAM_BOT_TOKEN": "from-service"}
+        )
+        assert os.environ["TELEGRAM_BOT_TOKEN"] == "from-service"
+
+    def test_a_live_add_that_changes_the_value_takes_ownership(self, monkeypatch):
+        """Control for the case above: an add that actually writes a new value is
+        a genuine .env write, so .env owns the key and a later removal pops it."""
+        from kiro_crew.config import loader
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "x")
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN")
+        loader.discard_env_owned_key("TELEGRAM_BOT_TOKEN")
+
+        loader.apply_env_credential_changes(
+            {"TELEGRAM_BOT_TOKEN"}, {"TELEGRAM_BOT_TOKEN": "from-dotenv"}, {}
+        )
+        assert loader.env_owns_key("TELEGRAM_BOT_TOKEN")
+        loader.apply_env_credential_changes(
+            {"TELEGRAM_BOT_TOKEN"}, {}, {"TELEGRAM_BOT_TOKEN": "from-dotenv"}
+        )
+        assert "TELEGRAM_BOT_TOKEN" not in os.environ
+
     def test_apply_without_baseline_pops_unconditionally_and_is_silent(self, monkeypatch, caplog):
         """With no baseline (the dashboard path) a removed key is popped
         unconditionally and no overwrite warning fires."""

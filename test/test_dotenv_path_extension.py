@@ -25,6 +25,24 @@ from kiro_crew.config.loader import KiroCrewConfig
 SEP = os.pathsep
 
 
+@pytest.fixture(autouse=True)
+def _reset_boot_env_state():
+    """Clear the once-per-process boot ``.env`` record and ownership set.
+
+    Each test here drives the real ``load_credentials``, which records the raw
+    ``.env`` map it read (the live watcher's boot baseline) and which keys it
+    owns. Left behind, a later test's ``ConfigWatch`` in the same worker diffs
+    against this file's ``PATH`` line and replays ``credentials.PATH``.
+    """
+    from kiro_crew.config.loader_credentials import reset_boot_raw_env, reset_env_owned_keys
+
+    reset_boot_raw_env()
+    reset_env_owned_keys()
+    yield
+    reset_boot_raw_env()
+    reset_env_owned_keys()
+
+
 def _dirs(root: Path, *names: str) -> list[str]:
     return [str(root / name) for name in names]
 
