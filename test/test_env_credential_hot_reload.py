@@ -573,6 +573,49 @@ class TestLoaderCredentialHelpers:
         assert loader.env_owns_key("https_proxy")
         assert loader.env_owns_key("HTTPS_PROXY")
 
+    def test_windows_reconcile_to_a_different_surviving_value_takes_ownership(self, monkeypatch):
+        """A service supplies the token (unowned); .env holds two spellings with
+        different values. Removing the service-matching spelling installs the
+        surviving spelling's value -- a genuine .env write -- so .env must own the
+        entry now. Otherwise removing the surviving line later would find an
+        unowned key and leave the deleted credential active. (Fixes the GPT
+        surviving-alias ownership finding.)"""
+        from kiro_crew import platform_compat
+        from kiro_crew.config import loader
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
+        forget_env_at_teardown(monkeypatch, "telegram_bot_token", "TELEGRAM_BOT_TOKEN")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "from-service")
+        loader.discard_env_owned_key("TELEGRAM_BOT_TOKEN")
+
+        loader.apply_env_credential_changes(
+            {"TELEGRAM_BOT_TOKEN"},
+            {"telegram_bot_token": "from-dotenv"},
+            {"TELEGRAM_BOT_TOKEN": "from-service", "telegram_bot_token": "from-dotenv"},
+        )
+        assert os.environ["TELEGRAM_BOT_TOKEN"] == "from-dotenv"
+        assert loader.env_owns_key("telegram_bot_token")
+        assert loader.env_owns_key("TELEGRAM_BOT_TOKEN")
+
+    def test_windows_reconcile_that_changes_nothing_leaves_ownership_alone(self, monkeypatch):
+        """Control: when the surviving spelling already holds the live value, the
+        reconcile writes nothing, so an unowned inherited entry stays unowned."""
+        from kiro_crew import platform_compat
+        from kiro_crew.config import loader
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
+        forget_env_at_teardown(monkeypatch, "telegram_bot_token", "TELEGRAM_BOT_TOKEN")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "same")
+        loader.discard_env_owned_key("TELEGRAM_BOT_TOKEN")
+
+        loader.apply_env_credential_changes(
+            {"TELEGRAM_BOT_TOKEN"},
+            {"telegram_bot_token": "same"},
+            {"TELEGRAM_BOT_TOKEN": "same", "telegram_bot_token": "same"},
+        )
+        assert os.environ["TELEGRAM_BOT_TOKEN"] == "same"
+        assert not loader.env_owns_key("TELEGRAM_BOT_TOKEN")
+
     def test_windows_removing_one_of_two_case_duplicates_keeps_the_entry(self, monkeypatch):
         """On Windows os.environ is case-insensitive, so ``HTTPS_PROXY`` and
         ``https_proxy`` are ONE entry. When ``.env`` holds BOTH and the operator

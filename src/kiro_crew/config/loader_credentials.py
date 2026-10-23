@@ -690,12 +690,20 @@ def apply_env_credential_changes(
             # no-op, but when they differed -- and the removed spelling was the
             # one boot propagated -- popping would leave the entry reading the
             # obsolete removed value until a restart, so the entry is SET to the
-            # surviving value here. Ownership is left intact: the surviving
-            # spelling still owns the entry.
+            # surviving value here. A reconcile that changes the entry records
+            # ``.env`` ownership (below); one that changes nothing leaves
+            # ownership as it was.
             surviving = kept_entry_values.get(_env_name_key(k))
             if surviving is not None:
                 if prior != surviving:
+                    # Installing the surviving spelling's value IS a ``.env``
+                    # write that takes the entry over (the same rule as the set
+                    # branch), so ``.env`` owns it now -- even when the value it
+                    # replaced was inherited. Without this a later removal of
+                    # the surviving line would see an unowned key and leave the
+                    # deleted credential active.
                     os.environ[k] = surviving
+                    note_env_owned_key(k)
                     applied.add(k)
                 continue
             if old is None or prior is None or env_owns_key(k):
