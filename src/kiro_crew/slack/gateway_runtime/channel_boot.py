@@ -404,6 +404,10 @@ async def _start_channel_transports(
         permitted,
         before_start=lambda desc: self._adopt_channel_section_from_watcher(desc, creds),
     )
+    # The Teams webhook handler is bound only now that the client is the
+    # stored handle (``maybe_start_teams`` leaves it unbound; see
+    # ``channel_lifecycle._publish_teams_webhook``).
+    self._publish_teams_webhook(self._channel_handles)
     # A connection-parameter edit that landed while the channels were still
     # starting was deferred by the applier and sits in the watcher's stale
     # table; its next tick re-runs the applier against the current snapshot,

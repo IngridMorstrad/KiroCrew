@@ -1398,6 +1398,95 @@ class TestTeamsCloseClearsWebhookHandler:
         assert orch.dashboard_state.teams_on_activity is sentinel
 
 
+#: What a reconnect reads for an enabled, credentialed Teams (dummy values).
+_TEAMS_CREDS = {"MICROSOFT_APP_ID": "app-id", "MICROSOFT_APP_PASSWORD": "app-secret"}
+
+
+class _TeamsLikeClient(FakeClient):
+    """A started Teams client: the webhook handler the host may publish."""
+
+    def on_activity(self, request):  # pragma: no cover - identity only
+        return None
+
+
+@pytest.fixture
+def teams_restartable(monkeypatch):
+    """A bootable 'teams' descriptor whose factory never binds the webhook itself."""
+    started: list[_TeamsLikeClient] = []
+
+    async def start(orch):
+        client = _TeamsLikeClient(FakeTransport([]))
+        started.append(client)
+        return client
+
+    desc = registry.ChannelDescriptor(
+        channel_type="teams", start=start, boot_keys=frozenset({"enabled"})
+    )
+    monkeypatch.setattr(gw, "builtin_channel_descriptors", lambda: (desc,))
+    monkeypatch.setattr(gw, "_channel_transport_permitted", lambda member: True)
+    monkeypatch.setattr(GatewayOrchestrator, "_badge_unready_channels", lambda self, descs: None)
+    return started
+
+
+class TestTeamsWebhookPublishedOnlyForTheAcceptedClient:
+    def _orch(self) -> GatewayOrchestrator:
+        orch = _make_orchestrator()
+        orch._channel_transports_started = True
+        orch._cfg = replace(orch._cfg, teams=replace(orch._cfg.teams, enabled=True))
+        orch.dashboard_state = SimpleNamespace(channel_transports={}, teams_on_activity=None)
+        return orch
+
+    def test_a_start_superseded_mid_connect_never_binds_its_handler(self, teams_restartable):
+        """A second credential edit closes Teams while a reconnect is still
+        connecting. The superseded client is discarded, and because the handler
+        is bound only once a client is the accepted handle, a webhook arriving in
+        that window has nothing to reach but the route's 503. (Fixes the GPT
+        connecting-Teams-client finding.)"""
+        orch = self._orch()
+        cfg = _cfg_with("teams", enabled=True)
+
+        async def run():
+            real_start = registry.start_channels
+
+            async def start_then_supersede(*a, **k):
+                handles = await real_start(*a, **k)
+                # The window the finding names: the client exists, the connect
+                # has not been accepted, and a credential removal closes Teams.
+                assert orch.dashboard_state.teams_on_activity is None
+                async with orch._channel_restart_lock:
+                    await orch._close_channel_locked("teams")
+                return handles
+
+            with (
+                patch.object(registry, "start_channels", start_then_supersede),
+                patch.object(cfg, "load_credentials", return_value=_TEAMS_CREDS),
+            ):
+                result = await finished(
+                    orch.restart_channel("teams", cfg=cfg), "restart_channel", timeout=5.0
+                )
+            assert result is None
+            assert "teams" not in orch._channel_handles
+            assert teams_restartable and teams_restartable[-1].closed is True
+
+        asyncio.run(run())
+        assert orch.dashboard_state.teams_on_activity is None
+
+    def test_an_accepted_start_binds_its_handler(self, teams_restartable):
+        """Control: an unsuperseded restart publishes the new client's handler."""
+        orch = self._orch()
+        cfg = _cfg_with("teams", enabled=True)
+        with patch.object(cfg, "load_credentials", return_value=_TEAMS_CREDS):
+            client = asyncio.run(orch.restart_channel("teams", cfg=cfg))
+        assert client is not None and orch._channel_handles["teams"] is client
+        assert orch.dashboard_state.teams_on_activity == client.on_activity
+
+    def test_publishing_without_a_teams_handle_binds_nothing(self):
+        orch = _make_orchestrator()
+        orch.dashboard_state = SimpleNamespace(channel_transports={}, teams_on_activity=None)
+        orch._publish_teams_webhook({"discord": FakeClient(FakeTransport([]))})
+        assert orch.dashboard_state.teams_on_activity is None
+
+
 class TestCredentialChangeRestartsChannel:
     def _orch_with_recorder(self, monkeypatch):
         monkeypatch.setattr(gw, "builtin_channel_descriptors", _cred_descriptors)
@@ -1481,3 +1570,28 @@ class TestSlackCredentialChangeWarns:
                 orch._on_slack_config_change(_change(cfg, "credentials.TELEGRAM_BOT_TOKEN"))
             )
         assert not any("Slack credential" in r.message for r in caplog.records)
+
+    def test_a_lowercase_slack_key_on_windows_still_logs_the_notice(self, monkeypatch, caplog):
+        """On Windows os.environ is case-insensitive, so a lowercase .env line
+        rotates the same entry Slack authenticates with. The match must
+        canonicalize like registry.changed_credential_keys, and the notice names
+        the declared constant. On POSIX a lowercase name is a different variable
+        and stays silent. (Fixes the GPT lowercase-Slack-rotation finding.)"""
+        import logging
+
+        from kiro_crew import platform_compat
+
+        orch = _make_orchestrator()
+        cfg = KiroCrewConfig()
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", False, raising=False)
+        with caplog.at_level(logging.WARNING):
+            asyncio.run(orch._on_slack_config_change(_change(cfg, "credentials.slack_bot_token")))
+        assert not any("Slack credential" in r.message for r in caplog.records)
+
+        caplog.clear()
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
+        with caplog.at_level(logging.WARNING):
+            asyncio.run(orch._on_slack_config_change(_change(cfg, "credentials.slack_bot_token")))
+        notices = [r.getMessage() for r in caplog.records if "Slack credential" in r.message]
+        assert len(notices) == 1 and "SLACK_BOT_TOKEN" in notices[0]

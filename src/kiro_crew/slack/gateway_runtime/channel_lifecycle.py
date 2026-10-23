@@ -500,7 +500,29 @@ async def restart_channel(
             self._forget_superseded_start(channel_type, client)
             return None
         self._channel_handles[channel_type] = client
+        # Published only now, under the lock and past the generation check: a
+        # start superseded mid-connect never exposed its webhook handler, so a
+        # request captured in that window cannot reach a client being discarded.
+        self._publish_teams_webhook({channel_type: client})
         return client
+
+
+def _publish_teams_webhook(self: GatewayOrchestrator, handles: dict) -> None:
+    """Bind ``state.teams_on_activity`` to the ACCEPTED Teams client, if any.
+
+    Teams' inbound route is pre-registered and dispatches to this late-bound
+    handler. ``maybe_start_teams`` deliberately does not bind it, because it runs
+    before the connect completes and a credential-triggered restart can be
+    superseded mid-connect; binding there would let a webhook captured in that
+    window be accepted by a client the host then discards. The host calls this
+    once a client is the stored handle: after boot's ``start_channels`` and after
+    a restart passes its generation check. Until then the route answers 503.
+    """
+    client = handles.get("teams")
+    state = getattr(self, "dashboard_state", None)
+    on_activity = getattr(client, "on_activity", None)
+    if state is not None and on_activity is not None:
+        state.teams_on_activity = on_activity
 
 
 def _forget_superseded_start(self: GatewayOrchestrator, channel_type: str, client: object) -> None:
@@ -605,20 +627,29 @@ async def _on_slack_config_change(self: GatewayOrchestrator, change: ConfigChang
     # synthetic ``credentials.<KEY>`` path; apply what can be applied live below,
     # but tell the operator the new Slack token itself needs a gateway restart,
     # the same honest fallback as ``slack.command``.
-    slack_cred_paths = sorted(
-        change.under(live.CREDENTIAL_CHANGE_PREFIX)
-        & {
-            f"{live.CREDENTIAL_CHANGE_PREFIX}.{k}"
-            for k in (CRED_SLACK_APP_TOKEN, CRED_SLACK_BOT_TOKEN)
-        }
+    # Matched by canonical environment-entry name, the same rule as
+    # ``registry.changed_credential_keys``: on Windows ``os.environ`` is
+    # case-insensitive, so a lowercase ``slack_bot_token`` line rotates the same
+    # entry Slack authenticates with, and a literal-case match would skip the
+    # notice. The names logged are the declared constants.
+    from kiro_crew.config.loader import _env_name_key
+
+    cred_prefix = live.CREDENTIAL_CHANGE_PREFIX + "."
+    changed_canon = {
+        _env_name_key(p[len(cred_prefix) :])
+        for p in change.under(live.CREDENTIAL_CHANGE_PREFIX)
+        if p.startswith(cred_prefix)
+    }
+    slack_cred_keys = sorted(
+        k for k in (CRED_SLACK_APP_TOKEN, CRED_SLACK_BOT_TOKEN) if _env_name_key(k) in changed_canon
     )
-    if slack_cred_paths:
+    if slack_cred_keys:
         # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- the format names a token, its argument is the KEY name only (never a credential value)
         logger.warning(
             "Slack credential(s) changed in .env (%s); Slack's socket connection is "
             "host-managed and keeps the previous token until the next gateway start. "
             "Run `kirocrew restart` to pick up the new Slack token.",
-            ", ".join(p.split(".", 1)[1] for p in slack_cred_paths),
+            ", ".join(slack_cred_keys),
         )
     slack_paths = change.under("slack")
     if slack_paths and "slack" in new.degraded_sections:
