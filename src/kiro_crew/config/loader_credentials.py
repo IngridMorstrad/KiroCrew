@@ -595,29 +595,36 @@ def apply_env_credential_changes(
                 raise ValueError("illegal environment variable name in .env credential diff")
             if "\x00" in v:
                 raise ValueError("embedded NUL in .env credential value")
-    # The os.environ entry each canonical key STILL has in the new ``.env`` --
-    # the value a surviving spelling configures, keyed canonically. A removed key
-    # must not strand an entry that another ``.env`` key still configures. On
-    # Windows ``os.environ`` is case-insensitive, so ``HTTPS_PROXY`` and
-    # ``https_proxy`` are ONE entry, and two spellings can share it two ways:
-    #   * a case-only rename -- the lowercase line edited to uppercase -- which
-    #     the diff sees as one key added and one removed, and
-    #   * a duplicate pair -- both spellings present, and only one removed --
-    #     where the removed spelling is in ``changed`` but the surviving one is
-    #     NOT, so a view built from ``changed`` alone would miss it.
-    # Built from all of ``new`` (not just the changed subset) so both are seen.
-    # When two surviving spellings share a canonical key, precedence is
-    # DETERMINISTIC -- the name that sorts last wins, so an uppercase canonical
-    # spelling (``HTTPS_PROXY``) beats its lowercase alias -- rather than
-    # depending on dict/iteration order. On POSIX the canonical key is the name
-    # itself, so no two distinct names ever share one and this is a plain
-    # name->value view of the non-empty entries.
-    kept_entry_values: dict[str, str] = {}
-    for _name in sorted(new):
-        _val = new[_name]
-        if _val:
-            kept_entry_values[_env_name_key(_name)] = _val
+    # Decide per os.environ ENTRY, not per ``.env`` key. On POSIX names are
+    # case-sensitive, so every entry has exactly one spelling and this is the
+    # plain per-key apply. On Windows ``os.environ`` is case-insensitive:
+    # ``HTTPS_PROXY`` and ``https_proxy`` are ONE entry, and a per-key loop
+    # writes, pops and owns that entry once per spelling -- so a rename, a
+    # duplicate pair with one spelling removed, or both spellings edited in one
+    # save each left the entry depending on which spelling the loop met last.
+    # Grouping the batch by canonical entry name and resolving each entry ONCE
+    # removes that order dependence:
+    #
+    # * the entry's desired value is the FIRST non-empty spelling in ``.env``
+    #   order -- the one boot's ``setdefault`` propagation installs (``new``
+    #   keeps the file's order) -- so a live apply lands where a restart would;
+    # * an entry with a surviving spelling is set to that value; an entry with
+    #   none left is removed (subject to ownership, below);
+    # * spellings the diff did not touch still count as survivors, because the
+    #   entry is judged against all of ``new``, not just the changed keys.
+    # canonical entry -> (the spelling boot would propagate, its value)
+    desired: dict[str, tuple[str, str]] = {}
+    for name, value in new.items():
+        if value:
+            desired.setdefault(_env_name_key(name), (name, value))
+    previous: dict[str, str] = {}
+    if old is not None:
+        for name, value in old.items():
+            if value:
+                previous.setdefault(_env_name_key(name), value)
+
     applied: set[str] = set()
+    entries: dict[str, list[str]] = {}
     for k in changed:
         if scrubbed and (k in CREDENTIAL_KEYS or _JIRA_TOKEN_RE.match(k)):
             continue
@@ -635,15 +642,22 @@ def apply_env_credential_changes(
                 extend_process_path(val, prepared=prepared)
                 applied.add(k)
             continue
-        if k in new and new[k]:
-            prior = os.environ.get(k)
-            prev_env_value = old.get(k) if old is not None else None
-            if (
-                old is not None
-                and prior is not None
-                and prior != new[k]
-                and prior != prev_env_value
-            ):
+        entries.setdefault(_env_name_key(k), []).append(k)
+
+    for canon, spellings in entries.items():
+        # Any spelling addresses the same entry; reading/writing through the
+        # first changed one is enough (on POSIX it is the only one).
+        k = spellings[0]
+        target = desired.get(canon)
+        if target is not None:
+            # Write through the spelling boot would propagate. On Windows every
+            # spelling addresses the same entry, so this only fixes which name
+            # the log and the write use; on POSIX it is the changed key itself.
+            k, value = target
+        prior = os.environ.get(k)
+        if target is not None:
+            prev_env_value = previous.get(canon)
+            if old is not None and prior is not None and prior not in (value, prev_env_value):
                 # The process holds a value that is neither the new nor the last
                 # propagated ``.env`` value: a foreign/inherited value is being
                 # overwritten. That is the one case worth surfacing (a plain
@@ -661,56 +675,29 @@ def apply_env_credential_changes(
             # process already held exactly this value from somewhere ``.env``
             # does not own (a service unit or shell export), so the write below
             # changes nothing. Recording ownership there would let a later
-            # removal of the line pop the inherited credential -- the very case
-            # boot's setdefault refuses to own. Any write that does change the
-            # entry (a new key, a rotation, an overwrite of a foreign value), or
-            # one ``.env`` already owns, is a genuine ``.env`` write and owns it.
-            merely_matched = prior is not None and prior == new[k] and not env_owns_key(k)
-            os.environ[k] = new[k]
+            # removal pop the inherited credential -- the very case boot's
+            # setdefault refuses to own. Any write that does change the entry (a
+            # new key, a rotation, an overwrite of a foreign value, or a switch
+            # to another surviving spelling's value), or one ``.env`` already
+            # owns, is a genuine ``.env`` write and owns it.
+            merely_matched = prior is not None and prior == value and not env_owns_key(k)
+            os.environ[k] = value
             if not merely_matched:
                 note_env_owned_key(k)
-            applied.add(k)
-        else:
-            # A key removed from .env. Pop only what .env itself PROPAGATED, and
-            # ownership is recorded at propagation time, NOT inferred from value
-            # equality: boot's setdefault records a key as .env-owned only when
-            # it actually wrote it (the name was absent), so a service/shell
-            # value .env merely matched is not owned and is left in place -- a
-            # removal cannot strand a channel by deleting an inherited credential
-            # that happened to equal the .env line. Without a baseline (the
-            # dashboard path, no ownership tracking) pop unconditionally, the
-            # pre-baseline behaviour.
-            prior = os.environ.get(k)
-            # A removed spelling whose canonical entry a SURVIVING ``.env`` key
-            # still configures must not strand that entry. On a case-insensitive
-            # os.environ (Windows) a case-only rename, OR a duplicate pair with
-            # only one spelling removed, leaves another spelling live in ``new``.
-            # Reconcile the shared entry to the surviving value rather than
-            # popping it: when both spellings held the same value this is a
-            # no-op, but when they differed -- and the removed spelling was the
-            # one boot propagated -- popping would leave the entry reading the
-            # obsolete removed value until a restart, so the entry is SET to the
-            # surviving value here. A reconcile that changes the entry records
-            # ``.env`` ownership (below); one that changes nothing leaves
-            # ownership as it was.
-            surviving = kept_entry_values.get(_env_name_key(k))
-            if surviving is not None:
-                if prior != surviving:
-                    # Installing the surviving spelling's value IS a ``.env``
-                    # write that takes the entry over (the same rule as the set
-                    # branch), so ``.env`` owns it now -- even when the value it
-                    # replaced was inherited. Without this a later removal of
-                    # the surviving line would see an unowned key and leave the
-                    # deleted credential active.
-                    os.environ[k] = surviving
-                    note_env_owned_key(k)
-                    applied.add(k)
-                continue
-            if old is None or prior is None or env_owns_key(k):
-                os.environ.pop(k, None)
-                applied.add(k)
-            # The key left .env, so drop any ownership claim on it.
-            discard_env_owned_key(k)
+            applied.update(spellings)
+            continue
+        # No spelling of this entry is left in ``.env``. Pop only what ``.env``
+        # itself PROPAGATED: ownership is recorded at propagation time, NOT
+        # inferred from value equality, so a service/shell value ``.env`` merely
+        # matched is left in place and a removal cannot strand a channel by
+        # deleting an inherited credential that happened to equal the line.
+        # Without a baseline (the dashboard path, no ownership tracking) pop
+        # unconditionally, the pre-baseline behaviour.
+        if old is None or prior is None or env_owns_key(k):
+            os.environ.pop(k, None)
+            applied.update(spellings)
+        # The entry left ``.env``, so drop any ownership claim on it.
+        discard_env_owned_key(k)
     return frozenset(applied)
 
 

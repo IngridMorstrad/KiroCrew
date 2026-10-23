@@ -33,6 +33,37 @@ from kiro_crew.config import live
 from kiro_crew.config.live import ConfigWatch
 from kiro_crew.config.loader import KiroCrewConfig
 
+
+class _FoldedEnviron(dict):
+    """A stand-in for Windows' case-insensitive ``os.environ``.
+
+    Every key is folded to upper case, so ``HTTPS_PROXY`` and ``https_proxy``
+    read and write ONE entry, as they do on Windows. Used only for the duration
+    of a test, via ``monkeypatch.setattr(os, "environ", ...)``.
+    """
+
+    def __init__(self, initial: dict[str, str] | None = None) -> None:
+        super().__init__({k.upper(): v for k, v in (initial or {}).items()})
+
+    def __getitem__(self, key: str) -> str:
+        return super().__getitem__(key.upper())
+
+    def __setitem__(self, key: str, value: str) -> None:
+        super().__setitem__(key.upper(), value)
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key.upper())
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and super().__contains__(key.upper())
+
+    def get(self, key: str, default=None):  # type: ignore[override]
+        return super().get(key.upper(), default)
+
+    def pop(self, key: str, *default):  # type: ignore[override]
+        return super().pop(key.upper(), *default)
+
+
 # ── fixtures ────────────────────────────────────────────────────────────────
 
 
@@ -573,6 +604,34 @@ class TestLoaderCredentialHelpers:
         assert loader.env_owns_key("https_proxy")
         assert loader.env_owns_key("HTTPS_PROXY")
 
+    def test_windows_both_spellings_edited_resolves_to_boot_precedence(self, monkeypatch):
+        """On Windows both spellings of one key are one os.environ entry. When a
+        single save edits BOTH to different values, the entry must take the value
+        boot's setdefault would -- the first spelling in .env order -- whatever
+        order the changed set happens to iterate in. (Fixes the GPT
+        order-dependent case-alias rotation finding.)"""
+        from kiro_crew import platform_compat
+        from kiro_crew.config import loader
+
+        monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
+        # Model Windows' case-insensitive os.environ for the applier's reads and
+        # writes: on a POSIX runner the two spellings would otherwise be two
+        # separate variables and the order dependence could not show.
+        folded = _FoldedEnviron({"TELEGRAM_BOT_TOKEN": "a"})
+        monkeypatch.setattr(os, "environ", folded)
+
+        new = {"TELEGRAM_BOT_TOKEN": "valid-rotation", "telegram_bot_token": "revoked"}
+        old = {"TELEGRAM_BOT_TOKEN": "a", "telegram_bot_token": "b"}
+        for order in (
+            ["TELEGRAM_BOT_TOKEN", "telegram_bot_token"],
+            ["telegram_bot_token", "TELEGRAM_BOT_TOKEN"],
+        ):
+            folded["TELEGRAM_BOT_TOKEN"] = "a"
+            loader.note_env_owned_key("TELEGRAM_BOT_TOKEN")
+            loader.apply_env_credential_changes(order, new, old)
+            assert folded["telegram_bot_token"] == "valid-rotation", order
+            assert loader.env_owns_key("TELEGRAM_BOT_TOKEN")
+
     def test_windows_reconcile_to_a_different_surviving_value_takes_ownership(self, monkeypatch):
         """A service supplies the token (unowned); .env holds two spellings with
         different values. Removing the service-matching spelling installs the
@@ -584,8 +643,8 @@ class TestLoaderCredentialHelpers:
         from kiro_crew.config import loader
 
         monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
-        forget_env_at_teardown(monkeypatch, "telegram_bot_token", "TELEGRAM_BOT_TOKEN")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "from-service")
+        folded = _FoldedEnviron({"TELEGRAM_BOT_TOKEN": "from-service"})
+        monkeypatch.setattr(os, "environ", folded)
         loader.discard_env_owned_key("TELEGRAM_BOT_TOKEN")
 
         loader.apply_env_credential_changes(
@@ -593,7 +652,7 @@ class TestLoaderCredentialHelpers:
             {"telegram_bot_token": "from-dotenv"},
             {"TELEGRAM_BOT_TOKEN": "from-service", "telegram_bot_token": "from-dotenv"},
         )
-        assert os.environ["TELEGRAM_BOT_TOKEN"] == "from-dotenv"
+        assert folded["TELEGRAM_BOT_TOKEN"] == "from-dotenv"
         assert loader.env_owns_key("telegram_bot_token")
         assert loader.env_owns_key("TELEGRAM_BOT_TOKEN")
 
@@ -604,8 +663,8 @@ class TestLoaderCredentialHelpers:
         from kiro_crew.config import loader
 
         monkeypatch.setattr(platform_compat, "IS_WINDOWS", True, raising=False)
-        forget_env_at_teardown(monkeypatch, "telegram_bot_token", "TELEGRAM_BOT_TOKEN")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "same")
+        folded = _FoldedEnviron({"TELEGRAM_BOT_TOKEN": "same"})
+        monkeypatch.setattr(os, "environ", folded)
         loader.discard_env_owned_key("TELEGRAM_BOT_TOKEN")
 
         loader.apply_env_credential_changes(
@@ -613,7 +672,7 @@ class TestLoaderCredentialHelpers:
             {"telegram_bot_token": "same"},
             {"TELEGRAM_BOT_TOKEN": "same", "telegram_bot_token": "same"},
         )
-        assert os.environ["TELEGRAM_BOT_TOKEN"] == "same"
+        assert folded["TELEGRAM_BOT_TOKEN"] == "same"
         assert not loader.env_owns_key("TELEGRAM_BOT_TOKEN")
 
     def test_windows_removing_one_of_two_case_duplicates_keeps_the_entry(self, monkeypatch):
