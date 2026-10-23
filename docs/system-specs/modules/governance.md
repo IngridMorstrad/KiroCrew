@@ -86,6 +86,23 @@ can reorder strictness or redefine matching):
   allow-mode prefix to confine writes in a directory containing untrusted
   symlinks.
 
+  **Path matcher — remote-workspace targets.** A remote workspace's file tools
+  act on a Linux guest, so their targets are matched as the guest's POSIX paths
+  on every gateway OS, a Windows one included. The flavour is chosen per call,
+  never globally: `build_permission_event` tags the call's arguments with the
+  `GuestPathParams` type (`platform/guest_paths.py`) only on a runtime whose own
+  remote-workspace binding (`set_remote_workspace`) attached the workspace
+  server, for a trusted identity; any tagged object arriving another way is
+  stripped back to a plain dict, and a type cannot be forged from JSON. Each
+  target becomes a `GuestPath` that `_match_path` normalizes with `guest_norm`:
+  a relative path is anchored at the guest workdir (never this gateway's CWD),
+  `..` and a leading `//` collapse, and nothing is expanded with this gateway's
+  `~` or environment (the guest tool server expands neither). A target carrying
+  a `$`, a `~` segment or a backslash is judged as the literal path the guest
+  opens and also emits a never-permittable item, so an allow-mode confinement
+  refuses it. Patterns are expanded as before. A local call keeps the gateway's
+  own `os.path` reading unchanged.
+
 `SCOPE_CATALOG` is the single place a scope name binds to its archetype +
 matcher. `register_scope` / `register_matcher` are append-only extension seams;
 the test suite proves a synthetic scope resolves end-to-end with **zero**
