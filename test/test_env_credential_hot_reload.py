@@ -548,7 +548,7 @@ class TestLoaderCredentialHelpers:
         # Boot owned both spellings; os.environ folds them to one entry.
         loader.note_env_owned_key("https_proxy")
         loader.note_env_owned_key("HTTPS_PROXY")
-        os.environ["HTTPS_PROXY"] = "http://proxy:8080"
+        monkeypatch.setenv("HTTPS_PROXY", "http://proxy:8080")
         # Only the lowercase spelling left .env; the uppercase one is unchanged
         # (same value in old and new), so it is NOT in the changed set.
         loader.apply_env_credential_changes(
