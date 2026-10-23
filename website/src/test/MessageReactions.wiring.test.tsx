@@ -9,7 +9,7 @@
  * components' opt-in gating and prop plumbing.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import UserMessage from '../pages/chat/UserMessage'
 import AssistantMessage from '../pages/chat/AssistantMessage'
 
