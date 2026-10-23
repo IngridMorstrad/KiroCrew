@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import datetime, timezone
 
-from kiro_crew.history import _SEARCH_SCAN_WINDOW as SEARCH_SCAN_WINDOW
 from kiro_crew.history import is_incognito_transcript
 from kiro_crew.history_search import snippet_needle_tiers, tiered_first_hit
 from kiro_crew.platform import redact_via_context as redact
@@ -23,11 +22,17 @@ _SNIPPET_RADIUS = 120  # chars of context kept on each side of a match
 _SNIPPET_MAX_LEN = 320  # hard cap on a returned snippet
 
 
-# Upper bound on ranked candidates pulled from the backend per search. Bound to
-# the backend's own scan window (imported, not copied) so we consider every
-# ranked match (bounded I/O) and post-filtering can't starve a caller whose hits
-# rank past a small page — and the two can't silently drift apart.
-_SEARCH_HISTORY_SCAN = SEARCH_SCAN_WINDOW
+def _search_history_scan() -> int:
+    """Upper bound on ranked candidates pulled from the backend per search.
+
+    The backend's own scan window, read at each search like the backend reads it,
+    so we consider every ranked match (bounded I/O) and post-filtering can't starve
+    a caller whose hits rank past a small page -- and the two can't drift apart.
+    Imported here rather than at module scope, so the facade does not serve it.
+    """
+    from kiro_crew.history_search import _facade_search_scan_window
+
+    return _facade_search_scan_window()
 
 
 def _history_is_incognito(meta: dict) -> bool:
