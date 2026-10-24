@@ -386,7 +386,14 @@ class TestLeafOnlyPopulationIsRecorded:
     #:   binding, which the gateway writes on a person's action. Masked at the
     #:   data-home root beside ``crew-teams`` rather than under the sandbox
     #:   read-write ``trust/``, so leaf-only for the same reason.
-    EXPECTED: dict[str, int] = {"standard": 293, "cc": 300, "strict": 301}
+    #:
+    #: One more root-level directory, one entry per tier:
+    #:
+    #: * ``secret-request-policy`` -- the mediated-secret request directory (the
+    #:   owner-signed egress policy and its authorize lock), masked whole. Every publication renames INSIDE it, so the
+    #:   directory's own inode stays the same on a republish. At the data-home root
+    #:   beside writable siblings, so leaf-only is the only hold available.
+    EXPECTED: dict[str, int] = {"standard": 294, "cc": 301, "strict": 302}
 
     @pytest.mark.parametrize("tier", TIERS)
     def test_leaf_only_count_has_not_grown(self, tier: str) -> None:
