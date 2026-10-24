@@ -669,3 +669,49 @@ def test_a_boot_record_from_another_env_file_is_not_adopted(tmp_path):
 
     lc.record_boot_raw_env({"TELEGRAM_BOT_TOKEN": "x"}, path=here)
     assert lc.take_boot_raw_env(path=here) == {"TELEGRAM_BOT_TOKEN": "x"}
+
+
+# ── case-equivalent .env spellings (Windows os.environ is case-insensitive) ──
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_the_sign_in_writer_handles_a_lowercase_spelling_per_platform(
+    tmp_path, monkeypatch, windows
+):
+    """On Windows ``weixin_token`` and ``WEIXIN_TOKEN`` are one os.environ entry:
+    a sign-in must replace the hand-typed lowercase line, or boot's / the
+    watcher's first-spelling rule would keep the OLD token in force. On POSIX the
+    lowercase name is a different variable and is left alone. (Fixes the GPT
+    Windows case-spelling finding, same class as the dashboard writer.)"""
+    from kiro_crew import platform_compat
+
+    monkeypatch.setattr(platform_compat, "IS_WINDOWS", windows, raising=False)
+    ep = tmp_path / ".env"
+    ep.write_text("weixin_token=old\nOTHER=keep\n", encoding="utf-8")
+    monkeypatch.setattr(qr, "env_path", lambda: ep)
+
+    qr._write_env_secret("WEIXIN_TOKEN", "new")
+
+    lines = ep.read_text(encoding="utf-8").splitlines()
+    if windows:
+        assert lines == ["WEIXIN_TOKEN=new", "OTHER=keep"]
+    else:
+        assert lines == ["weixin_token=old", "OTHER=keep", "WEIXIN_TOKEN=new"]
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_the_rollback_delete_removes_case_spellings_per_platform(tmp_path, monkeypatch, windows):
+    """Rolling back a first-time sign-in removes the key; on Windows that means
+    every case-equivalent spelling, on POSIX only the exact name."""
+    from kiro_crew import platform_compat
+
+    monkeypatch.setattr(platform_compat, "IS_WINDOWS", windows, raising=False)
+    ep = tmp_path / ".env"
+    ep.write_text("weixin_token=a\nOTHER=keep\nWEIXIN_TOKEN=b\n", encoding="utf-8")
+    monkeypatch.setattr(qr, "env_path", lambda: ep)
+
+    assert qr._read_env_value("WEIXIN_TOKEN") == ("a" if windows else "b")
+    qr._delete_env_key("WEIXIN_TOKEN")
+
+    lines = ep.read_text(encoding="utf-8").splitlines()
+    assert lines == (["OTHER=keep"] if windows else ["weixin_token=a", "OTHER=keep"])

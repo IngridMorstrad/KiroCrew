@@ -396,18 +396,32 @@ def _write_env_updates_locked(ep: "Path", updates: dict[str, str | None]) -> Non
     the caller (:func:`_write_env_updates`)."""
 
     lines = _loader.read_env_text(ep, encoding="utf-8").splitlines() if ep.exists() else []
+    # Lines are matched to an update by canonical ``os.environ`` entry name, not
+    # literal spelling. On Windows ``os.environ`` is case-insensitive, so a
+    # hand-typed ``telegram_bot_token=`` line and the ``TELEGRAM_BOT_TOKEN`` this
+    # writer saves are ONE entry; matched literally, the lowercase line would be
+    # left in place with the new uppercase line appended after it, and the
+    # watcher's first-non-empty-spelling rule (boot's ``setdefault`` precedence)
+    # would then re-install the OLD token while the save reported success. So
+    # every case-equivalent spelling of an updated key is replaced: the first is
+    # rewritten under the declared spelling, the rest are dropped. On POSIX the
+    # canonical name is the name itself, so matching stays case-sensitive and
+    # nothing changes there.
+    canon_updates = {_loader._env_name_key(k): k for k in updates}
     seen: set[str] = set()
     out: list[str] = []
     for line in lines:
         s = line.strip()
         if s and not s.startswith("#") and "=" in s:
-            k = s.split("=", 1)[0].strip()
-            if k in updates:
-                seen.add(k)
-                new_val = updates[k]
+            key = canon_updates.get(_loader._env_name_key(s.split("=", 1)[0].strip()))
+            if key is not None:
+                if key in seen:
+                    continue
+                seen.add(key)
+                new_val = updates[key]
                 if new_val is None:
                     continue
-                out.append(f"{k}={new_val}")
+                out.append(f"{key}={new_val}")
                 continue
         out.append(line)
     for k, new_val in updates.items():

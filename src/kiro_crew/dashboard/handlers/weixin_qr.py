@@ -39,6 +39,7 @@ from kiro_crew.config import live
 from kiro_crew.config.loader import (
     CRED_WEIXIN_TOKEN,
     KiroCrewConfig,
+    _env_name_key,
     apply_env_credential_changes,
     config_path,
     env_bom_prefix,
@@ -128,6 +129,15 @@ def _atomic_write(path: Path, text: str, *, secret: bool = False) -> None:
     atomic_write(path, text, mode=preserved)
 
 
+def _same_env_entry(a: str, b: str) -> bool:
+    """Whether two ``.env`` names address the same ``os.environ`` entry.
+
+    Case-insensitive on Windows (where ``os.environ`` is), case-sensitive on
+    POSIX -- the loader's one canonical-name rule.
+    """
+    return _env_name_key(a) == _env_name_key(b)
+
+
 def _write_env_secret(key: str, value: str) -> None:
     """Upsert ``KEY=VALUE`` in ~/.kiro/crew/.env (0600), preserving other lines."""
     ep = env_path()
@@ -137,10 +147,15 @@ def _write_env_secret(key: str, value: str) -> None:
         for line in read_env_text(ep, encoding="utf-8").splitlines():
             stripped = line.strip()
             if stripped and not stripped.startswith("#") and "=" in stripped:
-                k = stripped.split("=", 1)[0].strip()
-                if k == key:
-                    lines.append(f"{key}={value}")
-                    found = True
+                if _same_env_entry(stripped.split("=", 1)[0].strip(), key):
+                    # Every case-equivalent spelling is one os.environ entry on
+                    # Windows: rewrite the first under the declared name and drop
+                    # the rest, or a leftover spelling earlier in the file would
+                    # win boot's / the watcher's first-spelling rule and keep the
+                    # OLD token in force. Case-sensitive on POSIX.
+                    if not found:
+                        lines.append(f"{key}={value}")
+                        found = True
                     continue
             lines.append(line)
     if not found:
@@ -161,7 +176,10 @@ def _read_env_value(key: str) -> Optional[str]:
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and "=" in stripped:
             k, _, value = stripped.partition("=")
-            if k.strip() == key:
+            # The first case-equivalent spelling (Windows) -- the one boot
+            # propagates -- is the value in force, so it is what a rollback must
+            # restore. Case-sensitive on POSIX.
+            if _same_env_entry(k.strip(), key):
                 return value
     return None
 
@@ -175,7 +193,9 @@ def _delete_env_key(key: str) -> None:
     for line in read_env_text(ep, encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and "=" in stripped:
-            if stripped.split("=", 1)[0].strip() == key:
+            # Every case-equivalent spelling on Windows, so no leftover spelling
+            # keeps supplying the removed value. Case-sensitive on POSIX.
+            if _same_env_entry(stripped.split("=", 1)[0].strip(), key):
                 continue
         kept.append(line)
     _atomic_write(ep, env_bom_prefix(ep) + "\n".join(kept) + "\n", secret=True)
