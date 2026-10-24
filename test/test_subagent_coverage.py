@@ -532,9 +532,7 @@ class TestPidHelpers:
 
     @pytest.mark.asyncio
     async def test_kill_orphan_swallows_missing_process(self) -> None:
-        with patch.object(
-            sa.platform_compat, "kill_pid", side_effect=ProcessLookupError
-        ) as kill:
+        with patch.object(sa.platform_compat, "kill_pid", side_effect=ProcessLookupError) as kill:
             # An already-gone process is not a kill failure.
             assert await SubagentManager._kill_orphan_pid(4242) is None
         assert kill.call_args[0][0] == 4242
@@ -1010,6 +1008,9 @@ class TestQueueDepth:
         # is started and nothing is published.
         assert mgr._queue_wait["dash:1"] == {"reason": "capacity"}
         assert "dash:1" not in mgr._queue_depth_emits
+        # A request without a label records none.
+        mgr._emit_queue_depth("dash:2")
+        assert "dash:2" not in mgr._queue_wait
         on_event.assert_not_called()
 
 

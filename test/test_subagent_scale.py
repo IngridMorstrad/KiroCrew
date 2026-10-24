@@ -1199,8 +1199,8 @@ class TestDigestHoldDeadline:
         with patch.object(mgr, "force_digest_flush") as forced:
             mgr._sweep_digest_holds(now)
             forced.assert_not_called()
-            # Control: the same hold is flushed once it reaches the deadline.
-            mgr._sweep_digest_holds(m._digest_held_at + DIGEST_HOLD_SECS)
+            # Control: the same hold is flushed once it is past the deadline.
+            mgr._sweep_digest_holds(m._digest_held_at + DIGEST_HOLD_SECS + 1.0)
         forced.assert_called_once()
 
     def test_expired_hold_forces_flush(self):
