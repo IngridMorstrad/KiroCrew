@@ -2654,15 +2654,20 @@ async def _run_chat(
                     # lock cannot reach. Vetoed like a member pin: the slot keeps
                     # its agent, the denial is audited and shown, and the session
                     # resets so the next turn starts on the conductor again.
+                    # A gate-side log line reads the context-aware redactor, so a
+                    # loaded companion's patterns apply (test_security_posture).
+                    _crew_veto_agent = redact_log_via_context(event.text or "")
                     logger.warning(
-                        "agent switch to %r vetoed on Crew Mode chat %s", new_agent, slot.key
+                        "agent switch to %r vetoed on Crew Mode chat %s",
+                        _crew_veto_agent,
+                        slot.key,
                     )
                     sel().log_api_access(
                         caller=f"slot={slot.key}",
                         operation="chat_runner.agent_switch",
                         outcome="denied",
                         source="crew_mode_locked",
-                        resources=f"slot={slot.key} agent={new_agent}",
+                        resources=f"slot={slot.key} agent={_crew_veto_agent}",
                         error="a Crew Mode chat stays on its conductor",
                     )
                     slot.append(

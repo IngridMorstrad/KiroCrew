@@ -301,7 +301,9 @@ def _interactive_approval(
                 # Everything that reaches this gate on its behalf -- its
                 # spawn_run, its subagents' tools -- still asks, so the request
                 # reaches the conductor's card (edge review R3 G1).
-                _ps_card_scoped = _ps_trusted and getattr(_ps, "_trust_card_scoped", False) is True
+                from kiro_crew.dashboard.approval_posture import trust_carries
+
+                _ps_card_scoped = _ps_trusted and not _ps_via_scope and not trust_carries(_ps)
                 if _ps_card_scoped:
                     _sel_log(
                         caller=f"slot:{_parent_slot_key}",
@@ -385,8 +387,17 @@ def _interactive_approval(
                     resources=_safe_title,
                 )
 
-        # Post approval buttons to Slack DM if available
-        if self.slack and self._owner_id:
+        # Post approval buttons to Slack DM if available. Not for a Crew Mode
+        # worker's request (its spawn, its subagents): the conductor's card is the
+        # one place it is decided (edge review R4 H3).
+        from kiro_crew.crew_mode import live_stamps
+
+        _crew_worker = bool(
+            approval_slot
+            and self.dashboard_state
+            and live_stamps(self.dashboard_state._slots or {}).get(approval_slot, ("",))[0]
+        )
+        if self.slack and self._owner_id and not _crew_worker:
             try:
                 # Resolve parent thread context for threaded approval prompts
                 thread_ts: str | None = None

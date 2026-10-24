@@ -242,9 +242,9 @@ def _persistable_session_policy(slot: Any, yolo_active: bool) -> str:
     """
     if yolo_active:
         return "auto"
-    if getattr(slot, "_trust", False) and not getattr(slot, "_trust_card_scoped", False):
-        return "auto"
-    return ""
+    from kiro_crew.dashboard.approval_posture import trust_carries
+
+    return "auto" if trust_carries(slot) else ""
 
 
 def _native_crew_should_auto_approve(native_tracker, state, slot) -> bool:

@@ -210,7 +210,7 @@ async def test_B_trust_this_worker_trusts_the_worker_slot_only(state):
 
 @pytest.mark.asyncio
 async def test_F1_card_trust_does_not_pass_to_the_sessions_the_worker_creates(state):
-    from kiro_crew.dashboard.session_control_parts.session_create import creator_trust_carries
+    from kiro_crew.dashboard.approval_posture import trust_carries
 
     worker, _fut, _mid = _crew(state)
     async with TestClient(_server(state, _owner)) as client:
@@ -221,18 +221,18 @@ async def test_F1_card_trust_does_not_pass_to_the_sessions_the_worker_creates(st
         assert resp.status == 200, await resp.text()
     assert worker._trust is True and worker._trust_card_scoped is True
     # A session this worker creates later is born asking.
-    assert creator_trust_carries(worker) is False
+    assert trust_carries(worker) is False
 
 
 @pytest.mark.asyncio
 async def test_F1_a_directly_trusted_session_still_passes_its_trust_on(state):
-    from kiro_crew.dashboard.session_control_parts.session_create import creator_trust_carries
+    from kiro_crew.dashboard.approval_posture import trust_carries
 
     worker, _fut, _mid = _crew(state)
     root = state._slots["root"]
     # A conductor the person trusted directly: its workers inherit, as before.
     root._trust = True
-    assert creator_trust_carries(root) is True
+    assert trust_carries(root) is True
     # A trust pressed on the slot's own approval (not the card) also carries.
     async with TestClient(_server(state, _owner)) as client:
         resp = await client.post(
@@ -240,7 +240,7 @@ async def test_F1_a_directly_trusted_session_still_passes_its_trust_on(state):
         )
         assert resp.status == 200, await resp.text()
     assert worker._trust is True and worker._trust_card_scoped is False
-    assert creator_trust_carries(worker) is True
+    assert trust_carries(worker) is True
 
 
 @pytest.mark.asyncio
