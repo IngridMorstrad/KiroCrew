@@ -9938,6 +9938,7 @@
       "worker_reopen": "Rouvrir",
       "steer_not_recorded": "Remis à {{name}}, mais non enregistré dans le registre.",
       "steer_not_recorded_no_item": "Remis à {{name}}, mais non enregistré dans le registre : le worker n'a pas de tâche ouverte.",
+      "steer_task_closed": "Remis. La tâche est déjà fermée, donc rien n'a été enregistré.",
       "steer_not_recorded_crew_log_off": "Remis à {{name}}, mais non enregistré dans le registre : le journal de l'équipe est désactivé.",
       "steer_not_recorded_ledger_failed": "Remis à {{name}}, mais non enregistré dans le registre : l'écriture dans le registre a échoué."
     },

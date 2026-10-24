@@ -14,6 +14,7 @@ import { useCrewRoot } from './useCrewRoot'
 export function steerUnrecordedLine(code: string, name: string): string {
   switch (code) {
     case 'no_item': return i18nT('components.crewMode.steer_not_recorded_no_item', { name })
+    case 'item_closed': return i18nT('components.crewMode.steer_task_closed')
     case 'crew_log_off': return i18nT('components.crewMode.steer_not_recorded_crew_log_off', { name })
     case 'crew_log_unit_unknown':
     case 'not_recorded': return i18nT('components.crewMode.steer_not_recorded_ledger_failed', { name })

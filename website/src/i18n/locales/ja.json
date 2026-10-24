@@ -9652,6 +9652,7 @@
       "worker_reopen": "再度開く",
       "steer_not_recorded": "{{name}} に届けましたが、台帳には記録されていません。",
       "steer_not_recorded_no_item": "{{name}} に届けましたが、台帳には記録されていません: ワーカーに未完了のタスクがありません。",
+      "steer_task_closed": "届けました。タスクはすでに完了しているため、何も記録されていません。",
       "steer_not_recorded_crew_log_off": "{{name}} に届けましたが、台帳には記録されていません: クルーログがオフです。",
       "steer_not_recorded_ledger_failed": "{{name}} に届けましたが、台帳には記録されていません: 台帳への書き込みに失敗しました。"
     },

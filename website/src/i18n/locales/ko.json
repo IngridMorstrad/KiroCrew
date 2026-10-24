@@ -9652,6 +9652,7 @@
       "worker_reopen": "다시 열기",
       "steer_not_recorded": "{{name}}에 전달했지만 원장에 기록되지 않았습니다.",
       "steer_not_recorded_no_item": "{{name}}에 전달했지만 원장에 기록되지 않았습니다: 워커에 열린 작업이 없습니다.",
+      "steer_task_closed": "전달했습니다. 작업이 이미 닫혀 있어 아무것도 기록되지 않았습니다.",
       "steer_not_recorded_crew_log_off": "{{name}}에 전달했지만 원장에 기록되지 않았습니다: 크루 로그가 꺼져 있습니다.",
       "steer_not_recorded_ledger_failed": "{{name}}에 전달했지만 원장에 기록되지 않았습니다: 원장 기록에 실패했습니다."
     },

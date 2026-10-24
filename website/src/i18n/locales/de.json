@@ -9795,6 +9795,7 @@
       "worker_reopen": "Wieder öffnen",
       "steer_not_recorded": "An {{name}} zugestellt, aber nicht im Ledger erfasst.",
       "steer_not_recorded_no_item": "An {{name}} zugestellt, aber nicht im Ledger erfasst: der Worker hat keine offene Aufgabe.",
+      "steer_task_closed": "Zugestellt. Die Aufgabe ist bereits geschlossen, daher wurde nichts erfasst.",
       "steer_not_recorded_crew_log_off": "An {{name}} zugestellt, aber nicht im Ledger erfasst: das Crew-Log ist aus.",
       "steer_not_recorded_ledger_failed": "An {{name}} zugestellt, aber nicht im Ledger erfasst: das Schreiben ins Ledger ist fehlgeschlagen."
     },

@@ -745,7 +745,7 @@ export default function ComposerDockView({
             />
               </Composer>
               {steerWorker !== undefined && steerTooLong && <p role="alert" className="mt-1 px-1 text-[12px] text-danger-text" data-testid="crew-steer-too-long">{i18nT('components.crewMode.steer_too_long', { max: CREW_STEER_MAX_CHARS.toLocaleString() })}</p>}
-              {steerWorker !== undefined && <p className="mt-1 px-1 text-[11px] text-muted" data-testid="crew-steer-hint" data-running={steerRunning ? 'true' : 'false'}>{steerRunning ? i18nT('components.crewMode.steer_hint_running') : i18nT('components.crewMode.steer_hint_idle', { name: steerWorker })}</p>}
+              {steerWorker !== undefined && !steerRootClosed && <p className="mt-1 px-1 text-[11px] text-muted" data-testid="crew-steer-hint" data-running={steerRunning ? 'true' : 'false'}>{steerRunning ? i18nT('components.crewMode.steer_hint_running') : i18nT('components.crewMode.steer_hint_idle', { name: steerWorker })}</p>}
               </div>
             </div>
             {/* Agent dropdown portal — triggered from input bar */}

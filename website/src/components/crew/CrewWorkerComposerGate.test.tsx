@@ -50,6 +50,7 @@ describe('CrewWorkerComposerGate (edge review R2)', () => {
     expect(line.textContent).not.toContain('no_item')
     expect(steerUnrecordedLine('crew_log_unit_unknown', 'W')).toBe('Delivered to W, but not recorded on the ledger: the ledger write failed.')
     expect(steerUnrecordedLine('not_recorded', 'W')).toBe('Delivered to W, but not recorded on the ledger: the ledger write failed.')
+    expect(steerUnrecordedLine('item_closed', 'W')).toBe('Delivered. The task is already closed, so nothing was recorded.')
     expect(steerUnrecordedLine('some_new_code', 'W')).toBe('Delivered to W, but not recorded on the ledger.')
     act(() => { clearCrewSteerNotice('w1') })
   })

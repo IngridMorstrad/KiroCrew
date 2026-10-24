@@ -9652,6 +9652,7 @@
       "worker_reopen": "重新打开",
       "steer_not_recorded": "已发送给 {{name}}，但未记入台账。",
       "steer_not_recorded_no_item": "已发送给 {{name}}，但未记入台账：该 worker 没有未完成的任务。",
+      "steer_task_closed": "已发送。该任务已关闭，所以没有记录任何内容。",
       "steer_not_recorded_crew_log_off": "已发送给 {{name}}，但未记入台账：crew 日志已关闭。",
       "steer_not_recorded_ledger_failed": "已发送给 {{name}}，但未记入台账：写入台账失败。"
     },

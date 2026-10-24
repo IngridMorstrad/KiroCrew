@@ -396,6 +396,8 @@ def _report(
 STEER_CREW_LOG_OFF = "crew_log_off"
 STEER_NO_UNIT = "crew_log_unit_unknown"
 STEER_NOT_RECORDED = "not_recorded"
+#: The worker's item is already accepted or closed: nothing to record (R4 W1).
+STEER_ITEM_CLOSED = "item_closed"
 
 
 def _steer_unit(state: Any, keys: tuple[str, ...], board_key: str) -> str:
@@ -476,7 +478,7 @@ async def record_person_steer_result(
         )
         result = await asyncio.to_thread(work_ledger.apply_person_steer, board_key, item_id, text)
         if result is None:
-            return "", STEER_NOT_RECORDED
+            return "", STEER_ITEM_CLOSED
         item, event = result["item"], result["event"]
         board = await asyncio.to_thread(work_ledger.read_conductor, board_key)
         established, board = await _board_header(board_key, board)

@@ -9938,6 +9938,7 @@
       "worker_reopen": "Riapri",
       "steer_not_recorded": "Consegnato a {{name}}, ma non registrato nel registro.",
       "steer_not_recorded_no_item": "Consegnato a {{name}}, ma non registrato nel registro: il worker non ha un'attività aperta.",
+      "steer_task_closed": "Consegnato. L'attività è già chiusa, quindi non è stato registrato nulla.",
       "steer_not_recorded_crew_log_off": "Consegnato a {{name}}, ma non registrato nel registro: il log della crew è disattivato.",
       "steer_not_recorded_ledger_failed": "Consegnato a {{name}}, ma non registrato nel registro: la scrittura nel registro non è riuscita."
     },

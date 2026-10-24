@@ -4046,6 +4046,7 @@
       "worker_reopen": "Reopen",
       "steer_not_recorded": "Delivered to {{name}}, but not recorded on the ledger.",
       "steer_not_recorded_no_item": "Delivered to {{name}}, but not recorded on the ledger: the worker has no open task.",
+      "steer_task_closed": "Delivered. The task is already closed, so nothing was recorded.",
       "steer_not_recorded_crew_log_off": "Delivered to {{name}}, but not recorded on the ledger: the crew log is off.",
       "steer_not_recorded_ledger_failed": "Delivered to {{name}}, but not recorded on the ledger: the ledger write failed."
     },

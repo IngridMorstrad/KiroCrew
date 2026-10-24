@@ -76,6 +76,19 @@ async def test_E5_a_root_with_no_live_session_records_into_the_workers_unit(_log
 
 
 @pytest.mark.asyncio
+async def test_W1_a_steer_on_a_closed_item_says_closed_not_ledger_failed(_log):
+    from kiro_crew.dashboard.handlers import work_ledger_worker as wlw
+
+    item_id = _new_item()
+    wl.apply_conductor_action(CONDUCTOR, "close", item_id=item_id, state="abandoned")
+    state = SimpleNamespace(sessions=_Sessions({f"dashboard:{WORKER}": "unit-w"}))
+    got, why = await wlw.record_person_steer_result(
+        state, CONDUCTOR, item_id, "go", unit_keys=(WORKER,)
+    )
+    assert (got, why) == ("", wlw.STEER_ITEM_CLOSED) and _log == []
+
+
+@pytest.mark.asyncio
 async def test_E5_no_live_session_at_all_falls_back_to_the_boards_newest_unit(_log, monkeypatch):
     from kiro_crew import session_ledger
     from kiro_crew.dashboard.handlers import work_ledger_worker as wlw

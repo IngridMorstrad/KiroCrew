@@ -252,6 +252,8 @@ describe('Crew Mode on ChatPage', () => {
     const box = within(screen.getByTestId('crew-steer-composer')).getByRole('textbox')
     expect(box).toHaveAttribute('aria-disabled', 'true')
     expect(box).toHaveAttribute('readonly')
+    // R4 H4: only the reopen line, no 'Starts a new turn' hint.
+    expect(screen.queryByTestId('crew-steer-hint')).toBeNull()
   })
 
   it('Y3: a reload under a closed conductor keeps its saved name and the real worker state', async () => {

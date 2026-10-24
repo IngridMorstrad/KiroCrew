@@ -9938,6 +9938,7 @@
       "worker_reopen": "Reabrir",
       "steer_not_recorded": "Entregado a {{name}}, pero no registrado en el libro.",
       "steer_not_recorded_no_item": "Entregado a {{name}}, pero no registrado en el libro: el trabajador no tiene una tarea abierta.",
+      "steer_task_closed": "Entregado. La tarea ya está cerrada, así que no se registró nada.",
       "steer_not_recorded_crew_log_off": "Entregado a {{name}}, pero no registrado en el libro: el registro de la crew está desactivado.",
       "steer_not_recorded_ledger_failed": "Entregado a {{name}}, pero no registrado en el libro: no se pudo escribir en el libro."
     },
