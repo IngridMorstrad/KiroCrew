@@ -171,7 +171,6 @@ export type {
 export type {
   MemberRosterRow,
   MemberActivityEntry,
-  MemberRecap,
   MemberGoals,
   MemberGoal,
   GoalKeyResult,
