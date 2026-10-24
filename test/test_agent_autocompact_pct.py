@@ -210,7 +210,9 @@ class TestEndpoint:
             pytest.param(
                 "orchestrator", 45.0, id="test_get_without_a_live_session_reports_the_slots_crew"
             ),
-            pytest.param("worker", 80.0, id="test_get_without_a_live_session_follows_a_picked_crew"),
+            pytest.param(
+                "worker", 80.0, id="test_get_without_a_live_session_follows_a_picked_crew"
+            ),
         ],
     )
     async def test_get_without_a_live_session_reports_the_slots_crew_value(

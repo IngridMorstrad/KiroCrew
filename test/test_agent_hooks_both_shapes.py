@@ -1240,7 +1240,9 @@ class TestArrayFormGuards:
                 id="test_trigger_must_be_known",
             ),
             pytest.param(7, "command", "unknown trigger", id="test_trigger_must_be_a_string"),
-            pytest.param("Stop", "eval", "unknown action type", id="test_action_type_must_be_known"),
+            pytest.param(
+                "Stop", "eval", "unknown action type", id="test_action_type_must_be_known"
+            ),
         ],
     )
     def test_trigger_and_action_type_must_be_known(

@@ -189,7 +189,9 @@ class TestPerAgentModelStorage:
     @pytest.mark.parametrize(
         ("stored", "want"),
         [
-            pytest.param("claude-opus-5", "claude-opus-5", id="test_bindings_expose_the_agent_model"),
+            pytest.param(
+                "claude-opus-5", "claude-opus-5", id="test_bindings_expose_the_agent_model"
+            ),
             # "auto" stored by an older write must still read as inherit.
             pytest.param("auto", "", id="test_bindings_normalize_an_auto_pin"),
         ],

@@ -378,7 +378,9 @@ class TestNoSecondGate:
     @pytest.mark.parametrize(
         "choice",
         [
-            pytest.param(None, id="test_the_default_falls_back_to_the_kiro_floor_when_kas_is_denied"),
+            pytest.param(
+                None, id="test_the_default_falls_back_to_the_kiro_floor_when_kas_is_denied"
+            ),
             pytest.param("kas", id="test_an_explicit_denied_kas_choice_takes_the_floor"),
         ],
     )

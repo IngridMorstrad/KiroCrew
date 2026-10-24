@@ -253,7 +253,9 @@ async def test_publish_rejects_invalid_names(tmp_path, name):
 @pytest.mark.parametrize(
     ("crew", "name", "code"),
     [
-        pytest.param("c", "kirocrew", "template_name_reserved", id="test_publish_rejects_reserved_name"),
+        pytest.param(
+            "c", "kirocrew", "template_name_reserved", id="test_publish_rejects_reserved_name"
+        ),
         # CON/NUL/COM1... are filesystem-reserved on Windows: creating CON.json
         # raises there, so the name is refused up front.
         pytest.param(
