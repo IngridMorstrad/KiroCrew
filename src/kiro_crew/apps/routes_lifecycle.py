@@ -101,9 +101,19 @@ async def _register_app_off_loop(name: str) -> RegistrationResult:
     stall watchdog kills the gateway.  Same offload pattern as ``install_app``
     and ``start_app_backend`` on these handlers.
     """
-    return await asyncio.get_running_loop().run_in_executor(
+    result = await asyncio.get_running_loop().run_in_executor(
         subprocess_executor(), register_app, name
     )
+    agents = getattr(result, "agents", None)
+    if agents:
+        # The MCP gateway built its agent overlays when its broker started, so
+        # the agents just written have none until they are rebuilt here. Each
+        # registered name ``<app>/<agent>`` is written as ``<app>--<agent>.json``.
+        from kiro_crew.apps.bridges_sources import _safe_link_name
+        from kiro_crew.mcp_gateway.overlay_refresh import refresh_after_agent_change
+
+        await refresh_after_agent_change(_safe_link_name(a) for a in agents)
+    return result
 
 
 async def _deregister_app_off_loop(name: str) -> RegistrationResult:
