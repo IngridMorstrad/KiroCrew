@@ -93,10 +93,15 @@ export function queuedDisplayText(m: ChatMessage): string {
  *  user's own words (`queuedDisplayText`), and what the entry carries ahead of
  *  them goes back on the head unchanged -- the quote block, so the card
  *  survives the edit, and the knowledge envelope, so the edited send still
- *  carries the knowledge the agent was meant to get. */
+ *  carries the knowledge the agent was meant to get. An entry sent with no
+ *  typed words (a quote plus knowledge) has its wire trimmed right after the
+ *  close marker, so the blank line a fresh send puts between the envelope and
+ *  the words is put back here; without it the edit would glue the words onto
+ *  the marker line and the envelope would no longer be found. */
 function reglueQuote(m: ChatMessage, edited: string): string {
   const { quote, envelope } = splitQueuedContent(m)
-  const body = envelope + edited
+  const sep = envelope && edited && !envelope.endsWith('\n') ? '\n\n' : ''
+  const body = envelope + sep + edited
   return quote ? prependQuote(body, quote) : body
 }
 

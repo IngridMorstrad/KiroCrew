@@ -91,6 +91,31 @@ describe('QueueStack knowledge-context entry', () => {
     expect(onEdit).toHaveBeenCalledWith('q1', buildOutgoingTurn({ text: 'why not?', knowledge: KB, quote }, 'send').wire)
   })
 
+  it('an entry sent with a quote, knowledge and no typed words edits into a well-formed send', () => {
+    const quote = { role: 'assistant' as const, text: 'the quoted reply', ts: 't0' }
+    const wire = buildOutgoingTurn({ text: '', knowledge: KB, quote }, 'send').wire
+    const onEdit = vi.fn()
+    render(<QueueStack messages={[{ role: 'queued', content: wire, cls: '', ts: 't', meta: { queueId: 'q1', quote } }]} onCancel={() => {}} onEdit={onEdit} />)
+    const input = openEditor()
+    expect(input.value).toBe('')
+    fireEvent.change(input, { target: { value: 'why?' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onEdit).toHaveBeenCalledWith('q1', buildOutgoingTurn({ text: 'why?', knowledge: KB, quote }, 'send').wire)
+  })
+
+  it('keeps the whole text when a knowledge item holds the close marker on its own line', () => {
+    // Two close-marker lines: which one ends the envelope cannot be told, so
+    // the card and editor keep the text whole rather than show document text
+    // as the user's words and let an edit overwrite it.
+    const kb = { totalTokens: 7, items: [{ id: 'k1', title: 'Doc', content: 'Example:\n[END KNOWLEDGE CONTEXT]\nKeep this paragraph.', tokens: 7 }] } as unknown as KnowledgeBlock
+    const wire = buildOutgoingTurn({ text: 'Summarize the reference.', knowledge: kb }, 'send').wire
+    const onEdit = vi.fn()
+    render(<QueueStack messages={[queued(wire, 'q1')]} onCancel={() => {}} onEdit={onEdit} />)
+    const input = openEditor()
+    expect(input.value).toBe(wire)
+    expect(input.value).not.toMatch(/^Keep this paragraph/)
+  })
+
   it('leaves a message that merely mentions the marker mid-text untouched', () => {
     const text = 'what does [KNOWLEDGE CONTEXT — injected by user from knowledge library] mean?'
     render(<QueueStack messages={[queued(text, 'q1')]} onCancel={() => {}} onEdit={() => {}} />)
