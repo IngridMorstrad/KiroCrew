@@ -789,9 +789,7 @@ class TestAnAppTokenCannotReadAnotherAppsRuns:
             # a bound keyed to the flag never runs here and every record is
             # admitted through ``scope is None`` -- another app's task, result and
             # error text, to a caller holding only its own app's token.
-            pytest.param(
-                "own444", False, id="test_an_app_on_the_cookie_transport_is_refused_too"
-            ),
+            pytest.param("own444", False, id="test_an_app_on_the_cookie_transport_is_refused_too"),
         ],
     )
     def test_another_apps_record_is_refused(self, agent_root, monkeypatch, agent_id, internal):

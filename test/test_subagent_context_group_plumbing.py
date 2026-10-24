@@ -198,7 +198,9 @@ class TestContinuationInheritsScope:
                 id="test_all_groups_withheld_is_not_confused_with_a_legacy_run",
             ),
             pytest.param(
-                {"id": "old"}, (True, True, True), id="test_run_predating_the_field_defaults_to_all_on"
+                {"id": "old"},
+                (True, True, True),
+                id="test_run_predating_the_field_defaults_to_all_on",
             ),
         ],
     )
