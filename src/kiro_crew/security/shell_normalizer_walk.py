@@ -858,19 +858,30 @@ def _matching_close_paren(text: str, open_end: int) -> "tuple[int, bool]":
     Where expansion frames cannot be read the way every bash reads them -- a
     here-document body (``${`` there is data), a ``$[`` inside an expansion
     (bash builds disagree on whether it nests), an unclosed backtick or
-    expansion -- the paren-only span is returned instead, so such text is read
-    exactly as it was before expansions were modelled.
+    expansion -- the paren-only span is the fallback.  It is kept only where a
+    LENIENT expansion walk (``$[`` read as plain text) cannot read the text
+    either or closes at the same ``)``; otherwise the LONGER of the two spans is
+    returned unproven, so a harmless ``$[`` in front of ``${v:-)}`` cannot
+    shorten the body back to the bypass (scan more, never less).  A ``<<``
+    inside ``((...))`` arithmetic is a shift, not a here-document.
     """
     span = _close_paren_walk(text, open_end, True)
     if span is not None and span[1]:
         return span
-    return _close_paren_walk(text, open_end, False) or (len(text), False)
+    paren = _close_paren_walk(text, open_end, False) or (len(text), False)
+    lenient = _close_paren_walk(text, open_end, True, lenient=True)
+    if lenient is None or lenient == paren:
+        return paren
+    return (max(paren[0], lenient[0]), False)
 
 
-def _close_paren_walk(text: str, open_end: int, expansions: bool) -> "tuple[int, bool] | None":
+def _close_paren_walk(
+    text: str, open_end: int, expansions: bool, lenient: bool = False
+) -> "tuple[int, bool] | None":
     """The walk behind :func:`_matching_close_paren`; None means "fall back".
 
     With *expansions* off this is the paren-only walk, which never returns None.
+    With *lenient* on, a ``$[`` inside an expansion is plain text.
     """
     # One frame per open span, innermost last: ``(`` for a paren body, ``{`` for a
     # ``${...}`` expansion.  A stack rather than recursion, so deep nesting that
@@ -879,6 +890,8 @@ def _close_paren_walk(text: str, open_end: int, expansions: bool) -> "tuple[int,
     # command, so it starts with no open ``case`` and gets the outer count back
     # when it closes.
     frames = ["("]
+    opened = open_end - 1  # index of the latest frame-opening ``(``
+    shift = False
     outer_cases: "list[int]" = []
     cases = 0
     pos = 0
@@ -905,9 +918,12 @@ def _close_paren_walk(text: str, open_end: int, expansions: bool) -> "tuple[int,
                     or (ch in "<>" and opener == "(")
                 )
                 if nested and opener == "[":
-                    return None
+                    if not lenient:
+                        return None
+                    nested = False
                 if nested:
                     frames.append("s")
+                    opened = off + 1
                     outer_cases.append(cases)
                     cases = 0
                     skip = off + 1
@@ -924,7 +940,13 @@ def _close_paren_walk(text: str, open_end: int, expansions: bool) -> "tuple[int,
             # A here-document body is data the walk does not model (its ``${``
             # opens nothing), so an active ``<<`` -- not a ``<<<`` here-string --
             # before the closer hands the text to the paren-only walk.
+            # Inside ``((...))`` a ``<<`` is a shift -- unless a newline follows
+            # it before the arithmetic closes, where it may really be one.
             if expansions and ch == "<" and _opens_heredoc(text, off):
+                if frames[-1] != "a":
+                    return None
+                shift = True
+            if shift and ch == "\n" and "a" in frames:
                 return None
             # A backtick body is opaque to the walk around it: a ``${`` or ``)``
             # inside one belongs to the inner command.
@@ -956,7 +978,11 @@ def _close_paren_walk(text: str, open_end: int, expansions: bool) -> "tuple[int,
             if cases and ch in "()":
                 continue
             if ch == "(":
-                frames.append("(")
+                # ``a``: inside ``((...))`` arithmetic, where ``<<`` is a shift.
+                # A ``$(`` there is a new command; any other ``(`` groups.
+                arith = frames[-1] == "a" or (off - 1 == opened and text[off - 1] == "(")
+                frames.append("a" if arith and text[off - 1] != "$" else "(")
+                opened = off
             elif ch == ")":
                 if frames.pop() == "s":
                     cases = outer_cases.pop()

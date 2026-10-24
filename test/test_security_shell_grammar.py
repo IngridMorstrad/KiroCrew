@@ -250,10 +250,26 @@ class TestParameterExpansionHoldsItsOwnParens:
             # A ``${`` on a here-document line is data, not an expansion.
             'echo "$(cat <<\'E\'\n${\nE\n)" ; rm -rf "$HOME" ; echo "})"',
             'echo "$(cat <<E\n${\nE\n)" ; rm -rf "$HOME" ; echo "})"',
+            # A ``<<`` in arithmetic followed by a newline may be a here-document.
+            'echo "$((cat <<E\n${\nE\n) )" ; rm -rf "$HOME" ; echo "})"',
         ],
     )
     def test_a_misread_frame_cannot_hide_a_home_wipe(self, command: str) -> None:
         assert security.is_denied(command) is not None
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # An arithmetic shift is not a here-document.
+            ": $((1<<2)); : ${v:-)}",
+            ": $(( (1<<2) )); : ${v:-)}",
+            # A ``$[`` the walk cannot read cannot shorten the body either.
+            ": ${v:-$[1])}",
+        ],
+    )
+    def test_an_unreadable_prefix_cannot_shorten_the_body(self, body: str) -> None:
+        assert security.is_denied(f"T=$({body}; printf {self.VERB}); {self.NAME} $T") is not None
+        assert security.is_denied(f"kill $({body}; pgrep -f {self.NAME})") is not None
 
     @pytest.mark.parametrize(
         "command",
@@ -262,6 +278,9 @@ class TestParameterExpansionHoldsItsOwnParens:
             "echo $(printf ${HOME}) done",
             'echo $(printf "${v:-}}") done',
             f"p=123; kill $(printf %s ${{p//{{/}}); echo $(pgrep -f {NAME})",
+            # An arithmetic shift beside an expansion stays allowed.
+            "echo $(( 1<<2 )) $(echo ${v:-x})",
+            "echo $(: $((1<<2)); echo ${v:-)})",
         ],
     )
     def test_benign_expansions_stay_allowed(self, command: str) -> None:
@@ -292,7 +311,9 @@ class TestParameterExpansionHoldsItsOwnParens:
     def test_an_unreadable_expansion_falls_back_to_the_paren_only_span(self, text: str) -> None:
         from kiro_crew.security.shell_normalizer_walk import _close_paren_walk
 
-        assert security._matching_close_paren(text, 2) == _close_paren_walk(text, 2, False)
+        paren = _close_paren_walk(text, 2, False)
+        assert paren is not None
+        assert security._matching_close_paren(text, 2)[0] == paren[0]
 
 
 class TestCaseArmingRequiresCommandPosition:
