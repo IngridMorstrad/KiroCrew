@@ -16,6 +16,12 @@ import { MemoryRouter } from 'react-router-dom'
 import { createTestStore } from './helpers'
 import type { RootState } from '../store'
 
+// jsdom has no MediaRecorder, so the real flag reads false and hides the mic.
+// The engine stays real; only the platform check is pinned.
+vi.mock('../hooks/useVoiceInput', async () => ({
+  ...(await vi.importActual<typeof import('../hooks/useVoiceInput')>('../hooks/useVoiceInput')),
+  voiceInputSupported: true,
+}))
 const mocks = vi.hoisted(() => ({
   crewPeerGet: vi.fn(), crewPeerPost: vi.fn(), listInstances: vi.fn(), instancesCapabilities: vi.fn(),
   // The LOCAL slot routes. A crew window must never reach them: on a remote
@@ -150,6 +156,22 @@ describe('CrewChatWindow', () => {
     ]))
     expect(mocks.crewPeerPost.mock.calls[0][0]).toBe('cd-1')
     expect(mocks.approveChatSlot).not.toHaveBeenCalled()
+  })
+
+  // The window mounts the shared Composer root, so the mic shows as it does in
+  // a local chat. Without the root ChatInput has no voice slice and no mic.
+  it('offers voice input in the composer', async () => {
+    detail = { running: false, messages: [{ role: 'user', content: 'hi', ts: 't1' }] }
+    renderWindow()
+    expect(await screen.findByRole('button', { name: 'Voice input' })).toBeInTheDocument()
+  })
+
+  // The dock floats over the transcript like the local chat's: no glass band
+  // and no top rule across the window.
+  it('draws no band or top rule behind the composer', async () => {
+    renderWindow()
+    const dock = await screen.findByTestId('crew-window-dock')
+    expect(dock.className).not.toMatch(/border-t|glass/)
   })
 
   it('keeps Stop reachable while an approval is pending', async () => {

@@ -25,8 +25,8 @@ import { useSelectInstance } from '../../../hooks/useSelectInstance'
 import { Btn } from '../../../components/ui'
 import ErrorNotice from '../../../components/ErrorNotice'
 import RemoteBehindBadge from '../../../components/RemoteBehindBadge'
-import Glass from '../../../components/Glass'
 import ChatInput from '../../../components/ChatInput'
+import { Composer, type ComposerVoiceOptions } from '../../../chat-core/composer/Composer'
 import ChatMessageList from '../../../app-sdk/ChatMessageList'
 import ChatFooter from '../ChatFooter'
 import { ReadOnlyCodeCtx } from '../../../components/markdown/contexts'
@@ -258,6 +258,12 @@ export default function CrewChatWindow({ target, onClose = closeCrewWindow }: { 
     setRewindTs(null)
     action.mutate({ ...req, message, rewindTs, typed, quote })
   }
+  // Dictation runs on THIS machine (mic + STT); only the text goes to the
+  // peer, through the same send as a typed message. Auto-submit reads the
+  // latest `send` through a ref, so it sends the text dictation just wrote.
+  const sendRef = useRef(send)
+  sendRef.current = send
+  const voiceOptions = useMemo<ComposerVoiceOptions>(() => ({ onAutoSubmit: () => sendRef.current() }), [])
 
   const running = slotQ.data?.running ?? detailQ.data?.running ?? false
   // When the crew cannot be reached, its last-known running state is stale:
@@ -425,10 +431,12 @@ export default function CrewChatWindow({ target, onClose = closeCrewWindow }: { 
           )}
         </div>
       </div>
-      {/* Glass pins its own root to position: relative, so a plain box places
-          the dock; the transcript above pays for it with padding. */}
+      {/* The dock floats over the transcript like the local chat's: no band
+          and no top rule, only a short fade into the page colour so the
+          notices above the box stay readable. The transcript pays for it
+          with padding. */}
       <div ref={dockRef} className="absolute left-0 right-0 bottom-0">
-      <Glass thickness="thin" radius={0} className="border-t border-border py-3 flex flex-col gap-2">
+      <div className="py-3 flex flex-col gap-2" style={{ background: 'linear-gradient(to bottom, transparent, var(--bg) 24px)' }} data-testid="crew-window-dock">
         {/* The composer's own column, so a notice about a pick sits over the box and chip it is about. */}
         <div className="px-4 mx-auto w-full flex flex-col gap-2" style={{ maxWidth: 'var(--mc-input-width, 900px)' }}>
           {/* No hand-off: the composer below may hold an unsent draft. */}
@@ -483,6 +491,12 @@ export default function CrewChatWindow({ target, onClose = closeCrewWindow }: { 
             name the hub's gateway, not this crew. */}
         <fieldset disabled={!connected} className="contents">
         <SlotProvider slotId={crewWindowSlot(instanceId, key)}>
+        <Composer
+          slotKey={crewWindowSlot(instanceId, key)}
+          value={rewindTs ? rewindText : draft}
+          onChange={rewindTs ? setRewindText : setDraft}
+          voice={voiceOptions}
+        >
           <ChatInput
             value={rewindTs ? rewindText : draft}
             onChange={rewindTs ? setRewindText : setDraft}
@@ -523,9 +537,10 @@ export default function CrewChatWindow({ target, onClose = closeCrewWindow }: { 
             pendingQuote={rewindTs ? null : messageQuote.pendingQuote}
             onRemoveQuote={messageQuote.clearQuote}
           />
+        </Composer>
         </SlotProvider>
         </fieldset>
-      </Glass>
+      </div>
       </div>
       {picker.portal}
       {agentMode.portal}
