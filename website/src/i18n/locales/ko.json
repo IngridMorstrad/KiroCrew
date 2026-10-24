@@ -15876,9 +15876,8 @@
         "retry": "다시 시도",
         "setup_failed_title": "브라우저 설정 실패",
         "waiting_allow_desc": "Chrome이 묻고 있습니다. 거기서 허용을 누르세요.",
-        "credentials_label": "Kiro의 Chromium을 로그인된 상태로 시작",
-        "credentials_hint": "Kiro의 Chromium이 {{provider}}이(가) 제공하는 사이트에 로그인된 상태로 시작되어 에이전트가 해당 사이트를 열 수 있습니다. 사용자의 Chrome은 절대 변경되지 않으며, 에이전트는 로그인 정보 자체를 보지 못합니다.",
-        "credentials_applied": "{{domains}}에 사용 중",
+        "credentials_label": "{{provider}} 로그인 사용",
+        "credentials_hint": "{{provider}} 로그인을 Kiro 전용 브라우저에만 넘겨 에이전트가 해당 사이트를 열 수 있게 합니다. 사용자의 Chrome은 절대 변경되지 않으며, 에이전트는 로그인 정보 자체를 보지 못합니다.",
         "credentials_pending": "다음에 Kiro의 Chromium이 시작될 때 사용됩니다",
         "credentials_disabled": "끄기",
         "credentials_skipped": "에이전트가 사용자의 브라우저를 제어하는 동안에는 사용되지 않습니다",
@@ -15892,7 +15891,8 @@
         "cred_domain_invalid": "example.com 같은 도메인을 입력하세요. 포트, 와일드카드, IP 주소는 사용할 수 없습니다.",
         "cred_domains_full": "최대 {{count}}개 사이트입니다. 추가하려면 하나를 삭제하세요.",
         "add_cred_domain": "사이트 추가",
-        "remove_cred_domain": "{{domain}} 삭제"
+        "remove_cred_domain": "{{domain}} 삭제",
+        "credentials_applied_other": "쿠키 {{count}}개 적용됨"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "조직의 채널 정책을 확인하는 중…",

@@ -16414,9 +16414,8 @@
         "retry": "Réessayer",
         "setup_failed_title": "La configuration du navigateur a échoué",
         "waiting_allow_desc": "Chrome pose la question. Clique sur Autoriser.",
-        "credentials_label": "Démarrer le Chromium de Kiro connecté",
-        "credentials_hint": "Le Chromium de Kiro démarre connecté aux sites que {{provider}} dessert, pour que l’agent puisse les ouvrir. Ton propre Chrome n’est jamais modifié, et l’agent ne voit jamais la connexion elle-même.",
-        "credentials_applied": "Utilisé pour {{domains}}",
+        "credentials_label": "Utiliser la connexion {{provider}}",
+        "credentials_hint": "Transmet ta connexion {{provider}} au seul navigateur de Kiro, pour que l’agent puisse ouvrir ces sites. Ton propre Chrome n’est jamais modifié, et l’agent ne voit jamais la connexion elle-même.",
         "credentials_pending": "Utilisé au prochain démarrage du Chromium de Kiro",
         "credentials_disabled": "Désactivé",
         "credentials_skipped": "Non utilisé tant que l’agent pilote ton propre navigateur",
@@ -16430,7 +16429,10 @@
         "cred_domain_invalid": "Utilise un domaine comme example.com, sans port, joker ni adresse IP.",
         "cred_domains_full": "{{count}} sites au maximum. Retires-en un pour en ajouter un autre.",
         "add_cred_domain": "Ajouter un site",
-        "remove_cred_domain": "Retirer {{domain}}"
+        "remove_cred_domain": "Retirer {{domain}}",
+        "credentials_applied_one": "{{count}} cookie appliqué",
+        "credentials_applied_many": "{{count}} cookies appliqués",
+        "credentials_applied_other": "{{count}} cookies appliqués"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "Vérification de la politique de canaux de votre organisation…",

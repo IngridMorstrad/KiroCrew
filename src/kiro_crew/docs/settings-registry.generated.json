@@ -54,13 +54,6 @@
       "configKey": "browser.live.enabled"
     },
     {
-      "id": "browser.start-kiro-s-chromium-signed-in",
-      "label": "Start Kiro’s Chromium signed in",
-      "tab": "browser",
-      "route": "/settings/browser?highlight=key%3Abrowser.credentials.enabled",
-      "configKey": "browser.credentials.enabled"
-    },
-    {
       "id": "browser.which-browser",
       "label": "Which browser",
       "tab": "browser",

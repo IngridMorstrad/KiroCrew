@@ -15876,9 +15876,8 @@
         "retry": "再試行",
         "setup_failed_title": "ブラウザーの設定に失敗しました",
         "waiting_allow_desc": "Chrome が確認を求めています。そこで「許可」をクリックしてください。",
-        "credentials_label": "Kiro の Chromium をサインイン済みで起動",
-        "credentials_hint": "Kiro の Chromium が、{{provider}} が扱うサイトにサインインした状態で起動するので、エージェントがそれらを開けます。あなたの Chrome は変更されず、エージェントがサインイン情報そのものを見ることもありません。",
-        "credentials_applied": "{{domains}} で使用中",
+        "credentials_label": "{{provider}} のサインインを使う",
+        "credentials_hint": "{{provider}} のサインインを Kiro 専用のブラウザーにだけ渡すので、エージェントがそれらのサイトを開けます。あなたの Chrome は変更されず、エージェントがサインイン情報そのものを見ることもありません。",
         "credentials_pending": "次に Kiro の Chromium が起動したときに使われます",
         "credentials_disabled": "オフ",
         "credentials_skipped": "エージェントがあなたのブラウザーを操作している間は使われません",
@@ -15892,7 +15891,8 @@
         "cred_domain_invalid": "example.com のようなドメインを入力してください。ポート、ワイルドカード、IP アドレスは使えません。",
         "cred_domains_full": "最大 {{count}} サイトです。追加するには 1 つ削除してください。",
         "add_cred_domain": "サイトを追加",
-        "remove_cred_domain": "{{domain}} を削除"
+        "remove_cred_domain": "{{domain}} を削除",
+        "credentials_applied_other": "{{count}} 件の Cookie を適用済み"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "組織のチャネルポリシーを確認中…",

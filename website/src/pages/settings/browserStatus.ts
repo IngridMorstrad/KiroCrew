@@ -139,11 +139,11 @@ export function normalizeCredentialDomain(raw: string): string | null {
   return host
 }
 
-/** Catalog KEY of the sign-in row's status line per credentials state. */
+/** Catalog KEY of the sign-in row's status line for the states with a fixed line;
+ *  `applied` (a count) and `needs_refresh` (the provider's own hint) are built in
+ *  `credentialLine`. */
 export const CREDENTIAL_LINE_KEY: Record<string, string> = {
-  applied: 'pages.settings.browserPanel.credentials_applied',
   pending: 'pages.settings.browserPanel.credentials_pending',
   disabled: 'pages.settings.browserPanel.credentials_disabled',
   skipped: 'pages.settings.browserPanel.credentials_skipped',
-  needs_refresh: 'pages.settings.browserPanel.credentials_needs_refresh',
 }

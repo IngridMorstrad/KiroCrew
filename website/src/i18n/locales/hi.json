@@ -16145,9 +16145,8 @@
         "retry": "फिर से कोशिश करो",
         "setup_failed_title": "ब्राउज़र सेटअप पूरा नहीं हुआ",
         "waiting_allow_desc": "Chrome पूछ रहा है। वहाँ Allow पर क्लिक करो।",
-        "credentials_label": "Kiro का Chromium साइन इन के साथ शुरू करो",
-        "credentials_hint": "Kiro का अपना Chromium उन साइटों में साइन इन होकर शुरू होता है जिन्हें {{provider}} देता है, ताकि एजेंट उन्हें खोल सके। तुम्हारा अपना Chrome कभी नहीं बदलता, और एजेंट साइन-इन को खुद कभी नहीं देखता।",
-        "credentials_applied": "{{domains}} के लिए चालू",
+        "credentials_label": "{{provider}} साइन-इन इस्तेमाल करो",
+        "credentials_hint": "तुम्हारा {{provider}} साइन-इन सिर्फ़ Kiro के अपने ब्राउज़र को देता है, ताकि एजेंट उन साइटों को खोल सके। तुम्हारा अपना Chrome कभी नहीं बदलता, और एजेंट साइन-इन को खुद कभी नहीं देखता।",
         "credentials_pending": "अगली बार Kiro का Chromium शुरू होने पर इस्तेमाल होगा",
         "credentials_disabled": "बंद",
         "credentials_skipped": "जब एजेंट तुम्हारा अपना ब्राउज़र चलाता है, तब इस्तेमाल नहीं होता",
@@ -16161,7 +16160,9 @@
         "cred_domain_invalid": "example.com जैसा डोमेन डालो, बिना पोर्ट, वाइल्डकार्ड या IP पते के।",
         "cred_domains_full": "ज़्यादा से ज़्यादा {{count}} साइटें। एक और जोड़ने के लिए एक हटाओ।",
         "add_cred_domain": "साइट जोड़ो",
-        "remove_cred_domain": "{{domain}} हटाओ"
+        "remove_cred_domain": "{{domain}} हटाओ",
+        "credentials_applied_one": "{{count}} कुकी लगाई गई",
+        "credentials_applied_other": "{{count}} कुकी लगाई गईं"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "आपके संगठन की चैनल नीति जाँची जा रही है…",

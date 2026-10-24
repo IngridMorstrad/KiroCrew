@@ -1,6 +1,7 @@
 /**
- * Settings -> Browser, the setting rows: the two under the main card ("Which
- * browser", "Show the live view in chat") and the collapsed More group (Quality,
+ * Settings -> Browser, the setting rows: those under the main card ("Which
+ * browser", "Show the live view in chat", and "Use <provider> sign-in" when an
+ * edition supplies a sign-in provider) and the collapsed More group (Quality,
  * Max frame rate, the Preview tab's local addresses, Engine, Run with no window).
  *
  * Every control carries its `configKey` (except Run with no window, the second
@@ -47,11 +48,20 @@ const CHOICE_LABEL_KEY: Record<PickerChoice, string> = {
 
 type SetConfig = (path: string, value: unknown) => void
 
-/** The sign-in row's status line: what the last apply did, in the catalog's words. */
+/**
+ * The sign-in row's status line: how many cookies the last apply set, the
+ * provider's own renew hint verbatim when it gave one, or a fixed catalog line.
+ */
 function credentialLine(cred: BrowserCredentialsStatus): string | undefined {
+  if (cred.state === 'applied') {
+    return i18nT('pages.settings.browserPanel.credentials_applied', { count: cred.applied ?? 0 })
+  }
+  if (cred.state === 'needs_refresh') {
+    const hint = cred.provider_status?.message
+    return hint || i18nT('pages.settings.browserPanel.credentials_needs_refresh', { provider: cred.provider ?? '' })
+  }
   const key = CREDENTIAL_LINE_KEY[cred.state]
-  if (!key) return undefined
-  return i18nT(key, { provider: cred.provider ?? '', domains: cred.domains.join(', ') })
+  return key ? i18nT(key) : undefined
 }
 
 export function BrowserMainControls({ view, credentials, disabled, setConfig }: {
@@ -87,7 +97,7 @@ export function BrowserMainControls({ view, credentials, disabled, setConfig }: 
       />
       {credentials && provider && (
         <SettingsToggle
-          label={i18nT('pages.settings.browserPanel.credentials_label')}
+          label={i18nT('pages.settings.browserPanel.credentials_label', { provider })}
           hint={i18nT('pages.settings.browserPanel.credentials_hint', { provider })}
           description={credentialLine(credentials)}
           configKey="browser.credentials.enabled"

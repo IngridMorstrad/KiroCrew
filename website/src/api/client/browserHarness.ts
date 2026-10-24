@@ -62,7 +62,15 @@ export interface BrowserCredentialsStatus {
   settings_from?: string
   state: 'none' | 'applied' | 'skipped' | 'error' | 'pending' | 'disabled' | 'needs_refresh' | string
   reason?: string | null
+  /** Cookies the last apply set, across both sources. */
   applied?: number
+  /** The provider's own state, edition-authored; `message` is shown as-is. */
+  provider_status?: {
+    needs_refresh?: boolean
+    message?: string | null
+    earliest_expiry?: number | null
+    count?: number | null
+  } | null
 }
 
 /**

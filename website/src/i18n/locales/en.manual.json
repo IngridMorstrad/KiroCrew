@@ -8688,9 +8688,8 @@
         "retry": "Retry",
         "setup_failed_title": "Browser setup failed",
         "waiting_allow_desc": "Chrome is asking. Click Allow there.",
-        "credentials_label": "Start Kiro’s Chromium signed in",
-        "credentials_hint": "Kiro’s own Chromium starts signed in to the sites {{provider}} serves, so the agent can open them. Your own Chrome is never changed, and the agent never sees the sign-in itself.",
-        "credentials_applied": "In use for {{domains}}",
+        "credentials_label": "Use {{provider}} sign-in",
+        "credentials_hint": "Hands your {{provider}} sign-in to Kiro’s own browser only, so the agent can open those sites. Your own Chrome is never changed, and the agent never sees the sign-in itself.",
         "credentials_pending": "Used the next time Kiro’s Chromium starts",
         "credentials_disabled": "Off",
         "credentials_skipped": "Not used while the agent drives your own browser",
@@ -8704,7 +8703,9 @@
         "cred_domain_invalid": "Use a domain such as example.com, with no port, wildcard or IP address.",
         "cred_domains_full": "At most {{count}} sites. Remove one to add another.",
         "add_cred_domain": "Add site",
-        "remove_cred_domain": "Remove {{domain}}"
+        "remove_cred_domain": "Remove {{domain}}",
+        "credentials_applied_one": "{{count}} cookie applied",
+        "credentials_applied_other": "{{count}} cookies applied"
       },
       "connectionsPanel": {
         "title": "OAuth apps for Connections",

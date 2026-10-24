@@ -72,15 +72,6 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "configKey": "browser.live.enabled"
   },
   {
-    "id": "browser.start-kiro-s-chromium-signed-in",
-    "label": "Start Kiro’s Chromium signed in",
-    "labelKey": "pages.settings.browserPanel.credentials_label",
-    "tab": "browser",
-    "type": "toggle",
-    "occurrence": 1,
-    "configKey": "browser.credentials.enabled"
-  },
-  {
     "id": "browser.which-browser",
     "label": "Which browser",
     "labelKey": "pages.settings.browserPanel.choice_label",

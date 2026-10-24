@@ -16683,9 +16683,8 @@
         "retry": "Повторить",
         "setup_failed_title": "Не удалось настроить браузер",
         "waiting_allow_desc": "Chrome спрашивает. Нажми там «Разрешить».",
-        "credentials_label": "Запускать Chromium от Kiro со входом",
-        "credentials_hint": "Собственный Chromium от Kiro запускается уже с входом на сайты, которые обслуживает {{provider}}, чтобы агент мог их открыть. Твой Chrome никогда не меняется, а сам вход агент никогда не видит.",
-        "credentials_applied": "Используется для {{domains}}",
+        "credentials_label": "Использовать вход через {{provider}}",
+        "credentials_hint": "Передаёт твой вход через {{provider}} только собственному браузеру Kiro, чтобы агент мог открывать эти сайты. Твой Chrome никогда не меняется, а сам вход агент никогда не видит.",
         "credentials_pending": "Будет использован при следующем запуске Chromium от Kiro",
         "credentials_disabled": "Выкл.",
         "credentials_skipped": "Не используется, пока агент управляет твоим браузером",
@@ -16699,7 +16698,11 @@
         "cred_domain_invalid": "Укажи домен вроде example.com — без порта, подстановочного знака и IP-адреса.",
         "cred_domains_full": "Не больше {{count}} сайтов. Удали один, чтобы добавить другой.",
         "add_cred_domain": "Добавить сайт",
-        "remove_cred_domain": "Удалить {{domain}}"
+        "remove_cred_domain": "Удалить {{domain}}",
+        "credentials_applied_one": "{{count}} cookie применён",
+        "credentials_applied_few": "{{count}} cookie применены",
+        "credentials_applied_many": "{{count}} cookie применено",
+        "credentials_applied_other": "{{count}} cookie применено"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "Проверка политики каналов вашей организации…",

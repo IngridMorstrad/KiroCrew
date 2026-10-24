@@ -15876,9 +15876,8 @@
         "retry": "重试",
         "setup_failed_title": "浏览器没装好",
         "waiting_allow_desc": "Chrome 弹出了提示，点“允许”就好。",
-        "credentials_label": "Kiro 的 Chromium 启动时即已登录",
-        "credentials_hint": "Kiro 自己的 Chromium 启动时就已登录 {{provider}} 所服务的网站，智能体可以直接打开它们。你自己的 Chrome 不会被改动，智能体也看不到登录信息本身。",
-        "credentials_applied": "正用于 {{domains}}",
+        "credentials_label": "使用 {{provider}} 登录",
+        "credentials_hint": "只把你的 {{provider}} 登录交给 Kiro 自己的浏览器，智能体就能打开这些网站。你自己的 Chrome 不会被改动，智能体也看不到登录信息本身。",
         "credentials_pending": "下次 Kiro 的 Chromium 启动时使用",
         "credentials_disabled": "关",
         "credentials_skipped": "智能体操作你自己的浏览器时不使用",
@@ -15892,7 +15891,8 @@
         "cred_domain_invalid": "请输入像 example.com 这样的域名，不带端口、通配符或 IP 地址。",
         "cred_domains_full": "最多 {{count}} 个网站。删掉一个才能再添加。",
         "add_cred_domain": "添加网站",
-        "remove_cred_domain": "删除 {{domain}}"
+        "remove_cred_domain": "删除 {{domain}}",
+        "credentials_applied_other": "已应用 {{count}} 个 Cookie"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "正在检查你所在组织的渠道策略…",

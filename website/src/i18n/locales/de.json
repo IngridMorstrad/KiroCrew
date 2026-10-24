@@ -16145,9 +16145,8 @@
         "retry": "Erneut versuchen",
         "setup_failed_title": "Browser-Einrichtung fehlgeschlagen",
         "waiting_allow_desc": "Chrome fragt nach. Klicke dort auf Zulassen.",
-        "credentials_label": "Chromium von Kiro angemeldet starten",
-        "credentials_hint": "Das eigene Chromium von Kiro startet bei den Websites angemeldet, die {{provider}} bedient, damit der Agent sie öffnen kann. Dein eigenes Chrome wird nie verändert, und der Agent sieht die Anmeldung selbst nie.",
-        "credentials_applied": "Aktiv für {{domains}}",
+        "credentials_label": "{{provider}}-Anmeldung verwenden",
+        "credentials_hint": "Gibt deine {{provider}}-Anmeldung nur an den eigenen Browser von Kiro weiter, damit der Agent diese Websites öffnen kann. Dein eigenes Chrome wird nie verändert, und der Agent sieht die Anmeldung selbst nie.",
         "credentials_pending": "Wird beim nächsten Start des Chromium von Kiro verwendet",
         "credentials_disabled": "Aus",
         "credentials_skipped": "Nicht verwendet, solange der Agent deinen eigenen Browser steuert",
@@ -16161,7 +16160,9 @@
         "cred_domain_invalid": "Verwende eine Domain wie example.com, ohne Port, Platzhalter oder IP-Adresse.",
         "cred_domains_full": "Höchstens {{count}} Websites. Entferne eine, um eine weitere hinzuzufügen.",
         "add_cred_domain": "Website hinzufügen",
-        "remove_cred_domain": "{{domain}} entfernen"
+        "remove_cred_domain": "{{domain}} entfernen",
+        "credentials_applied_one": "{{count}} Cookie gesetzt",
+        "credentials_applied_other": "{{count}} Cookies gesetzt"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "Die Kanalrichtlinie Ihrer Organisation wird geprüft…",

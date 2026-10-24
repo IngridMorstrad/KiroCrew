@@ -362,6 +362,14 @@ describe('settings coverage gate — bare controls', () => {
  * skipped"; this pins each one so a new silent skip fails the build.
  */
 const EXPECTED_DYNAMIC_SKIPS: Record<string, { count: number; reason: string }> = {
+  'BrowserLiveSection.tsx': {
+    count: 1,
+    reason:
+      "the sign-in switch is labelled with the edition provider's name, which only the " +
+      'gateway knows, and the row exists only when an edition supplies a provider (the ' +
+      'public build never renders it); it carries configKey browser.credentials.enabled, ' +
+      'so a SettingRef or key link still lands on it',
+  },
   'AppModelsSection.tsx': {
     count: 1,
     reason:

@@ -27,12 +27,12 @@ const browser = await chromium.launch(
     : undefined,
 )
 
-async function shoot(name, { viewport, state = 'connected', more = false, tip = null }) {
+async function shoot(name, { viewport, state = 'connected', more = false, tip = null, cred = '' }) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme: 'dark', locale: 'en-US' })
   const page = await ctx.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
-  await page.goto(`${BASE}/capture/browser-settings.html?state=${state}&theme=dark`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/capture/browser-settings.html?state=${state}&theme=dark${cred ? `&cred=${cred}` : ''}`, { waitUntil: 'networkidle' })
   const card = page.getByTestId('browser-status-card')
   await card.waitFor({ timeout: 15000 })
   const got = await card.getAttribute('data-state')
@@ -64,6 +64,10 @@ await shoot('desktop-state-installing', { viewport: DESKTOP, state: 'installing'
 await shoot('desktop-state-waiting-allow', { viewport: DESKTOP, state: 'waiting_allow' })
 await shoot('desktop-state-error', { viewport: DESKTOP, state: 'error' })
 await shoot('desktop-state-install-failed', { viewport: DESKTOP, state: 'install_failed' })
+await shoot('desktop-signin-applied', { viewport: DESKTOP, cred: 'applied' })
+await shoot('desktop-signin-tip-open', { viewport: DESKTOP, cred: 'applied', tip: '[data-setting-key="browser.credentials.enabled"]' })
+await shoot('desktop-signin-needs-refresh', { viewport: DESKTOP, cred: 'needs_refresh' })
+await shoot('desktop-signin-more-open', { viewport: DESKTOP, cred: 'applied', more: true })
 await shoot('phone-connected', { viewport: PHONE })
 await shoot('phone-more-open', { viewport: PHONE, more: true })
 await browser.close()

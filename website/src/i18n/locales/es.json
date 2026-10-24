@@ -16414,9 +16414,8 @@
         "retry": "Reintentar",
         "setup_failed_title": "No se pudo configurar el navegador",
         "waiting_allow_desc": "Chrome está preguntando. Haz clic en Permitir allí.",
-        "credentials_label": "Iniciar el Chromium de Kiro con sesión iniciada",
-        "credentials_hint": "El Chromium propio de Kiro arranca con la sesión iniciada en los sitios que sirve {{provider}}, para que el agente pueda abrirlos. Tu propio Chrome nunca se modifica y el agente nunca ve el inicio de sesión.",
-        "credentials_applied": "En uso para {{domains}}",
+        "credentials_label": "Usar el inicio de sesión de {{provider}}",
+        "credentials_hint": "Pasa tu inicio de sesión de {{provider}} solo al navegador propio de Kiro, para que el agente pueda abrir esos sitios. Tu propio Chrome nunca se modifica y el agente nunca ve el inicio de sesión.",
         "credentials_pending": "Se usará la próxima vez que se inicie el Chromium de Kiro",
         "credentials_disabled": "Desactivado",
         "credentials_skipped": "No se usa mientras el agente controla tu propio navegador",
@@ -16430,7 +16429,10 @@
         "cred_domain_invalid": "Usa un dominio como example.com, sin puerto, comodín ni dirección IP.",
         "cred_domains_full": "Como máximo {{count}} sitios. Quita uno para añadir otro.",
         "add_cred_domain": "Añadir sitio",
-        "remove_cred_domain": "Quitar {{domain}}"
+        "remove_cred_domain": "Quitar {{domain}}",
+        "credentials_applied_one": "{{count}} cookie aplicada",
+        "credentials_applied_many": "{{count}} cookies aplicadas",
+        "credentials_applied_other": "{{count}} cookies aplicadas"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "Comprobando la política de canales de tu organización…",

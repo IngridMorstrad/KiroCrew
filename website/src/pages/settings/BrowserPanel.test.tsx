@@ -413,7 +413,8 @@ describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
     mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ provider: null, state: 'none' }) }))
     renderWithProviders(<BrowserPanel />)
     await screen.findByTestId('browser-status-card')
-    expect(screen.queryByRole('switch', { name: 'Start Kiro’s Chromium signed in' })).toBeNull()
+    expect(document.querySelector('[data-setting-key="browser.credentials.enabled"]')).toBeNull()
+    expect(screen.queryByRole('switch', { name: /sign-in/ })).toBeNull()
     await openMore()
     expect(screen.queryByText('Sign-in sites')).toBeNull()
   })
@@ -421,12 +422,37 @@ describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
   it('with a provider: the switch follows the effective setting, says where it is used, and a flip re-pulls', async () => {
     mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred() }))
     renderWithProviders(<BrowserPanel />)
-    const sw = await screen.findByRole('switch', { name: 'Start Kiro’s Chromium signed in' })
+    const sw = await screen.findByRole('switch', { name: 'Use Acme SSO sign-in' })
     expect(sw).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByText('In use for example.com')).toBeTruthy()
+    expect(screen.getByText('3 cookies applied')).toBeTruthy()
     fireEvent.click(sw)
     await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.credentials.enabled', false))
     await waitFor(() => expect(mocked.refreshBrowserCredentials).toHaveBeenCalledTimes(1))
+  })
+
+  it('one cookie reads singular; a provider asking to renew is quoted verbatim, else the catalog line', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ applied: 1 }) }))
+    const first = renderWithProviders(<BrowserPanel />)
+    expect(await screen.findByText('1 cookie applied')).toBeTruthy()
+    first.unmount()
+    mocked.getBrowserStatus.mockResolvedValue(status({
+      credentials: cred({ state: 'needs_refresh', provider_status: { needs_refresh: true, message: 'Run acme-login again' } }),
+    }))
+    const second = renderWithProviders(<BrowserPanel />)
+    expect(await screen.findByText('Run acme-login again')).toBeTruthy()
+    second.unmount()
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ state: 'needs_refresh', provider_status: null }) }))
+    renderWithProviders(<BrowserPanel />)
+    expect(await screen.findByText('The sign-in from Acme SSO has run out. Renew it there.')).toBeTruthy()
+  })
+
+  it('an unset switch reads the edition default the status reports', async () => {
+    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { choice: 'auto', credentials: { enabled: null, domains: [] } } }))
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ enabled: true, settings_from: 'edition', state: 'pending' }) }))
+    renderWithProviders(<BrowserPanel />)
+    const sw = await screen.findByRole('switch', { name: 'Use Acme SSO sign-in' })
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText('Used the next time Kiro’s Chromium starts')).toBeTruthy()
   })
 
   it('a failed apply is an ErrorNotice with the reason code, and a failed re-pull is too', async () => {
@@ -436,7 +462,7 @@ describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
     const notice = await screen.findByTestId('browser-credentials-error')
     expect(notice).toHaveAttribute('role', 'alert')
     expect(notice.textContent).toContain('provider_failed')
-    fireEvent.click(screen.getByRole('switch', { name: 'Start Kiro’s Chromium signed in' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Use Acme SSO sign-in' }))
     expect((await screen.findByTestId('browser-credentials-refresh-error')).textContent).toContain('refresh refused')
   })
 

@@ -703,12 +703,18 @@ One card and two controls; everything else is under a collapsed More group.
   `aria-busy`.
 - **Which browser** (`browser.choice`) offers `auto`, `user_chrome`,
   `kiro_chromium`. **Show the live view in chat** (`browser.live.enabled`).
-- **Start Kiro's Chromium signed in** (`browser.credentials.enabled`), shown only
-  when `status.credentials.provider` is non-null (an edition supplies a sign-in
-  provider). It reads the EFFECTIVE `credentials.enabled` (the edition's default
-  while the key is unset), names the provider in its info tip, and its status line
-  follows `credentials.state` (`applied` with the domains, `pending`, `disabled`,
-  `skipped`, `needs_refresh`); `error` is an `ErrorNotice` with the reason code.
+- **Use \<provider\> sign-in** (`browser.credentials.enabled`), under Show the
+  live view in chat and shown only when `status.credentials.provider` is non-null
+  (an edition supplies a sign-in provider; the public build never renders it). It
+  reads the EFFECTIVE `credentials.enabled` (the edition's default while the key is
+  unset); its info tip says the sign-in goes to Kiro's own browser only, never the
+  person's Chrome. The status line follows `credentials.state`: `applied` is
+  "N cookies applied" (`credentials.applied`), `needs_refresh` is the provider's
+  own `provider_status.message` verbatim (a catalog line when it gave none),
+  `pending`, `disabled` and `skipped` are catalog lines; `error` is an
+  `ErrorNotice` with the reason code. Its label names the provider, so search does
+  not index it (recorded in `settingsCoverage.test.ts`); its `configKey` still
+  anchors key links.
   A write to any `browser.credentials.*` path is followed by
   `POST /api/browser/credentials/refresh`, so a running Kiro Chromium picks it up;
   a failed re-pull is an `ErrorNotice` too. No cookie value is ever shown.

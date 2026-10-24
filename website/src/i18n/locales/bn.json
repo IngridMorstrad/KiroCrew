@@ -16145,9 +16145,8 @@
         "retry": "আবার চেষ্টা করো",
         "setup_failed_title": "ব্রাউজার সেটআপ হয়নি",
         "waiting_allow_desc": "Chrome জিজ্ঞেস করছে। সেখানে Allow-এ ক্লিক করো।",
-        "credentials_label": "Kiro-র Chromium সাইন ইন করা অবস্থায় চালু করো",
-        "credentials_hint": "Kiro-র নিজের Chromium {{provider}} যেসব সাইট দেয় সেগুলোতে সাইন ইন করা অবস্থায় চালু হয়, যাতে এজেন্ট সেগুলো খুলতে পারে। তোমার নিজের Chrome কখনও বদলায় না, আর এজেন্ট সাইন-ইন নিজে কখনও দেখে না।",
-        "credentials_applied": "{{domains}}-এর জন্য চালু",
+        "credentials_label": "{{provider}} সাইন-ইন ব্যবহার করো",
+        "credentials_hint": "তোমার {{provider}} সাইন-ইন শুধু Kiro-র নিজের ব্রাউজারে দেয়, যাতে এজেন্ট সেই সাইটগুলো খুলতে পারে। তোমার নিজের Chrome কখনও বদলায় না, আর এজেন্ট সাইন-ইন নিজে কখনও দেখে না।",
         "credentials_pending": "পরের বার Kiro-র Chromium চালু হলে ব্যবহার হবে",
         "credentials_disabled": "বন্ধ",
         "credentials_skipped": "এজেন্ট তোমার নিজের ব্রাউজার চালানোর সময় ব্যবহার হয় না",
@@ -16161,7 +16160,9 @@
         "cred_domain_invalid": "example.com-এর মতো একটি ডোমেইন দাও, পোর্ট, ওয়াইল্ডকার্ড বা IP ঠিকানা ছাড়া।",
         "cred_domains_full": "সর্বোচ্চ {{count}}টি সাইট। আরেকটি যোগ করতে একটি সরাও।",
         "add_cred_domain": "সাইট যোগ করো",
-        "remove_cred_domain": "{{domain}} সরাও"
+        "remove_cred_domain": "{{domain}} সরাও",
+        "credentials_applied_one": "{{count}}টি কুকি প্রয়োগ হয়েছে",
+        "credentials_applied_other": "{{count}}টি কুকি প্রয়োগ হয়েছে"
       },
       "channelDisabledPanel": {
         "checking_your_organization_s_channel_policy": "আপনার প্রতিষ্ঠানের চ্যানেল নীতি যাচাই করা হচ্ছে…",

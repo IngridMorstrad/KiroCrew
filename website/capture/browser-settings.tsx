@@ -11,6 +11,7 @@
  * Query string:
  *   ?state=connected|installing|waiting_allow|error|install_failed
  *   &theme=dark|light
+ *   &cred=applied|needs_refresh   (an edition sign-in provider is present)
  */
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -55,10 +56,29 @@ const STATES: Record<string, BrowserStatusData> = {
     install_job: { status: 'failed', stage: 'chromium', error_detail: 'Downloading Chromium timed out (network).' },
   },
 }
-const status = STATES[state] ?? base
+const cred = params.get('cred')
+const CREDENTIALS: Record<string, BrowserStatusData['credentials']> = {
+  applied: {
+    provider: 'Example SSO', imported: false, enabled: true, domains: ['example.com'],
+    settings_from: 'edition', state: 'applied', reason: null, applied: 12, provider_status: null,
+  },
+  needs_refresh: {
+    provider: 'Example SSO', imported: false, enabled: true, domains: ['example.com'],
+    settings_from: 'config', state: 'needs_refresh', reason: 'source_expired', applied: 0,
+    provider_status: { needs_refresh: true, message: 'Run example-login again to renew the sign-in.' },
+  },
+}
+const status: BrowserStatusData = {
+  ...(STATES[state] ?? base),
+  ...(cred && CREDENTIALS[cred] ? { browser: { kind: 'kiro_chromium', headless: true }, credentials: CREDENTIALS[cred] } : {}),
+}
 
 const config = {
-  browser: { choice: 'auto', live: { enabled: true, quality: 'auto', max_fps: 60, mask_passwords: true } },
+  browser: {
+    choice: 'auto',
+    live: { enabled: true, quality: 'auto', max_fps: 60, mask_passwords: true },
+    credentials: { enabled: null, domains: cred ? ['example.com', 'example.org'] : [] },
+  },
   dashboard: { browser_local_origins: ['localhost:5173', '127.0.0.1:3000'] },
 }
 
@@ -70,6 +90,7 @@ stub.patchConfig = async () => ({ ok: true })
 stub.installBrowserHarness = async () => status
 stub.testBrowser = async () => ({ ok: true, connection: status.connection, detail: null })
 stub.disconnectBrowser = async () => status
+stub.refreshBrowserCredentials = async () => ({ ok: true, credentials: status.credentials })
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
