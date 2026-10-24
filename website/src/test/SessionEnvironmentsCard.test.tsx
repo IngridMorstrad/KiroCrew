@@ -567,11 +567,10 @@ describe('Coder setup and saved profile management', () => {
     })
   })
 
-  it('disables the shutdown switch until a profile exists', async () => {
-    stored = { session_environments: { coder_url: 'https://coder.example.test', profiles: [], default_profile: '', stop_on_shutdown: true } as Section }
+  it('keeps the shutdown switch off and locked until a profile exists', async () => {
+    stored = { session_environments: { coder_url: 'https://coder.example.test', profiles: [], default_profile: '', stop_on_shutdown: false } as Section }
     await mounted()
     const stop = () => screen.getByRole('switch', { name: 'Stop workspaces when Kiro Crew shuts down' })
-    // Shown off while it cannot apply, so it never reads as "on and locked".
     expect(stop()).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getAllByText('Save a profile above to turn this on.')).toHaveLength(2)
     fireEvent.click(stop())
@@ -579,8 +578,24 @@ describe('Coder setup and saved profile management', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Coder profile' }))
     expect(stop()).not.toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByText(/Off: they keep running, so chats reconnect faster/)).toBeInTheDocument()
-    expect(stop()).toBeChecked()
+    expect(stop()).not.toBeChecked()
     expect(writes).toEqual([])
+  })
+
+  it('shows a stored "on" shutdown switch as on, and lets it be turned off, with no profile left', async () => {
+    // Shutdown still stops or hibernates every registered machine, so a switch
+    // drawn off here would hide that the next restart acts on them.
+    stored = { session_environments: { coder_url: 'https://coder.example.test', profiles: [], default_profile: '', stop_on_shutdown: true } as Section }
+    await mounted()
+    const stop = () => screen.getByRole('switch', { name: 'Stop workspaces when Kiro Crew shuts down' })
+    expect(stop()).toBeChecked()
+    expect(stop()).not.toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByText(/Off: they keep running, so chats reconnect faster/)).toBeInTheDocument()
+    fireEvent.click(stop())
+    expect(stop()).not.toBeChecked()
+    fireEvent.click(save())
+    await waitFor(() => expect(writes).toHaveLength(1))
+    expect((writes[0] as { value: Section }).value).toMatchObject({ stop_on_shutdown: false })
   })
 })
 
