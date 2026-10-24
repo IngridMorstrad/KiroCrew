@@ -215,6 +215,10 @@ async def decided_message_handling(slot: Any, message: str) -> tuple[bool, dict 
 #: ``(root, worker, message)``, read by :func:`api_chat` once the send succeeded.
 _CREW_PERSON_STEER = "kirocrew_crew_person_steer"
 
+#: Queue-entry key naming ``(root, worker)`` on a person's queued send into a
+#: Crew Mode worker; the drain records the steer when it delivers that entry.
+CREW_STEER_QUEUE_KEY = "_crew_person_steer"
+
 
 def _person_crew_worker_root(request: web.Request, state: Any, slot: Any, app: str) -> str:
     """The Crew Mode root *slot* works for when the dashboard owner typed into it, else ``""``.
@@ -255,19 +259,35 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
     root, worker, message = pending
     from kiro_crew.dashboard.handlers import crew_workers
 
-    try:
-        recorded = await crew_workers.person_steer(request.app["state"], root, worker, message)
-    except Exception:
-        logger.warning("crew steer: the composer's steer was not recorded", exc_info=True)
-        recorded = {"ledger_event": None, "ledger_error": "not_recorded"}
+    receipt: Any = None
     if isinstance(resp, web.Response) and resp.content_type == "application/json":
         try:
             receipt = json.loads(resp.text or "{}")
         except ValueError:
-            return resp
-        if isinstance(receipt, dict):
-            receipt.update(recorded)
+            receipt = None
+    state = request.app["state"]
+    queue_id = receipt.get("queue_id") if isinstance(receipt, dict) else None
+    if isinstance(queue_id, str) and queue_id:
+        # Queued, not delivered: the steer is recorded when the drain hands the
+        # entry to the worker (with its text as edited then), and never when the
+        # person cancels it first (edge review R2 F5).
+        slot = (getattr(state, "_slots", None) or {}).get(worker)
+        entry = next(
+            (e for e in (getattr(slot, "_queue", None) or []) if e.get("id") == queue_id),
+            None,
+        )
+        if entry is not None:
+            entry[CREW_STEER_QUEUE_KEY] = (root, worker)
+            receipt.update(ledger_event=None, ledger_error=None, ledger_pending=True)
             return web.json_response(receipt)
+    try:
+        recorded = await crew_workers.person_steer(state, root, worker, message)
+    except Exception:
+        logger.warning("crew steer: the composer's steer was not recorded", exc_info=True)
+        recorded = {"ledger_event": None, "ledger_error": "not_recorded"}
+    if isinstance(receipt, dict):
+        receipt.update(recorded)
+        return web.json_response(receipt)
     return resp
 
 
@@ -776,6 +796,19 @@ async def _api_chat_send(request: web.Request) -> web.StreamResponse:
                     "code": "message_too_long",
                 },
                 status=400,
+            )
+        if _crew_root not in state._slots:
+            # The worker's conductor is closed: the same admission the side
+            # panel's steer route makes (a live root), checked before anything is
+            # queued or delivered, so no worker turn starts behind the "reopen
+            # it" notice. The person reopens the conductor to keep working.
+            return web.json_response(
+                {
+                    "error": "this worker's conductor is closed; reopen it to keep working",
+                    "code": "crew_root_closed",
+                    "root": _crew_root,
+                },
+                status=409,
             )
         request[_CREW_PERSON_STEER] = (_crew_root, slot.key, message)
 

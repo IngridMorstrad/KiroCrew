@@ -618,6 +618,37 @@ async def test_the_worker_list_refuses_a_session_that_is_not_a_crew_mode_root(_o
 
 
 @pytest.mark.asyncio
+async def test_Y3_a_closed_roots_list_is_read_from_saved_data(_open_gate, monkeypatch):
+    """Edge review R2 Y3: a reload under a closed root keeps the saved root title
+    and the worker's real state; the list is not a failed read."""
+    from kiro_crew.dashboard.handlers import crew_workers
+
+    crew_mode.note_roots(["root"])
+    monkeypatch.setattr(
+        crew_workers,
+        "_ledger_items",
+        lambda root: {"w1": crew_workers.LedgerFacts("it_1", "Haiku", crew_workers.GROUP_DONE)},
+    )
+    monkeypatch.setattr(
+        crew_workers,
+        "_closed_titles",
+        lambda state, keys: {k: ("Toy Flag Review" if k == "root" else k, "") for k in keys},
+    )
+    # w1 finished (idle) and its item was accepted; the root's tab is closed.
+    rows = [{**r, "running": False} for r in _TREE if r["key"] != "root"]
+    resp = await _open_gate.api_crew_workers(_req("GET", "/x", _state(rows), {"slot": "root"}))
+    assert resp.status == 200, resp.text
+    body = json.loads(resp.text)
+    assert body["root_closed"] is True
+    assert body["root_title"] == "Toy Flag Review"
+    by_key = {w["key"]: w for w in body["workers"]}
+    assert by_key["w1"]["group"] == crew_workers.GROUP_DONE
+    # An unknown session is still refused, closed or not.
+    resp = await _open_gate.api_crew_workers(_req("GET", "/x", _state(rows), {"slot": "nope"}))
+    assert resp.status == 404
+
+
+@pytest.mark.asyncio
 async def test_the_routes_are_owner_only(monkeypatch):
     from kiro_crew.dashboard.handlers import crew_workers
 

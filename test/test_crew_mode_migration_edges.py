@@ -299,6 +299,80 @@ async def test_E6_an_unusable_name_moves_nothing_and_keeps_the_applied_conductor
     assert crew_mode.crew_mode_agent() == "better-conductor"
 
 
+@pytest.mark.asyncio
+async def test_F3_a_name_changed_mid_pass_leaves_the_rest_pending_with_no_notice(
+    switch, monkeypatch
+):
+    switch.mig.write_applied("kirocrew-conductor")
+    _target(monkeypatch, "a-conductor")
+    r1, r2 = _slot("r1"), _slot("r2")
+    state = _State(r1, r2)
+    # The lock answers crew_mode_locked once the config names B.
+    switch.refuse["r1"] = ("crew_mode_locked", 409)
+
+    real_move = switch.mig._move
+
+    async def move_then_change(state, slot, target):
+        out = await real_move(state, slot, target)
+        _target(monkeypatch, "b-conductor")
+        return out
+
+    monkeypatch.setattr(switch.mig, "_move", move_then_change)
+    out = await switch.mig.migrate(state, "a-conductor")
+    # Neither root is failed and nobody is told a chat did not move.
+    assert switch.mig.failed() == {}
+    assert state.notices == []
+    assert set(out["pending"]) == {"r1", "r2"}
+    # r2 was never switched onto the stale A.
+    assert ("r2", "a-conductor") not in switch.calls
+    # The task that owns B moves both.
+    del switch.refuse["r1"]
+    monkeypatch.setattr(switch.mig, "_move", real_move)
+    await switch.mig.migrate(state)
+    assert r1.agent == r2.agent == "b-conductor"
+
+
+@pytest.mark.asyncio
+async def test_F3_a_template_installed_later_heals_without_a_config_edit(switch, monkeypatch):
+    switch.mig.write_applied("kirocrew-conductor")
+    _target(monkeypatch, "new-conductor")
+    verdict = {"why": "agent_not_found"}
+    monkeypatch.setattr(switch.mig, "_usable", lambda name: verdict["why"])
+    root = _slot("r")
+    state = _State(root)
+    assert await switch.mig.reconcile(state) is None
+    assert "until it is installed" in state.notices[0][2]
+    # Installed now; the cached verdict alone would keep it unusable.
+    verdict["why"] = ""
+    assert await switch.mig.reconcile(state, retry_failed=False) is None
+    # The idle loop's periodic re-check forgets it, and the next tick moves the root.
+    switch.mig.forget_unusable_verdicts()
+    await switch.mig.reconcile(state, retry_failed=False)
+    assert root.agent == "new-conductor"
+    assert crew_mode.crew_mode_agent() == "new-conductor"
+
+
+@pytest.mark.asyncio
+async def test_F3_the_idle_loop_re_checks_unusable_verdicts(switch, monkeypatch):
+    monkeypatch.setattr(switch.mig, "RETRY_SECS", 0)
+    monkeypatch.setattr(switch.mig, "VERDICT_RECHECK_TICKS", 2)
+    switch.mig._verdicts["x"] = "agent_not_found"
+    switch.mig._verdicts["ok"] = ""
+
+    async def nothing(state, **_kw):
+        return None
+
+    monkeypatch.setattr(switch.mig, "on_start", nothing)
+    monkeypatch.setattr(switch.mig, "reconcile", nothing)
+    task = asyncio.create_task(switch.mig.run(_State(), start_delay=0))
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if "x" not in switch.mig._verdicts:
+            break
+    task.cancel()
+    assert "x" not in switch.mig._verdicts and switch.mig._verdicts.get("ok") == ""
+
+
 def test_E6_usable_refuses_a_crewmate_and_an_unknown_template(monkeypatch):
     from kiro_crew.config import KiroCrewConfig, loader_agents
     from kiro_crew.dashboard import crew_mode_migration as mig

@@ -49,9 +49,22 @@ _failed: dict[str, str] = {}
 #: Refusals that clear on their own once the root is idle again: a turn, attached
 #: subagents (a conductor between turns), a binding that moved mid-switch, a
 #: metadata write that failed.
+#: ``crew_mode_locked`` too: the configured name moved on while this pass ran, so
+#: the task that owns the new name moves the root, and no notice is owed.
 RETRYABLE: frozenset[str] = frozenset(
-    {"turn_in_flight", "slot_subagents_running", "session_rebound", "history_unavailable"}
+    {
+        "turn_in_flight",
+        "slot_subagents_running",
+        "session_rebound",
+        "history_unavailable",
+        "crew_mode_locked",
+    }
 )
+
+#: Idle-loop ticks between re-checks of a configured name found unusable, so a
+#: template installed after the config named it is picked up without a config
+#: edit (4 x RETRY_SECS).
+VERDICT_RECHECK_TICKS = 4
 
 #: One migration at a time: the config watcher, the idle retry loop and the start
 #: pass all call :func:`migrate`, and two of them on one idle root would reset its
@@ -62,6 +75,12 @@ _lock: asyncio.Lock | None = None
 #: ``{configured name: why it cannot run Crew Mode, "" when it can}``, so the idle
 #: loop does not re-read the config every tick. Cleared on every config change.
 _verdicts: dict[str, str] = {}
+
+
+def forget_unusable_verdicts() -> None:
+    """Drop every cached "cannot run Crew Mode" verdict so the next reconcile re-checks."""
+    for name in [n for n, why in _verdicts.items() if why]:
+        _verdicts.pop(name, None)
 
 
 def _migration_lock() -> asyncio.Lock:
@@ -235,6 +254,10 @@ async def migrate(
                 continue
             if slot.key in _failed:
                 continue
+            if crew_mode.crew_mode_agent() != target:
+                # The configured name changed mid-pass: stop here. The roots not
+                # visited stay pending for the task that owns the new name.
+                break
             before = slot.agent
             outcome = await _move(state, slot, target)
             if outcome == "ok":
@@ -298,7 +321,8 @@ async def reconcile(state: Any, *, retry_failed: bool = True) -> dict[str, list[
                     state,
                     "Crew Mode conductor not changed",
                     f"agent.crew_mode_agent names {configured}, which is not an agent "
-                    f"template ({why}). Crew Mode chats stay on {fallback}.",
+                    f"template ({why}). Crew Mode chats stay on {fallback} until it is "
+                    "installed or the setting changes.",
                 )
             return None
     crew_mode.clear_unusable()
@@ -396,8 +420,12 @@ async def run(state: Any, *, start_delay: float = 2.0) -> None:
         await on_start(state)
     except Exception:
         logger.warning("crew mode start pass failed", exc_info=True)
+    ticks = 0
     while True:
         await asyncio.sleep(RETRY_SECS)
+        ticks += 1
+        if ticks % VERDICT_RECHECK_TICKS == 0:
+            forget_unusable_verdicts()
         try:
             # Roots still owed a move, and a recorded name that is not yet the
             # target (a migration cancelled before it visited every root).

@@ -1056,7 +1056,11 @@ async def create_session(
         # Not persisted at birth, matching every other slot: trust is in-memory by
         # construction, so a restart returns the child to interactive along with
         # its creator.
-        inherited_trust = bool(getattr(live_caller, "_trust", False))
+        #
+        # One exception: a trust granted from a Crew Mode conductor's approval
+        # card ("Trust this worker", ``_trust_card_scoped``) covers that worker
+        # only, so the sessions it creates are born asking, on that same card.
+        inherited_trust = creator_trust_carries(live_caller)
         inherited_trust_reads = bool(getattr(live_caller, "_trust_reads", False))
         slot._trust = inherited_trust
         slot._trust_reads = inherited_trust_reads
@@ -1310,6 +1314,17 @@ async def create_session(
         # person's sidebar, so a caller can say where it is.
         **({"crew_mode": True} if in_crew_tree else {}),
     }
+
+
+def creator_trust_carries(live_caller: Any) -> bool:
+    """Whether *live_caller*'s ``_trust`` passes to a session it creates.
+
+    It does, except when it came from a Crew Mode conductor's approval card
+    ("Trust this worker"): that grant names one worker, so its children ask.
+    """
+    return bool(getattr(live_caller, "_trust", False)) and not bool(
+        getattr(live_caller, "_trust_card_scoped", False)
+    )
 
 
 def _model_pin_refusal(model_name: str, cfg: KiroCrewConfig) -> str | None:

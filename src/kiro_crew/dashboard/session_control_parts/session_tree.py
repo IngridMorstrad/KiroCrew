@@ -31,7 +31,10 @@ from kiro_crew.dashboard.session_control_parts.caller_access import (
     prewarm_enabled_check,
     session_control_enabled,
 )
-from kiro_crew.dashboard.session_control_parts.session_create import _record_spawn
+from kiro_crew.dashboard.session_control_parts.session_create import (
+    _record_spawn,
+    creator_trust_carries,
+)
 from kiro_crew.dashboard.session_control_parts.session_titles import _clean_new_session_title
 from kiro_crew.dashboard.session_control_parts.target_authorization import (
     _refuse_ineligible_creator,
@@ -337,7 +340,8 @@ async def fork_session(
         child._created_by = caller_key
         child._created_by_sid = _creator_sid if len(_creator_sid) <= MAX_ACP_SESSION_ID_LEN else ""
         child._lineage_minted = True
-        posture["trust"] = bool(getattr(live_caller, "_trust", False))
+        # A conductor card's "Trust this worker" names that worker only.
+        posture["trust"] = creator_trust_carries(live_caller)
         posture["trust_reads"] = bool(getattr(live_caller, "_trust_reads", False))
         child._trust = posture["trust"]
         child._trust_reads = posture["trust_reads"]

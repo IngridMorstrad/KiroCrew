@@ -387,6 +387,9 @@ class SlotProjection:
                 "tool_input": redact(str(record.get("tool_input") or "")),
                 "tool_kind": "spawn" if approval_id.startswith("spawn:") else "",
                 "request_id": redact(approval_id),
+                # Names THIS record (the id can recur), so a card that relays it
+                # (the Crew Mode conductor's approval card) pins its decision.
+                "request_instance": str(record.get("instance") or ""),
             }
             if record.get("tool_purpose"):
                 # Import after state initialization: chat_utils itself imports state.

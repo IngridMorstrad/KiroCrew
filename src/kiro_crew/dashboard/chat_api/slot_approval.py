@@ -497,6 +497,7 @@ async def apply_approval_mode(
             for _sharing in state._slots.values():
                 if effective_session_key(_sharing) == _granted_key:
                     _sharing._trust = True
+                    _sharing._trust_card_scoped = False
             state.sessions.set_approval_policy(_granted_key, "auto")
             linked_ch = getattr(slot, "_slack_channel", None)
             if (
@@ -511,6 +512,7 @@ async def apply_approval_mode(
         else:
             for s in state._slots.values():
                 s._trust = True
+                s._trust_card_scoped = False
                 state.sessions.set_approval_policy(effective_session_key(s), "auto")
             if mgr:
                 for ch in mgr._channels.values():
@@ -931,6 +933,9 @@ async def api_chat_slot_approve(request: web.Request) -> web.Response:
             return _deny_trust_pattern(name, request_id, original_action, "pattern_underivable")
         else:
             owner._trust = True
+            # A conductor card's "Trust this worker" trusts THAT worker only; a
+            # trust pressed in the slot's own pane keeps the usual inheritance.
+            owner._trust_card_scoped = bool(delegated)
             state.sessions.set_approval_policy(effective_session_key(owner), "auto")
             action = "approved"
     # Trust-reads: auto-approve read-only bash commands for this slot

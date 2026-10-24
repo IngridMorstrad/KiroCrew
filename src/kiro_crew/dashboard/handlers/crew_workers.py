@@ -297,8 +297,14 @@ async def api_crew_workers(request: web.Request) -> web.Response:
     state = request.app["state"]
     root = request.match_info.get("slot", "")
     rows = _stamped_rows(state)
+    root_closed = False
     if _root_row(rows, root) is None:
-        return _bad("not_crew_mode_root", "this session is not a Crew Mode root", status=404)
+        # A closed root (its tab gone, its saved session a known Crew Mode root)
+        # still has workers: the list is read from saved data, and says so, so a
+        # worker page reloaded under it keeps the root's name and the real state.
+        if root not in crew_mode.known_roots() or root in (getattr(state, "_slots", None) or {}):
+            return _bad("not_crew_mode_root", "this session is not a Crew Mode root", status=404)
+        root_closed = True
     live = crew_mode.workers_of(rows, root)
     live_keys = {str(row.get("key")) for row in rows}
     closed = _closed_workers(root, live_keys)
@@ -323,7 +329,9 @@ async def api_crew_workers(request: web.Request) -> web.Response:
                 "approval": _approval_of(row),
             }
         )
-    closed_meta = await asyncio.to_thread(_closed_titles, state, closed)
+    closed_meta = await asyncio.to_thread(
+        _closed_titles, state, [*closed, root] if root_closed else closed
+    )
     for key in closed:
         item, line = items.get(key, NO_LEDGER)[:2]
         title, agent = closed_meta.get(key, ("", ""))
@@ -340,7 +348,11 @@ async def api_crew_workers(request: web.Request) -> web.Response:
                 "created_by": "",
             }
         )
-    return web.json_response({"root": root, "workers": workers})
+    out: dict[str, Any] = {"root": root, "workers": workers}
+    if root_closed:
+        out["root_closed"] = True
+        out["root_title"] = closed_meta.get(root, ("", ""))[0]
+    return web.json_response(out)
 
 
 #: The longest tool input an approval card shows: enough to read a command whole,
@@ -377,6 +389,9 @@ def _approval_of(row: Mapping[str, Any]) -> dict[str, str] | None:
         "tool": text("tool", APPROVAL_LINE_MAX_CHARS),
         "tool_input": text("tool_input", APPROVAL_INPUT_MAX_CHARS),
         "tool_purpose": text("tool_purpose", APPROVAL_LINE_MAX_CHARS),
+        # A coordinator record's own instance (a uuid hex, not user text), so the
+        # card's decision is pinned to that record like a native one's mid.
+        "request_instance": _instance_of(info.get("request_instance")),
     }
     if info.get("trust_grantable") == "1":
         out["trust_grantable"] = "1"
@@ -384,6 +399,14 @@ def _approval_of(row: Mapping[str, Any]) -> dict[str, str] | None:
     if isinstance(raw_input, str) and len(redact(raw_input)) > APPROVAL_INPUT_MAX_CHARS:
         out["tool_input_cut"] = "1"
     return out
+
+
+def _instance_of(value: Any) -> str:
+    """*value* when it is a coordinator record instance (hex, <= 64), else ``""``."""
+    if isinstance(value, str) and 0 < len(value) <= 64:
+        if all(ch in "0123456789abcdef" for ch in value):
+            return value
+    return ""
 
 
 #: The three decisions the conductor's approval card offers, as the per-slot
@@ -428,6 +451,26 @@ async def api_crew_worker_approve(request: web.Request) -> web.Response:
         return _bad("not_a_worker", "that session is not one of this root's workers", status=404)
     if state.get_slot(worker) is None:
         return _bad("worker_closed", "that worker's tab is closed", status=409)
+    coordinator = state._pending_approvals.get(request_id)
+    if isinstance(coordinator, dict) and coordinator.get("slot") == worker:
+        # A coordinator approval (e.g. a spawn) has no transcript row and no mid:
+        # pin it to the record instance the card showed, the same target the
+        # normal approvals route requires, so a stale card cannot decide a
+        # same-id record that replaced it. Trust is not offered for these.
+        if action == "trust":
+            return _bad("trust_not_grantable", "this request cannot be trusted from the card")
+        instance = _instance_of(body.get("request_instance"))
+        if not instance:
+            return _bad("approval_target_required", "request_instance is required for this request")
+        if coordinator.get("instance") != instance or not state.resolve_state_approval(
+            request_id, action == "approved"
+        ):
+            return _bad("approval_not_pending", "that request is no longer pending", status=404)
+        _audit_card(root, worker, action, ok=True)
+        return web.json_response({"ok": True})
+    if action != "trust" and not (isinstance(request_mid, str) and request_mid):
+        # Never a bare-id decide from the card: it names the request it means.
+        return _bad("approval_target_required", "request_mid is required for this request")
     decided: dict[str, Any] = {"action": action, "request_id": request_id}
     if action != "trust" and isinstance(request_mid, str) and request_mid:
         # Pinned to the exact request the card showed: a stale card cannot pick a
@@ -437,19 +480,24 @@ async def api_crew_worker_approve(request: web.Request) -> web.Response:
 
     request["kirocrew_crew_worker_approve"] = (worker, decided)
     resp = await chat_handlers.api_chat_slot_approve(request)
+    _audit_card(root, worker, action, ok=resp.status < 300)
+    return resp
+
+
+def _audit_card(root: str, worker: str, action: str, *, ok: bool) -> None:
+    """One SEL line per approval-card decision."""
     try:
         from kiro_crew.sel import sel
 
         sel().log_api_access(
             caller=f"dashboard:{root}",
             operation="crew_mode.approve",
-            outcome="ok" if resp.status < 300 else "denied",
+            outcome="ok" if ok else "denied",
             source="dashboard",
             resources=f"worker={worker} action={action}",
         )
     except Exception:
         logger.debug("crew approve: audit failed", exc_info=True)
-    return resp
 
 
 async def _window_rows(slot: Any) -> list[dict[str, Any]]:

@@ -102,6 +102,7 @@ from kiro_crew.dashboard.chat_api.app_admission import (  # noqa: F401
 )
 from kiro_crew.dashboard.chat_api.chat_send import (  # noqa: F401
     _CREW_PERSON_STEER,
+    CREW_STEER_QUEUE_KEY,
     _api_chat_send,
     _person_crew_worker_root,
     _send_binds_agent,

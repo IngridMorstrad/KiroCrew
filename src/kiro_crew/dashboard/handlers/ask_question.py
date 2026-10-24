@@ -175,6 +175,18 @@ CREW_WORKER_ASK_ERROR = (
     "and its answer reaches you as a user message. Then stop and wait for it."
 )
 
+#: The same instruction when the worker's conductor tab is closed. The worker
+#: still reports to it (owner decision: a worker never puts a question in front of
+#: the person), and learns why no answer comes yet: the question waits on the
+#: ledger, and the worker's own pane tells the person to reopen the conductor.
+CREW_WORKER_ASK_CLOSED_ERROR = (
+    "You are a Crew Mode worker, so you do not ask the person directly. Your "
+    "conductor's tab is closed right now. Call work_report with status 'question' "
+    "(reason 'needs_human' when only the person can decide) and say what you need "
+    "in the summary; your conductor reads it when the person reopens it, and its "
+    "answer reaches you as a user message. Then stop and wait for it."
+)
+
 
 def _crew_worker_refusal(state: Any, slot_key: str, session_key: str) -> web.Response | None:
     """A 409 for a Crew Mode worker's question card, else ``None``. No I/O.
@@ -204,8 +216,14 @@ def _crew_worker_refusal(state: Any, slot_key: str, session_key: str) -> web.Res
         )
     except Exception:
         logger.warning("SEL audit failed for a worker's ask_question", exc_info=True)
+    live_root = crew_root in getattr(state, "_slots", {})
     return web.json_response(
-        {"error": CREW_WORKER_ASK_ERROR, "code": "crew_worker_asks_conductor"}, status=409
+        {
+            "error": CREW_WORKER_ASK_ERROR if live_root else CREW_WORKER_ASK_CLOSED_ERROR,
+            "code": "crew_worker_asks_conductor",
+            "conductor_open": live_root,
+        },
+        status=409,
     )
 
 

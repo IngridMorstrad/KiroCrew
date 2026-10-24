@@ -244,3 +244,132 @@ def test_X1_the_composer_send_refuses_an_over_long_steer_before_queueing_it():
     body = source.split("async def _api_chat_send", 1)[1]
     guard = body.index("_person_crew_worker_root(request, state, slot, request_app)")
     assert body.index('"code": "message_too_long"', guard) < body.index("responsive_chat.eligible")
+
+
+# ── R2 F5: a queued steer is recorded when it is delivered ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_F5_a_queued_send_is_not_recorded_until_the_drain_delivers_it(monkeypatch):
+    from aiohttp import web
+
+    from kiro_crew.dashboard import chat_handlers
+    from kiro_crew.dashboard.chat_api import chat_send
+    from kiro_crew.dashboard.handlers import crew_workers
+
+    calls: list[tuple[str, str, str]] = []
+    entry: dict[str, Any] = {"id": "q1", "content": "use main"}
+    state = SimpleNamespace(_slots={WORKER: SimpleNamespace(_queue=[entry])})
+
+    async def fake_send(request):
+        request[chat_send._CREW_PERSON_STEER] = (CONDUCTOR, WORKER, "use main")
+        return web.json_response({"ok": True, "queued": True, "queue_id": "q1"})
+
+    async def fake_steer(state, root, worker, message, **_k):
+        calls.append((root, worker, message))
+        return {"ledger_event": "it_1", "ledger_error": None}
+
+    monkeypatch.setattr(chat_handlers, "_api_chat_send", fake_send)
+    monkeypatch.setattr(crew_workers, "person_steer", fake_steer)
+    resp = await chat_handlers.api_chat(_Req(state))  # type: ignore[arg-type]
+    receipt = json.loads(resp.text)
+    # Enqueued only: nothing on the ledger yet, and the receipt says it is owed.
+    assert calls == []
+    assert receipt["ledger_pending"] is True and receipt["ledger_error"] is None
+    assert entry[chat_send.CREW_STEER_QUEUE_KEY] == (CONDUCTOR, WORKER)
+
+
+@pytest.mark.asyncio
+async def test_F5_the_drain_records_the_edited_text_once_and_a_cancel_records_nothing(
+    monkeypatch,
+):
+    import asyncio
+
+    from kiro_crew.dashboard import chat_handlers  # noqa: F401  (wires the drain module)
+    from kiro_crew.dashboard.chat_api.chat_send import CREW_STEER_QUEUE_KEY
+    from kiro_crew.dashboard.chat_turn import queue_drain
+    from kiro_crew.dashboard.handlers import crew_workers
+
+    calls: list[tuple[str, str, str]] = []
+
+    async def fake_steer(state, root, worker, message, **_k):
+        calls.append((root, worker, message))
+        return {"ledger_event": "it_1", "ledger_error": None}
+
+    monkeypatch.setattr(crew_workers, "person_steer", fake_steer)
+    state = SimpleNamespace(_background_tasks=set())
+    # Edited while queued: the worker gets the edited text, and so does the ledger.
+    edited = {"id": "q1", "content": "use main, not dev", CREW_STEER_QUEUE_KEY: (CONDUCTOR, WORKER)}
+    plain = {"id": "q2", "content": "an ordinary queued send"}
+    queue_drain._record_queued_crew_steers(state, [edited, plain])  # type: ignore[arg-type]
+    await asyncio.gather(*list(state._background_tasks))
+    assert calls == [(CONDUCTOR, WORKER, "use main, not dev")]
+    # The marker is consumed, so a re-drain of the same entry records nothing more.
+    queue_drain._record_queued_crew_steers(state, [edited])  # type: ignore[arg-type]
+    await asyncio.sleep(0)
+    assert len(calls) == 1
+    # A cancelled entry never reaches the drain, so it is never recorded.
+
+
+def test_F5_the_drain_hook_runs_after_the_dequeue_and_before_dispatch():
+    from kiro_crew.dashboard.chat_turn import queue_drain
+
+    source = open(queue_drain.__file__, encoding="utf-8").read()
+    body = source.split("async def _start_next_queued_turn", 1)[1]
+    hook = body.index("_record_queued_crew_steers(state, consumed)")
+    assert body.index("if next_msg is None:") < hook < body.index('broadcast_ws("chat_segment"')
+
+
+# ── R2 Y2 / X5: no worker send while its conductor is closed ────────────────
+
+
+@pytest.mark.asyncio
+async def test_Y2_the_main_pane_send_to_a_worker_of_a_closed_root_is_refused(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+    from chat_test_helpers import _make_state
+
+    from kiro_crew import crew_mode
+    from kiro_crew.dashboard import chat_handlers
+    from kiro_crew.dashboard.handlers import crew_workers, source_providers
+    from kiro_crew.dashboard.state import SlotOrigin
+
+    monkeypatch.setattr("kiro_crew.dashboard.state.config_dir", lambda: tmp_path)
+    monkeypatch.setattr(crew_mode, "_known_roots", {"root"})
+    monkeypatch.setattr(crew_mode, "persisted_parents", lambda: {})
+    monkeypatch.setattr(crew_mode, "_live_cfg", lambda: None)
+    monkeypatch.setattr(source_providers, "is_owner_dashboard_request", lambda r: True)
+
+    async def boom(*_a, **_k):
+        raise AssertionError("a refused send must not be recorded")
+
+    monkeypatch.setattr(crew_workers, "person_steer", boom)
+    state = _make_state(tmp_path)
+    state.broadcast_ws = MagicMock()
+    state.push_slots_update = MagicMock()
+    worker = state.get_or_create_slot("w", origin=SlotOrigin.USER)
+    worker.agent = "kirocrew-worker"
+    worker._created_by = "root"
+    # The root's tab is closed: no "root" slot, but it is still a known root.
+    assert "root" not in state._slots
+
+    @web.middleware
+    async def owner(request, handler):
+        request["app"] = ""
+        request["user"] = "local-app"
+        return await handler(request)
+
+    app = web.Application(middlewares=[owner])
+    app["state"] = state
+    app.router.add_post("/api/chat", chat_handlers.api_chat)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post("/api/chat?ws=1", json={"slot": "w", "message": "go on"})
+        assert resp.status == 409, await resp.text()
+        body = await resp.json()
+        assert body["code"] == "crew_root_closed" and body["root"] == "root"
+    # Nothing queued, no turn started, no user row written.
+    assert list(worker._queue) == []
+    assert not worker.running
+    assert not any(m.get("role") == "user" for m in worker.messages)

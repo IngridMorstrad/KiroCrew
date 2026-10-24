@@ -69,6 +69,25 @@ def test_S2_a_worker_question_card_is_refused_with_the_way_to_ask_its_conductor(
     assert aq._crew_worker_refusal(state, "plain", "dashboard:plain") is None
 
 
+def test_F2_a_worker_of_a_closed_conductor_is_told_why_no_answer_comes_yet(monkeypatch):
+    from kiro_crew.dashboard.handlers import ask_question as aq
+
+    # The root's tab is closed: the stamp survives (known roots) but no slot.
+    monkeypatch.setattr(crew_mode, "_known_roots", {"root"})
+    state = SimpleNamespace(_slots={"w": _live("w", "kirocrew-worker", created_by="root")})
+    refused = aq._crew_worker_refusal(state, "w", "dashboard:w")
+    # Owner decision: a worker never asks the person, even with its root closed.
+    assert refused is not None and refused.status == 409
+    body = json.loads(refused.text)
+    assert body["conductor_open"] is False
+    assert body["error"] == aq.CREW_WORKER_ASK_CLOSED_ERROR
+    assert "closed" in body["error"] and "work_report" in body["error"]
+    # With the root live the usual instruction stands.
+    state._slots["root"] = _live("root", "kirocrew-conductor")
+    body = json.loads(aq._crew_worker_refusal(state, "w", "dashboard:w").text)
+    assert body["conductor_open"] is True and body["error"] == aq.CREW_WORKER_ASK_ERROR
+
+
 def test_S2_both_question_routes_refuse_a_worker_before_any_card_opens():
     from kiro_crew.dashboard.handlers import ask_question as aq
 
@@ -187,6 +206,117 @@ async def test_B_trust_this_worker_trusts_the_worker_slot_only(state):
     assert fut.done() and fut.result() in ("approved", "trust")
     assert worker._trust is True
     assert not state._slots["root"]._trust
+
+
+@pytest.mark.asyncio
+async def test_F1_card_trust_does_not_pass_to_the_sessions_the_worker_creates(state):
+    from kiro_crew.dashboard.session_control_parts.session_create import creator_trust_carries
+
+    worker, _fut, _mid = _crew(state)
+    async with TestClient(_server(state, _owner)) as client:
+        resp = await client.post(
+            "/api/chat/slots/root/crew-workers/w/approve",
+            json={"action": "trust", "request_id": "rid-1"},
+        )
+        assert resp.status == 200, await resp.text()
+    assert worker._trust is True and worker._trust_card_scoped is True
+    # A session this worker creates later is born asking.
+    assert creator_trust_carries(worker) is False
+
+
+@pytest.mark.asyncio
+async def test_F1_a_directly_trusted_session_still_passes_its_trust_on(state):
+    from kiro_crew.dashboard.session_control_parts.session_create import creator_trust_carries
+
+    worker, _fut, _mid = _crew(state)
+    root = state._slots["root"]
+    # A conductor the person trusted directly: its workers inherit, as before.
+    root._trust = True
+    assert creator_trust_carries(root) is True
+    # A trust pressed on the slot's own approval (not the card) also carries.
+    async with TestClient(_server(state, _owner)) as client:
+        resp = await client.post(
+            "/api/chat/slots/w/approve", json={"action": "trust", "request_id": "rid-1"}
+        )
+        assert resp.status == 200, await resp.text()
+    assert worker._trust is True and worker._trust_card_scoped is False
+    assert creator_trust_carries(worker) is True
+
+
+def _coordinator(state, approval_id: str = "spawn:abc", instance: str = "a1b2c3"):
+    fut = asyncio.get_running_loop().create_future()
+    state._approval_futures[approval_id] = fut
+    state._pending_approvals[approval_id] = {
+        "id": approval_id,
+        "instance": instance,
+        "slot": "w",
+        "tool": "spawn_run",
+        "tool_input": "",
+    }
+    return fut
+
+
+@pytest.mark.asyncio
+async def test_F7_a_coordinator_approval_from_the_card_is_pinned_to_its_instance(state):
+    _crew(state)
+    fut = _coordinator(state)
+    async with TestClient(_server(state, _owner)) as client:
+        base = "/api/chat/slots/root/crew-workers/w/approve"
+        # No pin: refused, nothing decided.
+        resp = await client.post(base, json={"action": "approve", "request_id": "spawn:abc"})
+        assert resp.status == 400
+        assert (await resp.json())["code"] == "approval_target_required"
+        # A stale card's instance: refused, nothing decided.
+        resp = await client.post(
+            base,
+            json={"action": "approve", "request_id": "spawn:abc", "request_instance": "ffff"},
+        )
+        assert resp.status == 404
+        assert not fut.done()
+        # Trust is not a card decision for a coordinator request.
+        resp = await client.post(
+            base,
+            json={"action": "trust", "request_id": "spawn:abc", "request_instance": "a1b2c3"},
+        )
+        assert resp.status == 400
+        assert not fut.done()
+        resp = await client.post(
+            base,
+            json={"action": "approve", "request_id": "spawn:abc", "request_instance": "a1b2c3"},
+        )
+        assert resp.status == 200, await resp.text()
+    assert fut.done() and fut.result() is True
+
+
+@pytest.mark.asyncio
+async def test_F7_a_native_card_decision_without_a_mid_is_refused(state):
+    _worker, fut, _mid = _crew(state)
+    async with TestClient(_server(state, _owner)) as client:
+        resp = await client.post(
+            "/api/chat/slots/root/crew-workers/w/approve",
+            json={"action": "approve", "request_id": "rid-1"},
+        )
+        assert resp.status == 400
+        assert (await resp.json())["code"] == "approval_target_required"
+    assert not fut.done()
+
+
+def test_F7_the_coordinator_card_carries_its_record_instance():
+    from kiro_crew.dashboard.handlers import crew_workers
+
+    row = {
+        "pending_approval": True,
+        "pending_approval_info": {
+            "origin": "coordinator",
+            "request_id": "spawn:abc",
+            "request_instance": "a1b2c3",
+            "tool": "spawn_run",
+        },
+    }
+    card = crew_workers._approval_of(row)
+    assert card is not None and card["request_instance"] == "a1b2c3"
+    row["pending_approval_info"]["request_instance"] = "<not hex>"
+    assert crew_workers._approval_of(row)["request_instance"] == ""
 
 
 @pytest.mark.asyncio
