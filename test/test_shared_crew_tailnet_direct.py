@@ -371,6 +371,55 @@ async def test_forged_tailscale_user_headers_are_ignored():
 
 
 @pytest.mark.asyncio
+async def test_a_forged_relay_header_never_reaches_a_direct_listener_handler():
+    """The direct listener serves the dashboard chain, whose relay-header strip runs first."""
+    from kiro_crew.dashboard.relay_headers import is_relay_header, relay_header_strip_middleware
+
+    seen: list[list[str]] = []
+
+    async def relay_names(request: web.Request) -> web.Response:
+        seen.append([name for name in request.headers if is_relay_header(name)])
+        return await _whoami(request)
+
+    app = web.Application(
+        middlewares=[
+            relay_header_strip_middleware,
+            token_auth_middleware(tailnet_direct=_gate(("alice@example.com",))),
+        ]
+    )
+    app.router.add_get("/api/whoami", relay_names)
+    client = TestClient(TestServer(app, host="127.0.0.1"))
+    await client.start_server()
+    forged = {"X-Kiro-Relay-User": "owner@example.com", "x-kiro-relay-foo": "x"}
+    try:
+        status, body = await _get(client, _direct("100.64.0.5", **forged))
+    finally:
+        await client.close()
+    assert status == 200 and body["login"] == "alice@example.com"
+    assert seen == [[]]
+
+
+@pytest.mark.asyncio
+async def test_direct_sites_serve_the_runner_they_are_given(monkeypatch):
+    """Every direct site serves the dashboard's own runner, so its app and its chain."""
+    runners: list[Any] = []
+
+    class FakeSite:
+        def __init__(self, runner: Any, host: str, port: int, **_kw: Any) -> None:
+            runners.append(runner)
+            self.name = f"http://{host}:{port}"
+
+        async def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(web, "TCPSite", FakeSite)
+    runner = object()
+    sites = await tailnet_direct.start_sites(runner, PORT, _gate())  # type: ignore[arg-type]
+    assert len(sites) == 2
+    assert runners == [runner, runner]
+
+
+@pytest.mark.asyncio
 async def test_whois_error_rejects_and_never_admits_unattributed():
     whois = FakeWhois()
     whois.fail = True
