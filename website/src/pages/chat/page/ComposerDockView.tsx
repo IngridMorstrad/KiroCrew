@@ -5,6 +5,8 @@ import { Send, Undo2 } from 'lucide-react'
 import { CrewModeComposerChip, CrewModeMarkSource } from '../../../components/crew/CrewModeMarks'
 import { CREW_STEER_MAX_CHARS } from '../../../lib/crewMode'
 import CrewApprovalCards from '../../../components/crew/CrewApprovalCards'
+import { CrewWorkerComposerGate } from '../../../components/crew/CrewWorkerComposerGate'
+import { useCrewRoot } from '../../../components/crew/useCrewRoot'
 import { Composer, type ComposerHandle, type ComposerVoiceOptions } from '../../../chat-core/composer/Composer'
 import type { ComposerPasteSlice } from '../../../chat-core/composer/composerPastes'
 import type { ComposerDraftStore } from '../../../chat-core/composer/draftStore'
@@ -267,6 +269,9 @@ interface ComposerDockViewProps {
   /** The steered worker's group on the worker list is done: its hint says a send
    *  starts a new turn even while a turn flag is still stale. */
   steerWorkerDone?: boolean
+  /** The steered worker's Crew Mode root (its `crew_root`). Its approvals are
+   *  decided on that root's card, and with the root closed the composer is off. */
+  steerWorkerRoot?: string
 }
 
 /**
@@ -290,7 +295,7 @@ export default function ComposerDockView({
   effortSupported, modelMarker, pinModelToAgentMut, projectBranch, projectGit, projectGitError, shownModel, cardOwnsRecovery, continuable, continuing, handleContinue, interrupted, dockGutter, dockRef,
   endQuoteFlight, flyingQuote, inputAreaRef, isAtBottom, answerQuestionCard, handleCancelQueued, handleEditQueued, handleInterruptQueued, handleReorderQueued, keepQuestionAnswer, queuedMessages,
   queuePendingIds, steer, stopTurn, systemDeliveryCount, handleEditLastRequest, composerOptimizing, handleOptimizingChange, memorySwitching, showComposerMemoryChip, switchMemoryMode, composerAbove,
-  composerSessionControls, crewModeOffered, turnOnCrewMode, agentPickerHidden = false, steerWorker, steerWorkerDone = false,
+  composerSessionControls, crewModeOffered, turnOnCrewMode, agentPickerHidden = false, steerWorker, steerWorkerDone = false, steerWorkerRoot = '',
 }: ComposerDockViewProps) {
   const crewModeNoteId = useId()
   // Disabled while a reply runs (the agent switch refuses mid-turn): the
@@ -299,6 +304,12 @@ export default function ComposerDockView({
   const crewModeBusy = slotRunning || !!currentSlot?.running
   // A done worker takes a send as a new turn, whatever a stale turn flag says.
   const steerRunning = crewModeBusy && !steerWorkerDone
+  // A Crew Mode worker's composer (edge review R2, owner decisions): its tool
+  // approvals are decided only on the conductor's card, so it shows none of its
+  // own; with the conductor closed it does not send until the person reopens it.
+  const crewWorkerView = steerWorker !== undefined && !!steerWorkerRoot
+  const { rootClosed: steerRootClosedRaw, rootTitle: steerRootTitle } = useCrewRoot(crewWorkerView ? steerWorkerRoot : '')
+  const steerRootClosed = crewWorkerView && steerRootClosedRaw
   // A worker's steer is refused past the steer route's limit BEFORE the draft is
   // cleared, so an over-long paste stays in the box with the reason beside it.
   const [steerTooLong, setSteerTooLong] = useState(false)
@@ -518,6 +529,10 @@ export default function ComposerDockView({
                   <span className="truncate">{i18nT('components.crewMode.steer_label', { name: steerWorker })}</span>
                 </div>
               )}
+              {crewWorkerView && activeSlot && (
+                <CrewWorkerComposerGate root={steerWorkerRoot} worker={activeSlot} workerTitle={steerWorker ?? ''}
+                  waitingForApproval={!!currentSlot?.pending_approval} />
+              )}
               <Composer
                 ref={composerRef}
                 slotKey={activeSlot}
@@ -533,10 +548,10 @@ export default function ComposerDockView({
               // (typing, paste, undo, picker inserts), never for a parent-driven
               // seed -- so it is the signal that arms the prefill hint's expiry.
               onChange={composerUserEdit}
-              onSend={() => { if (steerFits()) send() }}
+              onSend={() => { if (!steerRootClosed && steerFits()) send() }}
               terminalCommands={activeSlot && !currentSlot ? 'pending' : currentSlot?.executor === 'remote' ? 'remote' : 'local'}
               canSteer={composerBusy}
-              onSteer={opts => { if (steerFits(opts?.text)) steer(opts) }}
+              onSteer={opts => { if (!steerRootClosed && steerFits(opts?.text)) steer(opts) }}
               // AND a turn actually running. `composerBusy` is also true when only
               // background sub-agents are working, and there is no turn to decide
               // ABOUT in that state: the send starts a fresh turn and the point
@@ -546,7 +561,11 @@ export default function ComposerDockView({
               onFollowUpSend={(text?: string) => send(text)}
               // Streaming, compaction and stopping keep the input interactive (api_chat queues on slot.running and stop preserves the
               // queue, so Enter queues a follow-up during the stop window). Only a memory-mode switch locks it, the reason as placeholder.
-              disabled={memorySwitching} lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : undefined}
+              disabled={memorySwitching || steerRootClosed}
+              lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : steerRootClosed ? i18nT('components.crewMode.worker_root_closed_composer', { name: steerRootTitle }) : undefined}
+              // A worker's approval band (Allow once / Trust / Reject) is not drawn:
+              // the conductor's approval card is the one place it is decided.
+              slotApprovalChrome={!crewWorkerView}
               // A worker's steer composer: its placeholder names the worker, and a
               // running turn takes the text as a steer (no queue choice to make).
               // The hint under it says which of the two a send does: cut into the

@@ -87,7 +87,7 @@ function CrewApprovalCard({ root, request }: { root: string; request: CrewApprov
   const mutation = useMutation({
     retry: false,
     mutationFn: (action: 'approve' | 'reject' | 'trust') =>
-      api.crewWorkerApprove(root, worker, action, approval.request_id, approval.request_mid || ''),
+      api.crewWorkerApprove(root, worker, action, approval.request_id, approval.request_mid || '', approval.request_instance || ''),
     onSuccess: () => setDone(true),
     onSettled: () => {
       locked.current = false

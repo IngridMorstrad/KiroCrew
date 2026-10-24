@@ -9785,7 +9785,12 @@
       "approval_trust": "इस वर्कर पर भरोसा करें",
       "approval_trust_hint": "इसे स्वीकृत करता है और गेटवे रीस्टार्ट होने तक इस वर्कर को बिना पूछे टूल चलाने देता है।",
       "reopen_conductor": "कंडक्टर फिर खोलें",
-      "root_closed": "{{name}} बंद है। इस वर्कर को निर्देश देते रहने के लिए इसे फिर खोलें।"
+      "root_closed": "{{name}} बंद है। इस वर्कर को निर्देश देते रहने के लिए इसे फिर खोलें।",
+      "worker_approval_waiting": "{{name}} में स्वीकृति की प्रतीक्षा",
+      "worker_open_conductor": "{{name}} खोलें",
+      "worker_root_closed_composer": "काम जारी रखने के लिए {{name}} फिर से खोलें",
+      "worker_reopen": "फिर से खोलें",
+      "steer_not_recorded": "{{name}} तक पहुँचाया गया, पर लेजर में दर्ज नहीं हुआ ({{reason}})।"
     },
     "guideLayer": {
       "region_label": "गाइड",

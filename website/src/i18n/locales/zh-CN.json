@@ -9642,7 +9642,12 @@
       "approval_trust": "信任此工作者",
       "approval_trust_hint": "批准此请求，并让此工作者在网关重启前无需询问即可运行工具。",
       "reopen_conductor": "重新打开指挥者",
-      "root_closed": "{{name}} 已关闭。重新打开它才能继续指示此工作者。"
+      "root_closed": "{{name}} 已关闭。重新打开它才能继续指示此工作者。",
+      "worker_approval_waiting": "正在 {{name}} 中等待批准",
+      "worker_open_conductor": "打开 {{name}}",
+      "worker_root_closed_composer": "重新打开 {{name}} 以继续工作",
+      "worker_reopen": "重新打开",
+      "steer_not_recorded": "已送达 {{name}}，但未记录到账本（{{reason}}）。"
     },
     "guideLayer": {
       "region_label": "引导",

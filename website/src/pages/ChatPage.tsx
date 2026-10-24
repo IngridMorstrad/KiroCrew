@@ -1103,6 +1103,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
               agentPickerHidden={crewModeChosen || runsCrewMode(currentSlot?.agent, currentSlot?.agent_kind, currentSlot?.crew_mode_agent)}
               steerWorker={currentSlot?.crew_root ? (currentSlot.title || i18nT('commandCenter.worker_untitled')) : undefined}
               steerWorkerDone={steerWorkerDone}
+              steerWorkerRoot={currentSlot?.crew_root || ''}
             />
           </div>
           </SearchHighlightContext.Provider>

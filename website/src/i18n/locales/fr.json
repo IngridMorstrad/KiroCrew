@@ -9928,7 +9928,12 @@
       "approval_trust": "Faire confiance à cet exécutant",
       "approval_trust_hint": "Approuve ceci et laisse cet exécutant utiliser des outils sans demander jusqu'au redémarrage de la passerelle.",
       "reopen_conductor": "Rouvrir le chef",
-      "root_closed": "{{name}} est fermé. Rouvrez-le pour continuer à guider cet exécutant."
+      "root_closed": "{{name}} est fermé. Rouvrez-le pour continuer à guider cet exécutant.",
+      "worker_approval_waiting": "En attente d'approbation dans {{name}}",
+      "worker_open_conductor": "Ouvrir {{name}}",
+      "worker_root_closed_composer": "Rouvrez {{name}} pour continuer",
+      "worker_reopen": "Rouvrir",
+      "steer_not_recorded": "Remis à {{name}}, mais non enregistré dans le registre ({{reason}})."
     },
     "guideLayer": {
       "region_label": "Guide",

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../../api/client'
 import { CREW_BOARD_POLL_MS } from '../../../api/crewBoard'
+import { crewModeView } from '../../../lib/crewMode'
 import { fmtList } from '../../../i18n/format'
 import { i18nT } from '../../../i18n/t'
 import { useAppDispatch, useAppSelector } from '../../../store'
@@ -68,7 +69,10 @@ export function useCommandCenter(root: string | null, enabled = true, scope: 'ta
   const liveWorkflows = useAppSelector(s => s.chat.workflowRuns)
   const connected = useAppSelector(s => s.dashboard.connected)
   const fleet = scope === 'fleet'
-  const scoped = useMemo(() => fleet ? slots : root ? scopedSlots(slots, root) : [], [slots, root, fleet])
+  // The fleet page lists the person's sessions: a Crew Mode worker is its
+  // conductor's, and its approval is decided on that conductor's card, so it gets
+  // no session card and no attention card here (edge review R2 F4).
+  const scoped = useMemo(() => fleet ? crewModeView(slots) : root ? scopedSlots(slots, root) : [], [slots, root, fleet])
   const canRead = enabled && (fleet || !!root && scoped.length > 0)
   // The app-wide policy is never-stale; a finite staleTime here made every
   // window focus re-read all of these. Frames and reconnect own freshness; a

@@ -4036,7 +4036,12 @@
       "approval_trust": "Trust this worker",
       "approval_trust_hint": "Approves this and lets this worker run tools without asking until the gateway restarts.",
       "reopen_conductor": "Reopen conductor",
-      "root_closed": "{{name}} is closed. Reopen it to keep steering this worker."
+      "root_closed": "{{name}} is closed. Reopen it to keep steering this worker.",
+      "worker_approval_waiting": "Waiting for approval in {{name}}",
+      "worker_open_conductor": "Open {{name}}",
+      "worker_root_closed_composer": "Reopen {{name}} to keep working",
+      "worker_reopen": "Reopen",
+      "steer_not_recorded": "Delivered to {{name}}, but not recorded on the ledger ({{reason}})."
     },
     "guideLayer": {
       "region_label": "Guide",

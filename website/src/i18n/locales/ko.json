@@ -9642,7 +9642,12 @@
       "approval_trust": "이 작업자 신뢰",
       "approval_trust_hint": "이 요청을 승인하고 게이트웨이가 다시 시작될 때까지 이 작업자가 묻지 않고 도구를 실행하게 합니다.",
       "reopen_conductor": "지휘자 다시 열기",
-      "root_closed": "{{name}}이(가) 닫혀 있습니다. 이 작업자를 계속 지휘하려면 다시 여세요."
+      "root_closed": "{{name}}이(가) 닫혀 있습니다. 이 작업자를 계속 지휘하려면 다시 여세요.",
+      "worker_approval_waiting": "{{name}}에서 승인을 기다리는 중",
+      "worker_open_conductor": "{{name}} 열기",
+      "worker_root_closed_composer": "계속 작업하려면 {{name}}을(를) 다시 여세요",
+      "worker_reopen": "다시 열기",
+      "steer_not_recorded": "{{name}}에 전달했지만 원장에 기록되지 않았습니다({{reason}})."
     },
     "guideLayer": {
       "region_label": "가이드",

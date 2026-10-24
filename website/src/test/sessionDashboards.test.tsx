@@ -193,6 +193,24 @@ describe('all session dashboards', () => {
     expect(screen.getByText('3 sessions without a status card are not shown.')).toBeVisible()
   })
 
+  it('lists no Crew Mode worker: no session card and no attention card (edge review R2 F4)', async () => {
+    vi.mocked(api.pendingQuestions).mockResolvedValue([])
+    vi.mocked(api.approvals).mockResolvedValue([])
+    const initial = createTestStore().getState()
+    const fleet = createTestStore({ ...initial, dashboard: { ...initial.dashboard, connected: true, slotsLoaded: true, slots: [
+      { key: 'root', title: 'Root session', messages: 2, running: false, crew_mode_root: true },
+      { key: 'worker', title: 'Worker session', messages: 2, running: false, created_by: 'root', crew_root: 'root', pending_approval: true,
+        pending_approval_info: { origin: 'native', request_id: 'rid', request_mid: 'mid', tool: 'Shell', tool_input: 'ls', tool_kind: 'execute' } },
+    ] } })
+    renderWithProviders(<SessionDashboardsPage />, { store: fleet })
+    await screen.findByText('Summary for root')
+    await waitFor(() => expect(visualCards()).toHaveLength(1))
+    expect(visualCards().map(card => card.getAttribute('data-slot'))).toEqual(['root'])
+    const inbox = screen.getByRole('region', { name: 'Needs you' })
+    expect(within(inbox).queryByText('Worker session')).toBeNull()
+    expect(await screen.findByRole('button', { name: 'Needs you (0)' })).toBeInTheDocument()
+  })
+
   it('says the open sessions have no card rather than that there are no sessions', async () => {
     vi.mocked(api.pendingQuestions).mockResolvedValue([])
     vi.mocked(api.approvals).mockResolvedValue([])

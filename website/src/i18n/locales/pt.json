@@ -9928,7 +9928,12 @@
       "approval_trust": "Confiar neste trabalhador",
       "approval_trust_hint": "Aprova isto e deixa este trabalhador usar ferramentas sem perguntar até o gateway reiniciar.",
       "reopen_conductor": "Reabrir maestro",
-      "root_closed": "{{name}} está fechado. Reabra para continuar orientando este trabalhador."
+      "root_closed": "{{name}} está fechado. Reabra para continuar orientando este trabalhador.",
+      "worker_approval_waiting": "Aguardando aprovação em {{name}}",
+      "worker_open_conductor": "Abrir {{name}}",
+      "worker_root_closed_composer": "Reabra {{name}} para continuar trabalhando",
+      "worker_reopen": "Reabrir",
+      "steer_not_recorded": "Entregue a {{name}}, mas não registrado no ledger ({{reason}})."
     },
     "guideLayer": {
       "region_label": "Guia",

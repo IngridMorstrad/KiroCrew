@@ -25,7 +25,7 @@ interface VirtuosoMockProps {
 }
 vi.mock('react-virtuoso', () => ({ Virtuoso: ({ data, itemContent }: VirtuosoMockProps) => <div data-testid="virtuoso">{data?.map((d: unknown, i: number) => <div key={i}>{itemContent(i, d)}</div>)}</div> }))
 
-type Msg = { role: string; content: string }
+type Msg = { role: string; content: string; meta?: Record<string, unknown> }
 // `running` is the reply state the slot detail read reports; `hold` keeps that read
 // pending, so the page stays in its loading state.
 const detail = vi.hoisted(() => ({ messages: [] as Msg[], running: false, hold: false }))
@@ -46,7 +46,8 @@ vi.mock('../api/client', () => ({
     chatSlots: vi.fn().mockResolvedValue([]),
     chatSlotDetail: vi.fn(() => detail.hold
       ? new Promise(() => {})
-      : Promise.resolve({ messages: detail.messages, running: detail.running, has_more: false, total: detail.messages.length })),
+      // A copy: the store freezes the rows it was preloaded with.
+      : Promise.resolve({ messages: structuredClone(detail.messages), running: detail.running, has_more: false, total: detail.messages.length })),
     chatHistory: vi.fn().mockResolvedValue({ sessions: [] }),
     models: vi.fn().mockResolvedValue([]),
     agents: vi.fn().mockResolvedValue([]),
@@ -95,15 +96,17 @@ type Slot = {
   listedRunning?: boolean
   slotLoading?: boolean
   activityOpen?: boolean
+  /** The worker's slot row says a tool approval waits. */
+  pendingApproval?: boolean
 }
 
-function makeStore({ messages, mode = '', agent = 'default', agentKind = '', origin = 'user', memoryMode = 'persistent', slotKeys = ['slot-a'], createdBy, instanceId, crewRoot, slotRunning = false, listedRunning = false, slotLoading = false, activityOpen = false }: Slot) {
+function makeStore({ messages, mode = '', agent = 'default', agentKind = '', origin = 'user', memoryMode = 'persistent', slotKeys = ['slot-a'], createdBy, instanceId, crewRoot, slotRunning = false, listedRunning = false, slotLoading = false, activityOpen = false, pendingApproval = false }: Slot) {
   return configureStore({
     reducer: { dashboard: dashboardReducer, chat: chatReducer, notifications: notificationsReducer },
     preloadedState: {
       dashboard: {
         status: null,
-        slots: slotKeys.map(key => ({ key, messages: key === 'slot-a' ? messages.length : 0, running: key === 'slot-a' && listedRunning, mode: key === 'slot-a' ? mode : '', agent: key === 'slot-a' ? agent : 'default', agent_kind: key === 'slot-a' ? agentKind : '', origin: key === 'slot-a' ? origin : 'user', memory_mode: key === 'slot-a' ? memoryMode : 'persistent', ...(key === 'slot-a' && createdBy ? { created_by: createdBy } : {}), ...(key === 'slot-a' && instanceId ? { instance_id: instanceId } : {}), ...(key === 'slot-a' && crewRoot ? { crew_root: crewRoot, title: 'Worker B' } : {}), ...(key === 'root-1' ? { title: 'Sample goal', crew_mode_root: true } : {}), pending_approval: false, waiting_for_input: false, last_activity_ts: undefined })),
+        slots: slotKeys.map(key => ({ key, messages: key === 'slot-a' ? messages.length : 0, running: key === 'slot-a' && listedRunning, mode: key === 'slot-a' ? mode : '', agent: key === 'slot-a' ? agent : 'default', agent_kind: key === 'slot-a' ? agentKind : '', origin: key === 'slot-a' ? origin : 'user', memory_mode: key === 'slot-a' ? memoryMode : 'persistent', ...(key === 'slot-a' && createdBy ? { created_by: createdBy } : {}), ...(key === 'slot-a' && instanceId ? { instance_id: instanceId } : {}), ...(key === 'slot-a' && crewRoot ? { crew_root: crewRoot, title: 'Worker B' } : {}), ...(key === 'root-1' ? { title: 'Sample goal', crew_mode_root: true } : {}), pending_approval: key === 'slot-a' && pendingApproval, waiting_for_input: false, last_activity_ts: undefined })),
         unreadSlots: [], refreshTrigger: 0, approvalMode: 'normal',
         subagentRunning: {}, subagentDetails: {}, subagentText: {},
       } as unknown as RootState['dashboard'],
@@ -218,6 +221,45 @@ describe('Crew Mode on ChatPage', () => {
     await renderWith({ messages: [{ role: 'user', content: 'do part 2' }], agent: 'kirocrew-worker', agentKind: 'template', createdBy: 'root-1', crewRoot: 'root-1', slotKeys: ['slot-a', 'root-1'], listedRunning: true })
     await waitFor(() => expect(screen.getByTestId('crew-steer-hint')).toHaveTextContent('Starts a new turn in Worker B.'))
     expect(screen.getByTestId('crew-steer-hint')).toHaveAttribute('data-running', 'false')
+  })
+
+  // ── edge review R2: Y1 / X2, Y2 / X5, Y3 ────────────────────────────────────
+
+  const permission = (): Msg => ({ role: 'permission', content: 'Shell', meta: { approval_id: 'rid-1', tool_input: 'printf hi', request_id: 'rid-1' } })
+
+  it("Y1: a worker's own composer offers no approval controls, only where to decide it", async () => {
+    const store = await renderWith({ messages: [{ role: 'user', content: 'do part 2' }, permission()], agent: 'kirocrew-worker', agentKind: 'template', createdBy: 'root-1', crewRoot: 'root-1', slotKeys: ['slot-a', 'root-1'], pendingApproval: true })
+    await waitFor(() => expect(screen.getByTestId('crew-worker-approval-waiting')).toHaveTextContent('Waiting for approval in Sample goal'))
+    expect(screen.queryByText('Allow once')).toBeNull()
+    expect(screen.queryByText('Trust all tools for this session')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Reject/ })).toBeNull()
+    fireEvent.click(screen.getByTestId('crew-worker-open-root'))
+    await waitFor(() => expect(store.getState().chat.activeSlot).toBe('root-1'))
+  })
+
+  it('Y1: a plain chat with the same pending approval still offers its own controls', async () => {
+    await renderWith({ messages: [{ role: 'user', content: 'hello' }, permission()], pendingApproval: true })
+    expect(await screen.findByText('Allow once')).toBeInTheDocument()
+    expect(screen.queryByTestId('crew-worker-approval-waiting')).toBeNull()
+  })
+
+  it('Y2: with its conductor closed the worker composer does not send and offers Reopen', async () => {
+    // No 'root-1' row: the conductor's tab is closed.
+    await renderWith({ messages: [{ role: 'user', content: 'do part 2' }], agent: 'kirocrew-worker', agentKind: 'template', createdBy: 'root-1', crewRoot: 'root-1', slotKeys: ['slot-a'] })
+    const gate = await screen.findByTestId('crew-worker-root-closed')
+    expect(gate).toHaveTextContent('to keep working')
+    expect(screen.getByTestId('crew-worker-reopen-root')).toHaveTextContent('Reopen')
+    const box = within(screen.getByTestId('crew-steer-composer')).getByRole('textbox')
+    expect(box).toHaveAttribute('aria-disabled', 'true')
+    expect(box).toHaveAttribute('readonly')
+  })
+
+  it('Y3: a reload under a closed conductor keeps its saved name and the real worker state', async () => {
+    crewWorkers.mockResolvedValue({ root: 'root-1', root_closed: true, root_title: 'Toy Flag Review', workers: [{ key: 'slot-a', title: 'Worker B', agent: 'kirocrew-worker', status: 'idle', group: 'done', last_activity: '', ledger_item: 'it_1', created_by: 'root-1' }] })
+    await renderWith({ messages: [{ role: 'user', content: 'do part 2' }], agent: 'kirocrew-worker', agentKind: 'template', createdBy: 'root-1', crewRoot: 'root-1', slotKeys: ['slot-a'] })
+    await waitFor(() => expect(screen.getByTestId('crew-breadcrumb-root')).toHaveTextContent('Toy Flag Review'))
+    expect(screen.getByTestId('crew-worker-breadcrumb')).toHaveTextContent('Done')
+    expect(screen.getByTestId('crew-worker-root-closed')).toHaveTextContent('Reopen Toy Flag Review to keep working')
   })
 
   it('a plain chat has no breadcrumb and no steer composer', async () => {

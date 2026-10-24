@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { i18nT } from '../../i18n/t'
-import { useAppDispatch, useAppSelector } from '../../store'
+import { useAppDispatch } from '../../store'
 import { crewWorkerGroup, crewWorkerGroupOfRow, type CrewWorkerGroup, type CrewWorkerRowLike } from '../../lib/crewWorkers'
-import { openCrewSession, reopenCrewWorker, useCrewWorkerSummary } from '../../pages/chat/command-center/CrewWorkerList'
+import { openCrewSession, reopenCrewWorker } from '../../pages/chat/command-center/CrewWorkerList'
+import { useCrewRoot } from './useCrewRoot'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import ErrorNotice from '../ErrorNotice'
 import { CrewGhostBadge, CrewStatusDot } from './CrewModeMarks'
@@ -14,24 +15,18 @@ import { CrewGhostBadge, CrewStatusDot } from './CrewModeMarks'
  * pane holds one of a Crew Mode root's workers, so the person always sees whose
  * worker this is and has one click back. The root title is a button too.
  */
-/** The last title each root was seen with, so a worker whose root's tab closed
- *  still names it (the closed root has no live row to read it from). */
-const lastRootTitle = new Map<string, string>()
-
 export function CrewWorkerBreadcrumb({ root, worker }: { root: string; worker: CrewWorkerRowLike & { key: string; title?: string } }) {
   const dispatch = useAppDispatch()
-  const rootRow = useAppSelector(s => s.dashboard.slots.find(item => item.key === root))
   // Closed, not deleted: the root's tab is gone but its saved transcript stays,
   // so Back reopens it rather than switching to a session that is not listed.
-  const rootClosed = !rootRow
-  if (rootRow?.title) lastRootTitle.set(root, rootRow.title)
-  const rootTitle = rootRow?.title || lastRootTitle.get(root) || i18nT('components.crewMode.eyebrow')
+  // Its name and the worker list come from saved data then, so a reload under
+  // a closed root keeps both (edge review R2 Y3).
+  const { rootClosed, rootTitle, workers, failed } = useCrewRoot(root)
   const isMobile = useIsMobile()
   const [reopenFailed, setReopenFailed] = useState(false)
   // The server's group, as the panel and the root's row show it; the row's own
-  // live flags until the worker list answers. With the root closed its list
-  // cannot be read, so the last group read stays (a finished worker stays done).
-  const { workers, failed } = useCrewWorkerSummary(root)
+  // live flags until the worker list answers. The last group read stays while a
+  // re-read is in flight (a finished worker stays done).
   const listed = workers?.find(w => w.key === worker.key)
   const lastGroup = useRef<CrewWorkerGroup | null>(null)
   if (listed) lastGroup.current = crewWorkerGroup(listed)
