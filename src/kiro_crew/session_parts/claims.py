@@ -543,6 +543,11 @@ def is_busy(self: SessionManager, key: str) -> bool:
     return self._allocation_boundary().is_busy(key)
 
 
+def request_drain_on_release(self: SessionManager, key: str) -> bool:
+    """Wake the queue's channel drains when the current folded lease is released."""
+    return self._allocation_boundary().request_drain_on_release(key)
+
+
 def touch(self: SessionManager, key: str) -> bool:
     """Refresh a folded live session timestamp."""
     return self._allocation_boundary().touch(key)

@@ -118,6 +118,27 @@ async def _pump_queue(
         # Whether a person sent any entry this turn collapses.
         person = False
         async with self._queue.lock:
+            # Something else holds this session's lease: a dashboard, cron or
+            # auto-nudge turn on the same key, or another channel's turn under a
+            # unified ``dm_scope``. Replaying now would only reach ``_handle_busy``,
+            # which queues the same text again, and the next iteration would
+            # dequeue it straight back -- flipping the receipt to "Now answering"
+            # every lap without a turn ever starting (#23589). So nothing is
+            # dequeued and nothing is flipped. The entries stay queued in order,
+            # and the release that ends the holding wakes this drain
+            # (``request_drain_on_release``), because that holder's turn may be
+            # one no channel drain follows. Checked under the queue lock and
+            # synchronously with the request, so a release cannot land between
+            # the two and leave the request unread.
+            if self.sessions.is_busy(session_key) and self.sessions.request_drain_on_release(
+                session_key
+            ):
+                logger.debug(
+                    "telegram: session %s is held by another turn; leaving its queue "
+                    "for the drain that holder's release wakes",
+                    session_key,
+                )
+                return
             # Drain the ENTIRE queue under the lock, then split: the first
             # _MAX_COLLAPSE messages FROM ONE SENDER collapse into this turn;
             # the rest are re-enqueued IN ORIGINAL ORDER (the queue is now

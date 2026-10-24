@@ -1169,13 +1169,18 @@ class SessionAllocationService:
                 # acquired. A run that never returns still goes stale and is
                 # reaped; a run working between tasks is not mistaken for one.
                 session.last_used = time.monotonic()
-            if getattr(session, "adopted_parked", False):
+            if getattr(session, "adopted_parked", False) or getattr(
+                session, "drain_on_release", False
+            ):
                 # The claim that just ended adopted entries a forced stop parked
-                # (``adopt_parked_queue``). Their channels' drains are woken
-                # NOW, after the lease is free, or the entries sit on the queue
-                # until an unrelated message happens to start a turn. Off this
-                # synchronous call, as ``wake_other_drains`` requires.
+                # (``adopt_parked_queue``), or a channel drain found this lease
+                # held and left its queue in place (``request_drain_on_release``).
+                # Their channels' drains are woken NOW, after the lease is free,
+                # or the entries sit on the queue until an unrelated message
+                # happens to start a turn. Off this synchronous call, as
+                # ``wake_other_drains`` requires.
                 session.adopted_parked = False
+                session.drain_on_release = False
                 channels = [entry_channel(e[2]) for e in session.queue]
                 if any(channels):
                     task = asyncio.ensure_future(
@@ -1198,6 +1203,21 @@ class SessionAllocationService:
     def is_busy(self, key: str) -> bool:
         session = self._sessions.get(self._owner._fold_key(key))
         return bool(session and session.semaphore.locked())
+
+    def request_drain_on_release(self, key: str) -> bool:
+        """Ask the release that ends the current holding to wake the queue's drains.
+
+        For a channel drain that found the lease held: replaying a queued message
+        into a busy session only queues it again. Returns False when no lease is
+        held, so the caller knows nothing will come back and it should drain now.
+        Synchronous, like ``is_busy`` and ``release``, so no release can land
+        between a caller's busy check and this request.
+        """
+        session = self._sessions.get(self._owner._fold_key(key))
+        if session is None or not session.semaphore.locked():
+            return False
+        session.drain_on_release = True
+        return True
 
     def touch(self, key: str) -> bool:
         session = self._sessions.get(self._owner._fold_key(key))

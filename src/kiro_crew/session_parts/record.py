@@ -131,6 +131,13 @@ class _Session:
     # reads and clears it to wake those entries' channel drains once the lease
     # is free.
     adopted_parked: bool = False
+    # Set by ``request_drain_on_release`` when a channel drain found this
+    # session's lease held by someone else and left its queue in place rather
+    # than replaying into a busy session. ``release`` reads and clears it the
+    # same way as ``adopted_parked``: the holder may be a turn no channel drain
+    # follows (a dashboard, cron or other-channel turn on a unified key), so
+    # without this the queued messages would wait for unrelated new input.
+    drain_on_release: bool = False
     approval_policy: str = ""  # "" (interactive) | "auto" (auto-approve all tools)
     agent: str = ""  # kiro agent name used for this session
     capability_member: str = ""

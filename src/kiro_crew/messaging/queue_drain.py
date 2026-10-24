@@ -302,6 +302,15 @@ async def drain_until_quiet(
     sequence, and a channel that got the order wrong -- waking under its own queue lock,
     or outside its own marker -- would be a defect with no local symptom.
     """
+    if str(channel) in _ACTIVE.get(str(session_key), ()):
+        # This channel is already draining this session -- a turn tail reaching here
+        # while a release-woken drain of the same channel is still pumping, say. Two
+        # pumps on one queue race each other's replays into the lease the other just
+        # took, and the inner one's exit would drop the outer one's active marker.
+        # Retained instead, exactly as a refused peer wake is, so the running drain
+        # re-pumps for it before it lets go.
+        _PENDING.setdefault(str(session_key), set()).add(str(channel))
+        return
     with draining(channel, session_key):
         for round_no in range(1, _MAX_WAKE_ROUNDS + 1):
             foreign: set[str] = set()
@@ -337,7 +346,8 @@ def draining(channel_type: str, session_key: str) -> Iterator[None]:
 
     Read by :func:`wake_other_drains` to refuse a target already on the stack, which
     is what bounds the cascade. Reference-counted per channel is unnecessary: a
-    channel's drain is not re-entered on one session (its own pump loops instead).
+    channel's drain is not re-entered on one session -- :func:`drain_until_quiet`
+    retains a second entry as a pending wake instead of running it.
     """
     key = str(session_key)
     active = _ACTIVE.setdefault(key, set())

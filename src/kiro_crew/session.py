@@ -626,6 +626,7 @@ class SessionManager:
     release = _claims.release
     _safe_cleanup = _claims._safe_cleanup
     is_busy = _claims.is_busy
+    request_drain_on_release = _claims.request_drain_on_release
     touch = _claims.touch
     enqueue = _claims.enqueue
     dequeue = _claims.dequeue

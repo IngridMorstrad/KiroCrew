@@ -128,6 +128,7 @@ _MEMBERS: dict[str, tuple[str, object, str, str]] = {
     "record_success": ("function", False, "958babeb61c8", "facade"),
     "release": ("function", False, "b35cc323b390", "facade"),
     "release_subagent_runtime": ("function", True, "0f7ee42764e5", "companions"),
+    "request_drain_on_release": ("function", False, "1eda252b53bd", "facade"),
     "reserve_inbound_callback": ("function", False, "b58e9cc18136", "facade"),
     "restore_queue": ("function", False, "e233ef2976f2", "facade"),
     "resumable_hint": ("function", False, "1eda252b53bd", "facade"),

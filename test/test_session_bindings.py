@@ -285,6 +285,7 @@ _MEMBERS: dict[str, tuple[str, object, str, str]] = {
     "remove": ("function", True, "958babeb61c8", "teardown"),
     "remove_if_unclaimed": ("function", True, "1eda252b53bd", "teardown"),
     "replace_mirror_link_if": ("function", False, "7cf643151494", "links"),
+    "request_drain_on_release": ("function", False, "1eda252b53bd", "claims"),
     "reserve_generation": ("function", False, "57eca86d38c3", "links"),
     "reserve_inbound_callback": ("function", False, "b58e9cc18136", "claims"),
     "reset": ("function", True, "023cf44b43c3", "teardown"),

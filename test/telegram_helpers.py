@@ -341,6 +341,8 @@ class FakeSessions:
         self.closing = False
         self.begin_turns = 0
         self._busy = False
+        #: How many times a drain asked for a wake on the holder's release.
+        self.drain_requests = 0
         self._has = True
         self.queued: list = []
         self._gp = FakeProvider()
@@ -429,6 +431,13 @@ class FakeSessions:
 
     def is_busy(self, key: str) -> bool:
         return self._busy
+
+    def request_drain_on_release(self, key: str) -> bool:
+        """The real manager's wake-on-release request: honoured only while busy."""
+        if not self._busy:
+            return False
+        self.drain_requests += 1
+        return True
 
     def max_generation(self, bucket: str) -> int:
         return -1
