@@ -118,6 +118,17 @@ describe('md-notebook/vaultRootImageSrc', () => {
     expect(vaultRootImageSrc(src, '/vault')).toBeNull()
   })
 
+  it('decodes a percent-encoded file name once, as the endpoint reads a literal path', () => {
+    expect(vaultRootImageSrc('/images/System%20diagram.png', '/vault')).toBe(
+      url('/vault/images/System diagram.png'),
+    )
+    expect(vaultRootImageSrc('/images/caf%C3%A9.png', '/vault')).toBe(url('/vault/images/café.png'))
+  })
+
+  it('keeps a segment with a malformed escape as written', () => {
+    expect(vaultRootImageSrc('/images/100%.png', '/vault')).toBe(url('/vault/images/100%.png'))
+  })
+
   it('keeps a file name that merely contains dots', () => {
     expect(vaultRootImageSrc('/images/a..b.png', '/vault')).toBe(url('/vault/images/a..b.png'))
     expect(vaultRootImageSrc('/images/..hidden.png', '/vault')).toBe(url('/vault/images/..hidden.png'))

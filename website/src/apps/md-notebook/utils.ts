@@ -211,6 +211,10 @@ export function vaultRootImageSrc(src: string, vaultRoot?: string): string | nul
   if (!vaultRoot || !raw.startsWith('/') || raw.startsWith('//')) return null
   const rel = raw.slice(1)
   if (!rel || rel.includes('\0')) return null
+  // The path is built from the decoded segments, the same text that was
+  // checked: a markdown link writes a space as `%20`, and `/api/file-raw`
+  // takes its `path` as a literal filesystem path that it does not decode again.
+  const segments: string[] = []
   for (const segment of rel.split(/[\\/]/)) {
     let decoded = segment
     try {
@@ -221,9 +225,10 @@ export function vaultRootImageSrc(src: string, vaultRoot?: string): string | nul
     // The decoded form may itself hide a separator (%2f, %5c) or a NUL.
     if (/[\\/\0]/.test(decoded)) return null
     if (decoded === '.' || decoded === '..' || segment === '.' || segment === '..') return null
+    segments.push(decoded)
   }
   const root = vaultRoot.replace(/[\\/]+$/, '')
-  return `/api/file-raw?path=${encodeURIComponent(`${root}/${rel}`)}`
+  return `/api/file-raw?path=${encodeURIComponent(`${root}/${segments.join('/')}`)}`
 }
 
 /** Directory of a note inside its vault, absolute, for resolving its images. */
