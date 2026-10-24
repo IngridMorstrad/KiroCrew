@@ -418,8 +418,8 @@ def _payload(state: dict, *, denied: bool) -> dict:
         # it rather than inferring the scope from ``enabled``.
         "memory_text": consent.consented_memory_text(state),
         "nudge_evidence": consent.consented_nudge_evidence(state),
-        # The two ``browser.step`` scopes. ``browser`` reads TRUE when absent: it is
-        # the one scope on by default once consent stands.
+        # The two ``browser.step`` scopes. Both read TRUE when absent: they are the
+        # two scopes on by default once consent stands.
         "browser": consent.consented_browser(state),
         "browser_images": consent.consented_browser_images(state),
         # The points this build ships, with the effective status of each. Here

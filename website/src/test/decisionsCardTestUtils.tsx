@@ -101,9 +101,9 @@ export const consentOf = (enabled: boolean, overrides: Partial<DecisionsConsentD
   memory_text: false,
   // The wake judge's evidence scope, false on the same terms.
   nudge_evidence: false,
-  // The browser point's two scopes: outlines on by default, screenshots off.
+  // The browser point's two scopes: both on by default once consent stands.
   browser: true,
-  browser_images: false,
+  browser_images: true,
   points: pointsOf(
     enabled,
     overrides.tool_args === true,

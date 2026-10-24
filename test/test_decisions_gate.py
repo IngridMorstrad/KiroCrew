@@ -711,7 +711,7 @@ class TestPointName:
         for name in gate_mod._POINT_SCOPES:
             assert is_enabled(name, config=_config(judge_provider=gate_mod.LANE_JEV)) is False, name
 
-    def test_the_one_default_on_scope_is_pinned_and_an_explicit_no_holds(
+    def test_the_default_on_point_scope_is_pinned_and_an_explicit_no_holds(
         self, install_impl, tmp_path
     ):
         """``browser`` is on by default once consent stands; ``false`` still turns it off."""

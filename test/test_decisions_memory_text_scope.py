@@ -112,7 +112,7 @@ class TestEveryScopeReaderResolves:
         for name, (reader_name, category) in gate._POINT_SCOPES.items():
             reader = getattr(consent, reader_name, None)
             assert callable(reader), f"{name} names no consent reader: {reader_name}"
-            # ``browser`` is the one scope on by default once consent stands.
+            # ``browser`` is the one POINT scope on by default once consent stands.
             default_on = gate.POINT_SCOPE_KEYS[name] == consent.STATE_KEY_BROWSER
             assert reader({}) is default_on, f"{reader_name} reads an empty state wrongly"
             assert reader({gate.POINT_SCOPE_KEYS[name]: False}) is False, reader_name

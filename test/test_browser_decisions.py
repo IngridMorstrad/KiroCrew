@@ -8,7 +8,8 @@ What is pinned:
   ones never enter the provider;
 * the element pick is used only on a clear answer, the step check rides on the
   result as a hint and never changes it;
-* screenshots go out only with the image scope, never while a password box is on
+* screenshots go out by default once consent stands (an explicit no to the image
+  scope stops them), never while a password box is on
   the page or the person holds the browser, and the canvas locator clicks only
   inside a canvas.
 
@@ -218,7 +219,7 @@ def _baseline(op: str, args: dict, tmp_path) -> tuple[dict, list]:
 # -- every "no" is today's result, and the gated ones never reach the provider ----
 
 
-GATED_OFF = ["no_model", "no_consent", "governance_denied", "switch_off"]
+GATED_OFF = ["no_model", "no_consent", "endpoint_moved", "governance_denied", "switch_off"]
 
 
 def _gate_off(seam, how: str) -> None:
@@ -226,6 +227,9 @@ def _gate_off(seam, how: str) -> None:
         seam.endpoint = "none"
     elif how == "no_consent":
         seam.write(enabled=False)
+    elif how == "endpoint_moved":
+        # Consent stands for another address; both browser scopes still read granted.
+        seam.endpoint = "https://elsewhere.example/v1/systemone"
     elif how == "governance_denied":
         seam.denied = True
     elif how == "switch_off":
@@ -369,6 +373,7 @@ def test_an_unclear_or_risky_pick_is_not_used(seam, tmp_path, override):
 
 
 def test_the_step_check_is_a_hint_beside_todays_result(seam, tmp_path):
+    seam.write(browser_images=False)
     expected, _ = _baseline("click", {"ref": "e1"}, tmp_path)
     result = _run("click", {"ref": "e1"}, _ctx(FakePage(), tmp=tmp_path))
     hint = result.pop("verify")
@@ -381,6 +386,7 @@ def test_the_step_check_is_a_hint_beside_todays_result(seam, tmp_path):
 
 
 def test_the_text_request_carries_no_password_value_or_url(seam, tmp_path):
+    seam.write(browser_images=False)
     _run("click", {"ref": "e1"}, _ctx(FakePage(), tmp=tmp_path))
     sent = json.dumps([c["state"] for c in seam.provider.calls])
     assert "shop.example" not in sent
@@ -390,7 +396,14 @@ def test_the_text_request_carries_no_password_value_or_url(seam, tmp_path):
 # -- screenshots --------------------------------------------------------------
 
 
-def test_screenshots_need_their_own_scope(seam, tmp_path):
+def test_screenshots_are_on_by_default_once_consent_stands(seam, tmp_path):
+    page = FakePage()
+    result = _run("click", {"ref": "e1"}, _ctx(page, tmp=tmp_path))
+    assert result["verify"]["by"] == "screenshot" and page.shots == 2
+
+
+def test_an_explicit_no_to_screenshots_sends_none(seam, tmp_path):
+    seam.write(browser_images=False)
     page = FakePage()
     _run("click", {"ref": "e1"}, _ctx(page, tmp=tmp_path))
     assert page.shots == 0
@@ -488,6 +501,7 @@ def test_no_canvas_means_no_screenshot_is_asked(seam, tmp_path):
 
 
 def test_without_the_image_scope_there_is_no_canvas_locator(seam, tmp_path):
+    seam.write(browser_images=False)
     seam.provider = FakeProvider(_nothing_in_the_outline)
     page = FakePage(canvases=[[0, 0, 400, 300]])
     assert _run("click", {"target": "x"}, _ctx(page, tmp=tmp_path))["code"] == "needs_ref"
@@ -516,6 +530,7 @@ def test_an_image_without_an_image_scope_is_not_sent(seam):
 
 
 def test_an_image_scope_not_granted_sends_nothing(seam):
+    seam.write(browser_images=False)
     assert _image_request(images={"a": ImageAsset(_png())}, scopes=("browser_images",)) is None
     assert seam.provider.calls == []
 
@@ -647,6 +662,25 @@ def test_cycling_consent_keeps_an_explicit_no_to_outlines(seam):
     assert consent.consented_browser() is False
 
 
+def test_cycling_consent_keeps_an_explicit_no_to_screenshots(seam):
+    from kiro_crew.decisions import consent
+
+    consent.save_enabled(True, endpoint=DECISION_PROVIDER_ENDPOINT_DEFAULT, browser_images=False)
+    state = consent.save_enabled(False, endpoint=DECISION_PROVIDER_ENDPOINT_DEFAULT)
+    assert state[consent.STATE_KEY_BROWSER_IMAGES] is False
+    consent.save_enabled(True, endpoint=DECISION_PROVIDER_ENDPOINT_DEFAULT)
+    assert consent.consented_browser_images() is False
+
+
+def test_screenshots_read_granted_when_absent_and_a_yes_returns_to_the_default(seam):
+    from kiro_crew.decisions import consent
+
+    assert consent.consented_browser_images({}) is True
+    consent.save_enabled(True, endpoint=DECISION_PROVIDER_ENDPOINT_DEFAULT, browser_images=True)
+    state = consent.save_enabled(False, endpoint=DECISION_PROVIDER_ENDPOINT_DEFAULT)
+    assert consent.STATE_KEY_BROWSER_IMAGES not in state
+
+
 def test_cycling_consent_returns_a_yes_to_the_default(seam):
     from kiro_crew.decisions import consent
 
@@ -688,6 +722,7 @@ def test_a_password_box_that_appears_during_capture_discards_the_frame(seam, tmp
 
 
 def test_a_stalled_step_check_keeps_the_op_s_own_result(seam, tmp_path, monkeypatch):
+    seam.write(browser_images=False)
     monkeypatch.setattr(decide_mod, "VERIFY_BUDGET_S", 0.05)
     expected, _ = _baseline("click", {"ref": "e1"}, tmp_path)
 
@@ -777,7 +812,8 @@ def test_a_stalled_gate_probe_is_todays_op(seam, tmp_path, monkeypatch):
     release = threading.Event()
 
     def _stuck(_session):
-        release.wait(1)  # bounded: asyncio.run joins the executor thread on exit
+        # A stand-in for a stuck keystone read; set() below releases it.
+        release.wait(1)  # flake-ok: bounded so asyncio.run's executor join stays short
         return decide_mod.Armed(text=True)
 
     monkeypatch.setattr(decide_mod, "_probe", _stuck)

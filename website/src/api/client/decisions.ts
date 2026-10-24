@@ -48,9 +48,9 @@ export interface DecisionsConsentData {
    */
   nudge_evidence?: boolean
   /**
-   * The two `browser.step` scopes. `browser` (page outlines) is reported true when
-   * the keystone does not mention it -- on by default once consent stands;
-   * `browser_images` (screenshots) only on an explicit grant.
+   * The two `browser.step` scopes, page outlines and screenshots. Both are reported
+   * true when the keystone does not mention them -- on by default once consent
+   * stands -- and false only for an explicit no.
    */
   browser?: boolean
   browser_images?: boolean

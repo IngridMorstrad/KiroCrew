@@ -260,9 +260,8 @@ class TestWrite:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
-            # Screenshots are off until asked for; the page-outline scope ``browser``
-            # is on by default and is therefore not written at all.
-            "browser_images": False,
+            # Neither browser scope is written: both are on by default, so an enable
+            # that does not mention them leaves them absent.
         }
         assert consent.permits(CUSTOM) is True
         assert consent.permits(DEFAULT_ENDPOINT) is False
@@ -282,7 +281,6 @@ class TestWrite:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
-            "browser_images": False,
         }
         assert consent.permits(CUSTOM) is False
 
@@ -298,7 +296,6 @@ class TestWrite:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
-            "browser_images": False,
         }
 
     def test_records_the_history_ceiling_it_was_given(self, keystone):
@@ -534,10 +531,10 @@ class TestHandler:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
-            # The browser page-outline scope reads TRUE when absent (on by default
-            # once consent stands); screenshots read false.
+            # Both browser scopes read TRUE when absent (on by default once consent
+            # stands).
             "browser": True,
-            "browser_images": False,
+            "browser_images": True,
             # One row per point this build ships, projected from the seam's own
             # registry so the card lists what the gate will answer for. Nothing is
             # sent on this keystone, so every status is the effective ``off``.

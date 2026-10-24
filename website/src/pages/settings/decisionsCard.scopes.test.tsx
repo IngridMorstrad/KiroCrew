@@ -660,12 +660,20 @@ describe("the browser point's two switches", () => {
   }
   const imagesSwitch = () => screen.queryByRole('switch', { name: SCOPE_SWITCH.browser_images })
 
-  it('draws outlines ON by default once consent stands, screenshots OFF', async () => {
+  it('draws outlines and screenshots ON by default once consent stands', async () => {
     cleanup()
     stubGateway(consentOf(true))
     renderSection()
     const outlines = await openBrowserPanel()
     expect(outlines.getAttribute('aria-checked')).toBe('true')
+    expect(imagesSwitch()?.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('draws screenshots OFF for an explicit no', async () => {
+    cleanup()
+    stubGateway(consentOf(true, { browser_images: false }))
+    renderSection()
+    await openBrowserPanel()
     expect(imagesSwitch()?.getAttribute('aria-checked')).toBe('false')
   })
 
@@ -678,17 +686,17 @@ describe("the browser point's two switches", () => {
     expect(imagesSwitch()).toBeNull()
   })
 
-  it('grants screenshots through the consent route, naming only that scope', async () => {
+  it('revokes screenshots through the consent route with an explicit false', async () => {
     cleanup()
     stubGateway(consentOf(true))
     const scopeSave = vi
       .spyOn(api, 'saveDecisionsScope')
-      .mockResolvedValue(consentOf(true, { browser_images: true }))
+      .mockResolvedValue(consentOf(true, { browser_images: false }))
     renderSection()
     await openBrowserPanel()
     imagesSwitch()?.click()
     await waitFor(() => {
-      expect(scopeSave).toHaveBeenCalledWith('browser_images', true)
+      expect(scopeSave).toHaveBeenCalledWith('browser_images', false)
     })
   })
 })

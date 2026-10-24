@@ -160,9 +160,10 @@ POINTS_NEEDING_NUDGE_EVIDENCE = frozenset({"nudge.wake"})
 
 #: Points whose request carries the OUTLINE OF THE AGENT'S BROWSER TAB, and which
 #: therefore need the keystone's ``browser`` scope (``consent.consented_browser``).
-#: The one scope that reads as granted when absent: the owner chose that an armed
-#: decision model helps the browser by default, and an explicit ``false`` turns it
-#: off. Its screenshots are a request scope of their own (:data:`IMAGE_SCOPES`).
+#: It reads as granted when absent: the owner chose that an armed decision model
+#: helps the browser by default, and an explicit ``false`` turns it off. Its
+#: screenshots are a request scope of their own (:data:`IMAGE_SCOPES`), on the same
+#: default-on terms and sent only to a provider that declares images.
 POINTS_NEEDING_BROWSER = frozenset({"browser.step"})
 
 #: Request scopes that authorize sending an IMAGE. ``decide(images=...)`` refuses

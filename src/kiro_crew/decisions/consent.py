@@ -106,8 +106,8 @@ STATE_KEY_MEMORY_TEXT = "memory_text"
 STATE_KEY_NUDGE_EVIDENCE = "nudge_evidence"
 
 #: The PAGE-OUTLINE scope ``browser.step`` needs: the outline of the agent's own
-#: browser tab (roles, names, headings) and the element the agent described. The
-#: one scope that is ON BY DEFAULT once consent stands: the owner chose that a
+#: browser tab (roles, names, headings) and the element the agent described. ON
+#: BY DEFAULT once consent stands, like :data:`STATE_KEY_BROWSER_IMAGES`: the owner chose that a
 #: decision model, once armed, helps the browser unless they turn it off. Only a
 #: literal ``False`` refuses. A disabling write removes a recorded ``True`` (back
 #: to the default) and keeps a recorded ``False``, so cycling consent never turns
@@ -115,8 +115,11 @@ STATE_KEY_NUDGE_EVIDENCE = "nudge_evidence"
 STATE_KEY_BROWSER = "browser"
 
 #: The SCREENSHOT scope ``browser.step`` needs to send images of the agent's tab.
-#: A separate field because an image cannot be scrubbed like text. Absent reads as
-#: NOT consented, like every scope but :data:`STATE_KEY_BROWSER`.
+#: A separate field because an image cannot be scrubbed like text, so the owner can
+#: revoke screenshots alone. On by default once consent stands, on exactly the
+#: terms of :data:`STATE_KEY_BROWSER` (the owner allowed images to the decision
+#: model): only a literal ``False`` refuses, and an explicit ``False`` survives a
+#: consent cycle.
 STATE_KEY_BROWSER_IMAGES = "browser_images"
 
 #: "Keep whatever ceiling is recorded" for :func:`save_enabled`. A distinct object,
@@ -333,7 +336,7 @@ def consented_nudge_evidence(state: "dict | None" = None) -> bool:
 def consented_browser(state: "dict | None" = None) -> bool:
     """Whether page outlines may be sent while consent stands. Absent reads TRUE.
 
-    The one scope with that default (see :data:`STATE_KEY_BROWSER`). It answers
+    One of the two browser scopes with that default (see :data:`STATE_KEY_BROWSER`). It answers
     only the scope: whether anything is sent at all is still ``permits``, so a
     keystone that is off or bound elsewhere sends nothing whatever this says.
     """
@@ -342,9 +345,13 @@ def consented_browser(state: "dict | None" = None) -> bool:
 
 
 def consented_browser_images(state: "dict | None" = None) -> bool:
-    """Whether screenshots of the agent's tab may be sent. Absent reads False."""
+    """Whether screenshots of the agent's tab may be sent. Absent reads TRUE.
+
+    On the terms of :func:`consented_browser`: whether anything is sent at all is
+    still ``permits``, and a provider that declares no image support is sent none.
+    """
     data = load_state() if state is None else state
-    return data.get(STATE_KEY_BROWSER_IMAGES) is True
+    return data.get(STATE_KEY_BROWSER_IMAGES) is not False
 
 
 def permits(endpoint: object, state: "dict | None" = None) -> bool:
@@ -462,9 +469,9 @@ def save_enabled(
     re-grants egress; with the switch resolved here, no scope write can move it.
 
     *browser* and *browser_images* are the two ``browser.step`` scopes and default to
-    their KEEP sentinels. *browser_images* is recorded like the scopes above.
-    *browser* is on by default (:data:`STATE_KEY_BROWSER`): only an explicit value
-    is written while consent stands, and disabling keeps a recorded ``False``.
+    their KEEP sentinels. Both are on by default (:data:`STATE_KEY_BROWSER`): only an
+    explicit value is written while consent stands, and disabling keeps a recorded
+    ``False`` and drops a recorded ``True``.
 
     A scope-only write also has to name the endpoint it believes is in force,
     and this function re-checks the RECORDED address against it under the lock:
@@ -542,17 +549,18 @@ def save_enabled(
         state[STATE_KEY_COMPACTION] = compaction is True if enabled else False
         state[STATE_KEY_MEMORY_TEXT] = memory_text is True if enabled else False
         state[STATE_KEY_NUDGE_EVIDENCE] = nudge_evidence is True if enabled else False
-        # The page-outline scope is on by default. A disabling write drops a recorded
-        # yes (back to the default) but KEEPS a recorded no: an owner who turned
-        # outlines off must not have them back just by cycling consent.
-        if not enabled:
-            if state.get(STATE_KEY_BROWSER) is not False:
-                state.pop(STATE_KEY_BROWSER, None)
-        elif browser is not KEEP_BROWSER:
-            state[STATE_KEY_BROWSER] = browser
-        if browser_images is KEEP_BROWSER_IMAGES:
-            browser_images = consented_browser_images(state)
-        state[STATE_KEY_BROWSER_IMAGES] = browser_images is True if enabled else False
+        # Both browser scopes are on by default. A disabling write drops a recorded
+        # yes (back to the default) but KEEPS a recorded no: an owner who turned one
+        # off must not have it back just by cycling consent.
+        for key, value, keep_value in (
+            (STATE_KEY_BROWSER, browser, KEEP_BROWSER),
+            (STATE_KEY_BROWSER_IMAGES, browser_images, KEEP_BROWSER_IMAGES),
+        ):
+            if not enabled:
+                if state.get(key) is not False:
+                    state.pop(key, None)
+            elif value is not keep_value:
+                state[key] = value
         atomic_write(consent_path(), json.dumps(state, indent=2) + "\n", mode=_STATE_FILE_MODE)
     return state
 

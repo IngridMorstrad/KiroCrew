@@ -640,8 +640,8 @@ runs under the op lock, so these caps are also the longest it holds the lock.
 
 What leaves: the `target`, the page title and the walker's outline (no field
 values of password or secret-named fields, no cookies, no URL), scrubbed by the
-gate. A screenshot only with the `browser_images` scope and a provider that
-declares images: taken with `max_dim` 1568, read and deleted at once from the
+gate. A screenshot under the `browser_images` scope -- on by default once consent
+stands, off for an explicit no -- and only to a provider that declares images: taken with `max_dim` 1568, read and deleted at once from the
 screenshot directory, never sent while the walker's `passwordBoxes` is not 0 --
 the live view's mask rule (any `input[type=password]` with a box, open shadow roots
 included) plus same-origin frame documents and any filled field the walker treats

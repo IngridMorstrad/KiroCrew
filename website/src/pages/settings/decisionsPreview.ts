@@ -289,9 +289,9 @@ export interface DecisionsView {
   nudgeEvidence: boolean
   /**
    * The two `browser.step` scopes: the page OUTLINE of the agent's tab, and
-   * SCREENSHOTS of it. Read as the server reports them: `browser` is the one scope
-   * the server reports true when the keystone does not mention it (on by default
-   * once consent stands), so the card draws what the gate will do.
+   * SCREENSHOTS of it. Read as the server reports them: both are reported true when
+   * the keystone does not mention them (on by default once consent stands), so the
+   * card draws what the gate will do.
    */
   browser: boolean
   browserImages: boolean
