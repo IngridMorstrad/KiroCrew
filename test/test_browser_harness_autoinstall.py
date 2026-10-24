@@ -3,8 +3,8 @@
 No network, no pip, no browser: ``harness_install.install`` is replaced, and the
 supervisor is a stand-in whose status the test scripts. What is pinned: what gets
 installed (the Harness when absent or stale, Chromium only when discovery would
-launch it), that the job is the Settings job with ``trigger: "auto"``, that only a
-headless Kiro Chromium is warmed, one attempt per gateway, and the test/CI skip.
+launch it), that the job is the Settings job, that only a headless Kiro Chromium
+is warmed, one attempt per gateway, and the test/CI skip.
 """
 
 from __future__ import annotations
@@ -118,7 +118,6 @@ async def test_with_the_users_chrome_only_the_harness_installs_and_nothing_conne
     assert installs == [("harness",)]
     job = state._browser_harness_install_job
     assert job.status == routes.STATUS_SUCCEEDED
-    assert job.snapshot()["trigger"] == "auto"
     assert sup.tested == []
 
 
@@ -193,7 +192,6 @@ async def test_a_failure_is_one_attempt_and_stays_on_the_job(tmp_path, monkeypat
     assert calls == [("harness",)]
     snap = state._browser_harness_install_job.snapshot()
     assert snap["status"] == routes.STATUS_FAILED and "offline" in snap["error"]
-    assert snap["trigger"] == "auto"
 
 
 @pytest.mark.asyncio
@@ -209,7 +207,6 @@ async def test_an_install_the_owner_already_started_is_left_alone(
     outcome = await routes.auto_setup_browser_harness(state, supervisor=sup, environ=_GATEWAY_ENV)
     assert outcome == routes.AUTO_INSTALL_RUNNING
     assert installs == []
-    assert state._browser_harness_install_job.trigger == "settings"
 
 
 @pytest.mark.asyncio
@@ -243,7 +240,6 @@ async def test_settings_sees_the_auto_job_running_and_refuses_a_second(
     payload = routes._status_payload(_Req())  # what GET /api/browser/status answers
     assert payload["installing"] is True
     assert payload["install_job"]["status"] == routes.STATUS_RUNNING
-    assert payload["install_job"]["trigger"] == "auto"
     release.set()
     assert await task == routes.AUTO_READY
 

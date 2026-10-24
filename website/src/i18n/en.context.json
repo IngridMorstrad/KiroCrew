@@ -843,12 +843,13 @@
     "pages.settings.browserPanel.more_title": "Collapsible group heading in Settings → Browser that holds the less-used options.",
     "pages.settings.browserPanel.not_installed_desc": "Status line when the browser engine is not installed.",
     "pages.settings.browserPanel.not_installed_title": "Main card title when the browser engine is not installed.",
-    "pages.settings.browserPanel.preparing_desc": "Status line while the gateway installs the browser engine by itself.",
     "pages.settings.browserPanel.preparing_title": "Main card title while the browser engine installs.",
     "pages.settings.browserPanel.privacy_footer": "Grey footer line on Settings → Browser stating nothing is uploaded.",
     "pages.settings.browserPanel.retry": "Button on the red Settings → Browser card after a failure.",
     "pages.settings.browserPanel.setup_failed_title": "Red main card title when the browser engine install failed.",
     "pages.settings.browserPanel.waiting_allow_desc": "Status line while Chrome shows its Allow remote debugging prompt.",
+    "pages.settings.browserPanel.preparing_desc": "Status line while the browser engine installs, whether the gateway started the install itself at startup or the user pressed Install or Retry.",
+    "pages.settings.browserPanel.credentials_pending": "Status line under the Settings > Browser sign-in switch when it is on but Kiro's own browser has not used the sign-in yet: it is used from the next web page that browser opens (which is also when it first starts).",
     "pages.settings.browserPanel.credentials_disabled": "Status line under the Settings > Browser sign-in switch when it is turned off; the adjective (switched off), not a command."
   }
 }

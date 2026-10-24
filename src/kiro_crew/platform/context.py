@@ -349,9 +349,9 @@ class PlatformContext:
     # the dashboard's ``setFeedbackTracker`` seam. v1 addition (no
     # CONTRACT_VERSION bump).
     feedback: "FeedbackTrackerProvider"
-    # Session cookies (and the Negotiate allowlist switch) for Kiro's own
-    # Chromium, applied by the gateway's browser supervisor at every start and
-    # on an explicit refresh; never for the person's own Chrome. The Default
+    # Session cookies for Kiro's own Chromium, applied by the gateway's browser
+    # supervisor at every start and when the source or the settings changed
+    # before an agent navigation; never for the person's own Chrome. The Default
     # supplies nothing. v1 addition (no CONTRACT_VERSION bump).
     browser_credentials: "BrowserCredentialProvider"
 

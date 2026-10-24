@@ -105,16 +105,6 @@ from kiro_crew.dashboard.handlers.appearances import (  # noqa: E402, F401
     api_appearances_petdex_fetch,
 )
 
-# ── Kiro's Chromium credentials: the owner's cookie import and a refresh
-# (handlers/browser_credentials.py). Owner-only; internal secret and restricted
-# sessions refused. ──
-from kiro_crew.dashboard.handlers.browser_credentials import (  # noqa: E402, F401
-    api_browser_cookies_clear,
-    api_browser_cookies_import,
-    api_browser_cookies_status,
-    api_browser_credentials_refresh,
-)
-
 # ── Browser Harness: Settings -> Browser status, install job, test, disconnect
 # (handlers/browser_harness_status.py). Owner-only; the internal secret is refused. ──
 from kiro_crew.dashboard.handlers.browser_harness_status import (  # noqa: E402, F401

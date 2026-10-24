@@ -62,11 +62,24 @@ HANDBACK_WAIT_S = 3.0
 #: The shim's HTTP timeout for one hand-back poll.
 HANDBACK_CALL_TIMEOUT_S = HANDBACK_WAIT_S + SHIM_MARGIN_S
 
-#: The gateway's worst case for one op: browser start, the lock, the tab bind
-#: (one ordinary op's budget), then the op itself. The hold is not in it: a held
-#: op answers at once with ``hold: true`` and the shim waits between calls.
-GATEWAY_FAST_WORST_S = ENSURE_TIMEOUT_S + LOCK_WAIT_S + OP_TIMEOUT_S + OP_TIMEOUT_S
-GATEWAY_SLOW_WORST_S = ENSURE_TIMEOUT_S + LOCK_WAIT_S + OP_TIMEOUT_S + SLOW_OP_TIMEOUT_S
+#: The credential re-pull before a ``navigate`` or ``tabs`` op
+#: (``HarnessSupervisor.refresh_credentials_if_source_changed``): the provider's
+#: ``fingerprint()``, the wait for a start in flight, then the re-pull itself.
+CREDENTIAL_FINGERPRINT_S = 2.0
+CREDENTIAL_LOCK_WAIT_S = 5.0
+CREDENTIAL_REPULL_S = 8.0
+CREDENTIAL_WORST_S = CREDENTIAL_FINGERPRINT_S + CREDENTIAL_LOCK_WAIT_S + CREDENTIAL_REPULL_S
+
+#: The gateway's worst case for one op: browser start, the lock, the credential
+#: re-pull, the tab bind (one ordinary op's budget), then the op itself. The hold
+#: is not in it: a held op answers at once with ``hold: true`` and the shim waits
+#: between calls.
+GATEWAY_FAST_WORST_S = (
+    ENSURE_TIMEOUT_S + LOCK_WAIT_S + CREDENTIAL_WORST_S + OP_TIMEOUT_S + OP_TIMEOUT_S
+)
+GATEWAY_SLOW_WORST_S = (
+    ENSURE_TIMEOUT_S + LOCK_WAIT_S + CREDENTIAL_WORST_S + OP_TIMEOUT_S + SLOW_OP_TIMEOUT_S
+)
 
 #: What the shim waits on the HTTP call, per op class. Strictly longer than the
 #: gateway's worst case, so an op the gateway is still running is never reported
@@ -75,6 +88,10 @@ SHIM_FAST_TIMEOUT_S = GATEWAY_FAST_WORST_S + SHIM_MARGIN_S
 SHIM_SLOW_TIMEOUT_S = GATEWAY_SLOW_WORST_S + SHIM_MARGIN_S
 
 __all__ = [
+    "CREDENTIAL_FINGERPRINT_S",
+    "CREDENTIAL_LOCK_WAIT_S",
+    "CREDENTIAL_REPULL_S",
+    "CREDENTIAL_WORST_S",
     "ENSURE_TIMEOUT_S",
     "GATEWAY_FAST_WORST_S",
     "GATEWAY_SLOW_WORST_S",

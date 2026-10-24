@@ -35,7 +35,7 @@ agent turn ──MCP browser(op, args)──▶ ops ──▶ supervisor.call(<h
 | The `browser` MCP tool's ops, the snapshot walker and the op route that also drives the card | `mcp_tools/browser.py`, `ops.py`, `snapshot_walker.js` in that package; `dashboard/handlers/browser_ops.py` |
 | The live card in the transcript | `BrowserLiveCard*.tsx` under the chat page, the `useBrowserLive*` hooks, and the binary-frame branch of `useWebSocket.ts` |
 | Settings → Browser and the Preview tab | `website/src/pages/settings/Browser*.tsx`, `config/sections_browser.py`, `website/src/components/WebPreviewPanel*.tsx` |
-| What goes into Kiro's Chromium before the first op: the edition credential seam, the owner's cookie import, its routes | `credentials.py` in that package; `dashboard/handlers/browser_credentials.py`; the `browser_credentials` platform slot |
+| What goes into Kiro's Chromium before the first op: the edition credential seam | `credentials.py` and `credential_files.py` in that package; the `browser_credentials` platform slot |
 | Screenshot directory, retired keys, doctor row, Preview tab's native view | `browser_snapshots.py`, `config/resolution.py`, `doctor_checks/install.py`, `website/electron/browser-view.js` |
 
 One supervisor per gateway owns the daemon and the relay. One relay connection
@@ -62,8 +62,8 @@ in the gateway, outside the sandbox.
 **Startup auto-install.** The owner never has to press Install: at every gateway
 start, in the background task that first reclaims a stray daemon
 (`server_runtime/browser_lifecycle.py`), `auto_setup_browser_harness`
-(`handlers/browser_harness_status.py`) starts the SAME install job, with
-`trigger: "auto"`, when the Harness is missing or stale (`install.harness_current`:
+(`handlers/browser_harness_status.py`) starts the SAME install job when the
+Harness is missing or stale (`install.harness_current`:
 installed AND the marker's `lock_sha256` equals the shipped lock's digest, so a
 re-pin without a version bump reinstalls). It adds Kiro's Chromium only when
 discovery would launch it (no usable Chrome/Edge, or `browser.choice` pins
@@ -198,23 +198,22 @@ step ("click Allow in Chrome") until it is answered.
 
 Kiro's Chromium starts with an empty profile, so on a headless or remote host a
 site behind a sign-in the agent cannot perform (a device-bound login, a hardware
-key, Kerberos) is a wall the person has to climb by takeover every time. Two
-sources fill it (`browser_harness/credentials.py`):
-
-| Source | Where it comes from | Used when | Scope |
-|---|---|---|---|
-| Edition provider | `PlatformContext.browser_credentials`, a `BrowserCredentialProvider` ([platform-context](platform-context.md)). The public Default's `name()` is `None`, so nothing is called | `browser.credentials.enabled` is on | a domain in BOTH the provider's `domains()` and `browser.credentials.domains` (each entry covers itself and its subdomains; a single label, an IP, a wildcard or a port is not an entry) |
-| The owner's import | `POST /api/browser/cookies` `{"content": ...}`: a Playwright `storageState`, a cookie-extension JSON array or a Netscape `cookies.txt`; stored owner-only (`0600`, directory `0700`) at `<data-home>/browser-harness-ipc/cookie-import/storage-state.json` | always (the owner's own act) | whatever the owner imported |
+key) is a wall the person has to climb by takeover every time. An edition that
+already holds the user's session fills it (`browser_harness/credentials.py`):
+`PlatformContext.browser_credentials`, a `BrowserCredentialProvider`
+([platform-context](platform-context.md)). The public Default's `name()` is
+`None`, so nothing is called and the public browser is unchanged.
 
 **Opt-in.** `browser.credentials.enabled` (default unset) and
 `browser.credentials.domains` (default empty) are set from Settings -> Browser
 (the sign-in switch and, under More, the sign-in sites; see Settings -> Browser
-below) or the config file. An unset `enabled` and an empty `domains` take the provider's
-`default_settings()` (`{"enabled": bool, "domains": [...]}`), so an edition can
-ship them on; a value the owner set always wins; with neither the provider is off.
-While it is off only `name()`, `default_settings()` and `fingerprint()` are called:
-no cookies, no launch switches. `credentials.settings_from` in the status says
-where the values came from (`config`, `edition`, `default`).
+below) or the config file. An unset `enabled` and an empty `domains` take the
+provider's `default_settings()` (`{"enabled": bool, "domains": [...]}`), so an
+edition can ship them on; a value the owner set always wins; with neither the
+provider is off. While it is off only `name()`, `default_settings()` and
+`fingerprint()` are called. A cookie is set only when its domain is in BOTH the
+provider's `domains()` and `browser.credentials.domains` (each entry covers itself
+and its subdomains; a single label, an IP, a wildcard or a port is not an entry).
 
 **The channel is the gateway's own.** `_start` calls `_apply_credentials` after the
 relay is connected and BEFORE the daemon starts: `Storage.setCookies` on the browser
@@ -230,46 +229,40 @@ level before any tab exists is read by a tab created after it, as a session cook
 
 | Trigger | What happens |
 |---|---|
-| Every launch and relaunch | `_start` applies both sources before the daemon starts |
-| An agent `navigate` or `tabs` op | the op route (`dashboard/handlers/browser_ops.py`, under the gateway-wide op lock) calls `refresh_credentials_if_source_changed()`: one `fingerprint()` call bounded at 2 s; when it differs from the value read at the last apply, both sources are re-pulled before the page loads. `None` means "cannot tell" and nothing is re-pulled. The re-pull is bounded at 8 s (`NAV_REFRESH_BUDGET_SECS`): past it the page loads with what the browser holds, `reason` reads `refresh_timeout`, and the old fingerprint is kept so the next navigation retries. A failure never fails the op |
-| `refresh_credentials()` / `POST /api/browser/credentials/refresh`, and every import | re-pull into a live browser without a relaunch |
+| Every launch and relaunch | `_start` applies before the daemon starts |
+| An agent `navigate` or `tabs` op | the op route (`dashboard/handlers/browser_ops.py`, under the gateway-wide op lock) calls `refresh_credentials_if_source_changed()`: one `fingerprint()` call bounded at 2 s and a config read. When the fingerprint or the resolved `browser.credentials` settings differ from the last apply, the provider is re-pulled before the page loads. A `None` fingerprint means "cannot tell" and is not a change. The re-pull is bounded at 8 s (`NAV_REFRESH_BUDGET_SECS`): past it the page loads with what the browser holds, `reason` reads `refresh_timeout` (while the settings are unchanged; after a settings change the block reads `pending`), and the old key is kept so the next navigation retries. The three bounds sum to `budgets.CREDENTIAL_WORST_S` (15 s), which the gateway's worst case and so the shim's HTTP timeout include. A failure never fails the op |
 
-The navigation trigger is the one a person re-running their sign-in tool relies on:
-the tool rewrites its file, the file's fingerprint moves, and the next navigation
-carries the new session. While a start holds the supervisor's lock (the person's
-Chrome can wait on its Allow sheet without deadline) a refresh waits at most 5 s
-(`CREDENTIAL_LOCK_WAIT_SECS`), then marks the credentials dirty and the start
-re-applies before it hands the browser out. **The person's own Chrome or Edge is
-never filled**: a start on either records `skipped` / `user_browser` and the
-provider is not called.
+The navigation trigger is what both a person re-running their sign-in tool (the
+tool rewrites its file, the fingerprint moves) and a switch flipped in Settings
+rely on: the next page carries the change. While a start holds the supervisor's
+lock (the person's Chrome can wait on its Allow sheet without deadline) the check
+waits at most 5 s (`CREDENTIAL_LOCK_WAIT_SECS`) and then lets the page load; the
+next navigation tries again. **The person's own Chrome or Edge is never filled**: a
+start on either records `skipped` / `user_browser` and the provider is not called.
 
-**Session cookies.** Each cookie is set WITHOUT `expires` unless the provider's
-`keep_expiry()` answers `True`, so nothing it supplies is written into Kiro's
-profile on disk and all of it is gone when the browser closes (verified: CDP reports
-the cookie `session: true`). The import is stripped the same way and re-applied
-from its file at every start. Expiry still counts before stripping: an expired
-cookie is dropped, and the earliest expiry is reported as
-`credentials.earliest_expiry`. A cookie a refresh omits stays until the browser
-closes.
+**Session cookies.** Every cookie is set WITHOUT `expires`, so nothing the provider
+supplies is written into Kiro's profile on disk and all of it is gone when the
+browser closes (verified: CDP reports the cookie `session: true`). Expiry still
+counts: a cookie whose `expires` has passed is dropped. A cookie a re-pull omits
+stays until the browser closes.
 
-Each cookie is normalised to CDP's `Network.CookieParam` (`name`, `value`, an
-explicit `domain`, `path`, `secure`, `httpOnly`, `sameSite`): Playwright's and the
-extensions' spellings are accepted, `"false"` is never `True`, SameSite=None
-without Secure becomes Lax (Chromium would refuse it), and a cookie with a control
-character, over 4,096 bytes of name plus value, or an unparseable flag is dropped
-and counted. At most 5,000 per source. A provider call runs in a worker thread
-bounded at 15 s (`PROVIDER_TIMEOUT_SECS`); a raise or a timeout becomes a fixed code
-(`provider_failed`, `provider_timeout`, `provider_bad_shape`, `too_many_cookies`) and
-the browser starts without the provider's cookies.
+Each cookie is normalised to CDP's `Network.CookieParam` (string `name`, `value`,
+an explicit `domain` that is a host name, `path`; boolean `secure`, `httpOnly`; `sameSite`
+`Strict|Lax|None`, anything else is Lax, and None without Secure becomes Lax because
+Chromium would refuse it). A cookie with a control character (its domain lands in
+the SEL row) or a non-boolean flag is dropped. A provider call runs in a worker
+thread bounded at 15 s (`PROVIDER_TIMEOUT_SECS`); a raise or a timeout becomes a
+fixed code (`provider_failed`, `provider_timeout`, `provider_bad_shape`) and the
+browser starts without the cookies.
 
 **A missing or expired source is a state, not an error.** A provider that raises
 `credential_files.CredentialSourceError` reports its code (`source_missing`,
 `source_symlink`, `source_not_owned`, `source_permissions`, `source_too_large`,
-...); `source_missing`, and cookies that were all expired (`source_expired`), put
+...); `source_missing`, and cookies that were all dropped (`source_expired`), put
 the block in `needs_refresh`, as does the provider's own `status()` answering
 `needs_refresh: true`. The provider's `status()` is read after each apply and
-reduced to `{needs_refresh, message, earliest_expiry, count}`; `message` is
-edition-authored text (printable, at most 200 characters) Settings shows as-is.
+reduced to `{needs_refresh, message}`; `message` is edition-authored text
+(printable, at most 200 characters) Settings shows as-is.
 
 **File hygiene for providers.** `browser_harness/credential_files.py` is the
 generic reader an edition's provider uses for its source file:
@@ -279,66 +272,37 @@ regular file, not a symlink, owned by the gateway's uid, no group or other bits,
 within the size cap (Windows, with no POSIX owner and mode bits, keeps the
 regular-file, not-a-link and size checks). `source_fingerprint(path)` is
 `inode:size:mtime_ns` from `lstat`, never the contents, and is what
-`fingerprint()` should return. The owner's import is read through the same reader.
-
-**Launch switches.** An enabled provider's `launch_args()` is read once per launch
-and filtered to `credentials.ALLOWED_LAUNCH_SWITCHES`: only
-`--auth-server-allowlist=<host patterns>`. Anything else is dropped and counted.
-What Chromium's source says about that switch, checked rather than assumed:
-
-| Question | Answer, and where it is in Chromium |
-|---|---|
-| Is it still a command-line switch? | Yes, and it is the only HTTP-auth one: `chrome_switches.h` `kAuthServerAllowlist`, mapped onto the `AuthServerAllowlist` pref in `chrome_command_line_pref_store.cc`. The delegate allowlist, the GSSAPI library name and the scheme list are prefs set by policy only |
-| Is Negotiate built on Linux? | Yes: `net/features.gni` sets `use_kerberos` everywhere but iOS, Fuchsia and Cast, and `http_auth_handler_factory.cc` puts `negotiate` in the default schemes under `USE_KERBEROS` |
-| Which library? | Loaded at run time: `libgssapi_krb5.so.2` (MIT), then the Heimdal names (`http_auth_gssapi_posix.cc`). Without one on the host, Negotiate is unsupported and the site falls back to its other schemes |
-| Ambient credentials? | Only for hosts the allowlist names (`CanUseDefaultCredentials`) |
-| Any catch? | On Linux the network service is sandboxed and may not load the library until `AllowGssapiLibraryLoad()`: the first `WWW-Authenticate: Negotiate` sets the `ReceivedHttpAuthNegotiateHeader` local-state pref and restarts the network service unsandboxed. The first such request on a fresh profile fails; the next succeeds, and the pref persists in Kiro's profile |
-
-Not run on a Linux host in this change (no Linux runtime was available); the table
-is source-verified.
+`fingerprint()` should return.
 
 **Values never leave.** `GET /api/browser/status` carries a `credentials` block:
-`provider` (the provider's name, or `null`), `imported`, `enabled`, `domains`,
-`settings_from`, `state` (`none|pending|disabled|applied|needs_refresh|skipped|error`),
-`reason`, `applied_at`, `applied`, `earliest_expiry`, `launch_args_dropped`,
-`provider_status` and per-source `{source, offered, applied, dropped, domains,
-error}`. `provider`, `imported`, `enabled`, `domains` and `settings_from` are read
-from the live config on every read, so a switch flipped while no browser runs reads
-back flipped; the apply's outcome (`state`, counts, sources) is kept only while the
-browser it filled is still up, and otherwise `state` says what the next start would
-do (`pending`, `disabled` or `none`). Every apply that set a cookie writes ONE SEL row
-(`browser_harness.credentials_injected`, caller `gateway`): provider name, reason,
-counts per source and at most 20 printable domains. Nothing here returns, logs or
-audits a value; the value travels only in the `Storage.setCookies` params the relay
-writes to the browser. No helper or op the agent reaches reads cookies, and the
-snapshot walker never reads `document.cookie`.
+`provider` (the provider's name, or `null`), `enabled`, `domains`, `state`
+(`none|pending|disabled|applied|needs_refresh|skipped|error`), `reason`,
+`applied_at`, `applied` (cookies set) and `provider_status`. `provider`, `enabled`
+and `domains` are read from the live config on every read, so a flipped switch
+reads back flipped at once; the apply's outcome (`state`, `applied`) is kept only
+while the browser it filled is still up and the settings are the ones it applied,
+and otherwise `state` says what comes next (`pending`, `disabled` or `none`).
+Every apply that set a cookie writes ONE SEL row (`browser_harness.credentials_injected`,
+caller `gateway`): provider name, reason, cookie count and at most 20 printable
+domains. Nothing here returns, logs or audits a value; the value travels only in
+the `Storage.setCookies` params the relay writes to the browser. No helper or op
+the agent reaches reads cookies, and the snapshot walker never reads
+`document.cookie`. There is no dashboard route that writes or reads cookies.
 
-**The routes.** `GET|POST|DELETE /api/browser/cookies` and `POST
-/api/browser/credentials/refresh` (`dashboard/handlers/browser_credentials.py`) are
-owner-only, refuse the internal secret (an agent must not plant a session in the
-browser it drives) and refuse a restricted session. `GET` is the summary (count,
-domains, earliest expiry); `POST` stores and applies (400 `invalid_cookies` with a
-message for the person); `DELETE` removes the file and expires exactly the import's
-own name/domain/path triples in the live browser, leaving the provider's cookies
-and a takeover's sign-in alone. The import's SEL row names the count and at most 20
-printable domains. One lock serialises import, clear and refresh.
-
-**No sandbox list changes.** The import lives inside `browser-harness-ipc`, a leaf
-every sandbox mode already hides and pre-creates; the provider runs in the gateway,
-so it needs no sandbox access, and an edition keeps its own source files hidden
-with its own sandbox policy.
+**No sandbox list changes.** The provider runs in the gateway, so it needs no
+sandbox access, and an edition keeps its own source files hidden with its own
+sandbox policy.
 
 **Accepted residuals.** (i) The agent can browse as the signed-in user on those
 sites, and a page's own script reads non-`httpOnly` cookies as it always would;
 what is withheld is the value as data. (ii) On Windows Kiro's Chromium keeps its
 debugging port (see Security), so a local process that finds it can read the
 cookies the same way it could already drive the browser. (iii) One browser serves
-every chat on the gateway, so both sources reach every agent browsing here,
-members and restricted sessions included
-([2026-10-23 decision](../../decisions/2026-10-23-imported-browser-cookies-have-no-audience-scope.md)
-for the import; the provider's cookies share the same browser and the same
-exposure, which the opt-in and its domain allowlist bound). Clearing the import
-stops further use; it does not undo a page already read.
+every chat on the gateway, so the provider's cookies reach every agent browsing
+here, members and restricted sessions included; the opt-in and its domain
+allowlist bound that exposure. Turning the switch off stops further use from the
+next page load; cookies already set stay until the browser closes, and it does not
+undo a page already read.
 
 ### The relay
 
@@ -689,8 +653,7 @@ One card and two controls; everything else is under a collapsed More group.
   ONE button that follows `primaryState` (`browserStatus.ts`): `installing`
   (an install job runs -- the gateway's own at startup or one this page asked
   for; disabled spinner, indeterminate bar, `install_job.stage` as its
-  `aria-valuetext`; the line reads "Installing automatically" when
-  `install_job.trigger` is `auto`, else "Installing"), `install_failed` (not installed and the last job failed or
+  `aria-valuetext`; the line reads "Installing"), `install_failed` (not installed and the last job failed or
   was interrupted; red, `install_job.error_detail` verbatim in an `ErrorNotice`,
   Retry re-posts the install),
   `not_installed` (no job ran; Install), `waiting_allow` (yellow; "Allow in
@@ -715,9 +678,10 @@ One card and two controls; everything else is under a collapsed More group.
   `ErrorNotice` with the reason code. Its label names the provider, so search does
   not index it (recorded in `settingsCoverage.test.ts`); its `configKey` still
   anchors key links.
-  A write to any `browser.credentials.*` path is followed by
-  `POST /api/browser/credentials/refresh`, so a running Kiro Chromium picks it up;
-  a failed re-pull is an `ErrorNotice` too. No cookie value is ever shown.
+  A write to any `browser.credentials.*` path re-reads the status: turned on
+  or changed it reads `pending` until the next page Kiro's Chromium opens
+  applies it, turned off it reads `disabled` (cookies already set stay until
+  the browser closes; see Credentials). No cookie value is ever shown.
 - **More** (a collapsible `SettingsSection`, which a deep link opens): Quality
   (`browser.live.quality`), Max frame rate (`browser.live.max_fps`), the Preview
   tab's local addresses (`dashboard.browser_local_origins`, editable chips), the
@@ -751,8 +715,7 @@ config save (the origins add field may hold a draft): a rejected request,
 an attach that answers `ok: false`, and an install job that failed. Data comes from
 `GET /api/browser/status` (polled every 2 s while a job runs or Chrome waits for
 Allow, else every 15 s; `supervisor.status()` plus `installing`, `install_job
-{status: running|succeeded|failed|interrupted, stage, error_detail, trigger:
-settings|auto}`,
+{status: running|succeeded|failed|interrupted, stage, error_detail}`,
 `chromium.downloaded` and `platform`) and `POST /api/browser/install|test|disconnect`,
 all owner-only and refusing the internal secret; writes go through
 `PATCH /api/config/kirocrew` one path at a time. Every control carries its
@@ -839,8 +802,8 @@ modifies it, and the row is silent when the directory is absent.
 | The relay URL (and its secret) goes to a corporate proxy | `NO_PROXY` always carries the loopback names |
 | Agent spells a password one key at a time | `press_key` with a printable key runs the same focused-password-field refusal as `type`; named keys and Ctrl/Meta chords stay allowed so the agent can leave the field |
 | Agent reads Kiro's profile cookies or the daemon's IPC credential | `HIDDEN` leaves in every sandbox mode |
-| Agent reads injected credentials | the gateway applies them over the relay before the daemon starts; the import sits in the `HIDDEN`, pre-created `browser-harness-ipc` leaf (no new sandbox entry); status, logs and SEL carry counts and codes only; the credential routes refuse the internal secret; the person's own Chrome is never written to. An edition keeps its own source files hidden with its sandbox policy |
-| A provider widens what it may set | off unless `browser.credentials.enabled`; cookies outside BOTH its declared domains and `browser.credentials.domains` are dropped; launch switches outside `ALLOWED_LAUNCH_SWITCHES` are dropped; cookies are set as session cookies by default |
+| Agent reads injected credentials | the gateway applies them over the relay before the daemon starts; no route reads or writes cookies; status, logs and SEL carry counts and codes only; the person's own Chrome is never written to. An edition keeps its own source files hidden with its sandbox policy |
+| A provider widens what it may set | off unless `browser.credentials.enabled`; cookies outside BOTH its declared domains and `browser.credentials.domains` are dropped; every cookie is a session cookie; the provider adds no launch switch |
 | A provider reads a file the agent planted | `credential_files.read_source_file`: `O_NOFOLLOW`, `fstat` on the open descriptor, owner uid, no group/other bits, size cap |
 | Local addresses | `navigate` keeps the public-only gate plus `dashboard.browser_local_origins`, applied TWICE by one shared predicate (`browser_harness/url_gate.py`): in the shim to the URL asked for, and in the gateway to the URL the navigation (or `back`) committed on, so a public page that redirects to loopback, private or link-local is refused (`redirect_refused`) and the tab moved to `about:blank`. **Accepted residual:** DNS rebinding (a public name resolving to a private address) is not seen by either check; names are not resolved |
 | Governance | `capabilities.browse` is checked on every call and a denial never falls back |

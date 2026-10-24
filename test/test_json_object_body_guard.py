@@ -193,16 +193,6 @@ _CAP_REGISTER: dict[str, tuple[str, str]] = {
         "TEAMS_MAX_ACTIVITY_BYTES",
         _BOUNDED_EXPLICIT,
     ),
-    # A cookie export is user content that legitimately exceeds 64 KB (a profile
-    # with a few hundred cookies), so the route owns its cap beside the parser's
-    # own limits in kiro_crew/browser_harness/credentials.py: MAX_IMPORT_BYTES
-    # (2 MiB) and the 5000-cookie ceiling are one decision. Twice that plus 1 KiB
-    # because the export travels JSON-escaped; the parser still refuses content
-    # over MAX_IMPORT_BYTES.
-    "handlers/browser_credentials.py::api_browser_cookies_import": (
-        "_MAX_BODY_BYTES",
-        _BOUNDED_EXPLICIT,
-    ),
     # The live card's control posts (visibility, ack, claim, release, one input
     # event, reopen, close): small fixed-shape bodies, so the route keeps a 4 KiB
     # cap of its own, well under the shared default.

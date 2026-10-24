@@ -26,7 +26,7 @@ import { useBrowserSettings } from './useBrowserSettings'
 
 export function BrowserPanel() {
   const s = useBrowserSettings()
-  const { status, config, view, setConfig, patch, install, test, disconnect, refreshCredentials } = s
+  const { status, config, view, setConfig, patch, install, test, disconnect } = s
 
   if (status.isLoading || config.isLoading) {
     return (
@@ -69,17 +69,13 @@ export function BrowserPanel() {
   const saveError = patch.isError
     ? failText(patch.error, i18nT('pages.settings.browserPanel.save_failed'))
     : null
-  // The sign-in row's failures: the last apply into Kiro's Chromium (hand-off on:
-  // a status read, next to no draft), and the re-pull a sign-in setting change
-  // asked for (see below).
+  // The last apply into Kiro's Chromium failed (hand-off on: a status read, next
+  // to no draft).
   const cred = status.data.credentials
   const credentialError = cred?.provider && cred.state === 'error'
     ? (cred.reason
       ? i18nT('pages.settings.browserPanel.credentials_error_reason', { reason: cred.reason })
       : i18nT('pages.settings.browserPanel.credentials_error'))
-    : null
-  const credentialRefreshError = refreshCredentials.isError
-    ? failText(refreshCredentials.error, i18nT('pages.settings.browserPanel.credentials_refresh_failed'))
     : null
   const configUnavailable = config.isError
   const disabled = configUnavailable || patch.isPending
@@ -128,11 +124,6 @@ export function BrowserPanel() {
         <BrowserMainControls view={view} credentials={cred} disabled={disabled} setConfig={setConfig} />
         {credentialError && (
           <ErrorNotice variant="inline" className="mt-2" message={credentialError} askAgent testId="browser-credentials-error" />
-        )}
-        {/* No hand-off: the re-pull also follows a sign-in sites write from the
-            chip editor under More, whose add field may hold an unsaved draft. */}
-        {credentialRefreshError && (
-          <ErrorNotice variant="inline" className="mt-2" message={credentialRefreshError} testId="browser-credentials-refresh-error" />
         )}
         {/* Outside More, so a rejected save of ANY row shows while More is closed.
             No hand-off: the origins add field under More may hold an unsaved draft. */}

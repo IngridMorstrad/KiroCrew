@@ -38,9 +38,6 @@ export interface KiroChromiumState {
  */
 export interface BrowserInstallJob {
   status: 'running' | 'succeeded' | 'failed' | 'interrupted'
-  /** Who started it: the gateway at startup (`auto`) or this page (`settings`).
-   *  Absent from an older gateway, read as `settings`. */
-  trigger?: 'auto' | 'settings'
   /** Server-authored stage name; rendered verbatim as a progress hint. */
   stage?: string | null
   /** Redacted, then truncated, by the gateway. Never translated. */
@@ -55,22 +52,15 @@ export interface BrowserInstallJob {
  */
 export interface BrowserCredentialsStatus {
   provider: string | null
-  imported: boolean
   /** Effective: the config's value, or the edition's default when unset. */
   enabled: boolean
   domains: string[]
-  settings_from?: string
   state: 'none' | 'applied' | 'skipped' | 'error' | 'pending' | 'disabled' | 'needs_refresh' | string
   reason?: string | null
-  /** Cookies the last apply set, across both sources. */
+  /** Cookies the last apply set. */
   applied?: number
   /** The provider's own state, edition-authored; `message` is shown as-is. */
-  provider_status?: {
-    needs_refresh?: boolean
-    message?: string | null
-    earliest_expiry?: number | null
-    count?: number | null
-  } | null
+  provider_status?: { needs_refresh?: boolean; message?: string | null } | null
 }
 
 /**
@@ -121,9 +111,6 @@ export function createBrowserHarnessEndpoints({ get, post, j }: ClientTransport)
     testBrowser: () => post('/api/browser/test', {}).then(j) as Promise<BrowserTestData>,
     // Detaches the relay from the browser; the next agent call re-attaches.
     disconnectBrowser: () => post('/api/browser/disconnect', {}).then(j) as Promise<BrowserStatusData>,
-    // Re-pulls the sign-in into a running Kiro Chromium after its settings change.
-    refreshBrowserCredentials: () =>
-      post('/api/browser/credentials/refresh', {}).then(j) as Promise<{ ok: boolean; credentials: BrowserCredentialsStatus }>,
   }
   return { browserHarness }
 }

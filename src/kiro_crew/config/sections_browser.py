@@ -187,9 +187,9 @@ class BrowserLiveConfig:
 #: company domains, and the rest of a longer list is dropped with one warning.
 CREDENTIAL_DOMAINS_CAP = 64
 #: One ``browser.credentials.domains`` entry as the Settings write accepts it: two
-#: or more lowercase DNS labels, no port, wildcard or leading dot. The same shape
-#: as the seam's ``_DECLARED_DOMAIN`` (``browser_harness.credentials``), which
-#: also refuses an all-digit IP literal; a test pins the two together.
+#: or more lowercase DNS labels, no port, wildcard or leading dot. The seam
+#: (``browser_harness.credentials``) compiles this same pattern for what a provider
+#: declares, and also refuses an all-digit IP literal.
 CREDENTIAL_DOMAIN_PATTERN = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}"
 
 

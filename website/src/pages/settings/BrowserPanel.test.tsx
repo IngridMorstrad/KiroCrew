@@ -17,7 +17,6 @@ vi.mock('../../api/client', async (importOriginal) => {
       disconnectBrowser: vi.fn(),
       kirocrewConfig: vi.fn(),
       patchConfig: vi.fn(),
-      refreshBrowserCredentials: vi.fn(),
     },
   }
 })
@@ -61,7 +60,6 @@ const mocked = api as unknown as {
   disconnectBrowser: ReturnType<typeof vi.fn>
   kirocrewConfig: ReturnType<typeof vi.fn>
   patchConfig: ReturnType<typeof vi.fn>
-  refreshBrowserCredentials: ReturnType<typeof vi.fn>
 }
 
 beforeEach(async () => {
@@ -72,7 +70,6 @@ beforeEach(async () => {
   mocked.disconnectBrowser.mockReset().mockResolvedValue(status({ connection: 'disconnected', browser: null }))
   mocked.kirocrewConfig.mockReset().mockResolvedValue(config())
   mocked.patchConfig.mockReset().mockResolvedValue({ ok: true })
-  mocked.refreshBrowserCredentials.mockReset().mockResolvedValue({ ok: true, credentials: null })
 })
 
 afterEach(() => {
@@ -146,14 +143,6 @@ describe('BrowserPanel - main card', () => {
     expect(within(card).getByTestId('browser-primary-action')).toBeDisabled()
     expect(within(card).getByTestId('browser-install-progress').getAttribute('aria-valuetext')).toBe('chromium')
     expect(within(card).getByTestId('browser-status-line').textContent).toBe('Installing. You can chat meanwhile.')
-  })
-
-  it('installing at startup says so: the gateway’s own job reads "automatically"', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, chromium: null, installing: true, install_job: { status: 'running', trigger: 'auto', stage: 'venv' } }))
-    renderWithProviders(<BrowserPanel />)
-    const card = await screen.findByTestId('browser-status-card')
-    expect(card.getAttribute('data-state')).toBe('installing')
-    expect(within(card).getByTestId('browser-status-line').textContent).toBe('Installing automatically. You can chat meanwhile.')
   })
 
   it('waiting for Allow: yellow, and the button asks the gateway to attach again', async () => {
@@ -406,7 +395,7 @@ describe('BrowserPanel - failures', () => {
 
 describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
   const cred = (over: Record<string, unknown> = {}) => ({
-    provider: 'Acme SSO', imported: false, enabled: true, domains: ['example.com'], state: 'applied', reason: null, applied: 3, ...over,
+    provider: 'Acme SSO', enabled: true, domains: ['example.com'], state: 'applied', reason: null, applied: 3, ...over,
   })
 
   it('with no provider there is no sign-in switch and no domains editor', async () => {
@@ -419,15 +408,16 @@ describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
     expect(screen.queryByText('Sign-in sites')).toBeNull()
   })
 
-  it('with a provider: the switch follows the effective setting, says where it is used, and a flip re-pulls', async () => {
+  it('with a provider: the switch follows the effective setting, and a flip writes it and re-reads the status', async () => {
     mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred() }))
     renderWithProviders(<BrowserPanel />)
     const sw = await screen.findByRole('switch', { name: 'Use Acme SSO sign-in' })
     expect(sw).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText('3 cookies applied')).toBeTruthy()
     fireEvent.click(sw)
+    const reads = mocked.getBrowserStatus.mock.calls.length
     await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.credentials.enabled', false))
-    await waitFor(() => expect(mocked.refreshBrowserCredentials).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocked.getBrowserStatus.mock.calls.length).toBeGreaterThan(reads))
   })
 
   it('one cookie reads singular; a provider asking to renew is quoted verbatim, else the catalog line', async () => {
@@ -448,22 +438,19 @@ describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
 
   it('an unset switch reads the edition default the status reports', async () => {
     mocked.kirocrewConfig.mockResolvedValue(config({ browser: { choice: 'auto', credentials: { enabled: null, domains: [] } } }))
-    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ enabled: true, settings_from: 'edition', state: 'pending' }) }))
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ enabled: true, state: 'pending' }) }))
     renderWithProviders(<BrowserPanel />)
     const sw = await screen.findByRole('switch', { name: 'Use Acme SSO sign-in' })
     expect(sw).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByText('Used the next time Kiro’s Chromium starts')).toBeTruthy()
+    expect(screen.getByText('Used from the next page Kiro’s Chromium opens')).toBeTruthy()
   })
 
-  it('a failed apply is an ErrorNotice with the reason code, and a failed re-pull is too', async () => {
+  it('a failed apply is an ErrorNotice with the reason code', async () => {
     mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ state: 'error', reason: 'provider_failed' }) }))
-    mocked.refreshBrowserCredentials.mockRejectedValue(new Error('refresh refused'))
     renderWithProviders(<BrowserPanel />)
     const notice = await screen.findByTestId('browser-credentials-error')
     expect(notice).toHaveAttribute('role', 'alert')
     expect(notice.textContent).toContain('provider_failed')
-    fireEvent.click(screen.getByRole('switch', { name: 'Use Acme SSO sign-in' }))
-    expect((await screen.findByTestId('browser-credentials-refresh-error')).textContent).toContain('refresh refused')
   })
 
   it('domains under More: a domain is stored lowercase, an IP or a port is refused before any write', async () => {

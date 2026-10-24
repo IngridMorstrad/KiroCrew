@@ -307,11 +307,6 @@ class TestPatchRoute:
 
 
 class TestCredentials:
-    def test_the_write_pattern_is_the_seams_declared_domain_shape(self) -> None:
-        from kiro_crew.browser_harness import credentials as seam
-
-        assert SB.CREDENTIAL_DOMAIN_PATTERN == seam._DECLARED_DOMAIN.pattern
-
     def test_unset_is_none_and_a_list_is_kept_lowercase_and_unique(self) -> None:
         from kiro_crew.config.sections_browser import BrowserConfig
 

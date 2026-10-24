@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from kiro_crew import platform_compat
-from kiro_crew.browser_harness import HARNESS_VERSION, credentials, discover, install
+from kiro_crew.browser_harness import HARNESS_VERSION, budgets, credentials, discover, install
 from kiro_crew.browser_harness.env import daemon_env
 from kiro_crew.browser_harness.relay import (
     CdpRelay,
@@ -131,15 +131,12 @@ _STOP_GRACE_SECS = 5.0
 #: (``helper_worker.REPLY_CAP_BYTES``), so a legitimate reply never reaches it.
 WORKER_LINE_LIMIT = 8 * 1024 * 1024
 
-#: How long a credential refresh or clear waits for a start in flight before it leaves
-#: the work to that start: a start can hold the lock without deadline on the person's
-#: Allow sheet, and an owner's HTTP request must not hang behind it.
-CREDENTIAL_LOCK_WAIT_SECS = 5.0
-#: The most the re-pull after a changed credential source may take before an agent
-#: navigation. It runs after the ``fingerprint()`` check
-#: (``credentials.FINGERPRINT_TIMEOUT_SECS``) and the lock wait (``CREDENTIAL_LOCK_WAIT_SECS``), so a navigation waits at most
-#: the three together.
-NAV_REFRESH_BUDGET_SECS = 8.0
+#: How long the re-pull before a navigation waits for a start in flight before it
+#: skips (a start can hold the lock without deadline on the person's Allow sheet),
+#: and the most the re-pull itself may take. With the ``fingerprint()`` bound they
+#: are ``budgets.CREDENTIAL_WORST_S``, which the shim's HTTP timeout includes.
+CREDENTIAL_LOCK_WAIT_SECS = budgets.CREDENTIAL_LOCK_WAIT_S
+NAV_REFRESH_BUDGET_SECS = budgets.CREDENTIAL_REPULL_S
 
 #: Chromium flags. On POSIX ``--remote-debugging-pipe`` speaks CDP over fds 3 and 4 and
 #: opens NO port, so nothing in the agent sandbox can reach the browser except through
@@ -241,12 +238,9 @@ class HarnessSupervisor:
         #: The relay the last apply wrote through; its outcome is shown only while
         #: that browser is still the connected one.
         self._credentials_relay: CdpRelay | None = None
-        self._launch_args_dropped = 0
-        #: A refresh arrived while a start held the lock; the start re-applies at its end.
-        self._credentials_dirty = False
-        #: The provider's ``fingerprint()`` at the last apply; a navigation re-pulls
-        #: when it differs.
-        self._fingerprint: str | None = None
+        #: The provider's ``fingerprint()`` and the settings at the last apply; a
+        #: navigation re-pulls when either differs.
+        self._applied_key: tuple[str | None, credentials.CredentialSettings] | None = None
         self._handle: HarnessHandle | None = None
         self._connection = DISCONNECTED
         self._detail = ""
@@ -333,32 +327,31 @@ class HarnessSupervisor:
     def _credentials_snapshot(self) -> dict[str, Any]:
         """Who supplies credentials NOW, plus the live browser's last apply. No value.
 
-        ``provider``, ``imported``, ``enabled``, ``domains`` and ``settings_from``
-        are read from the live config on every call, so Settings shows a switch
-        flipped while no browser runs. The apply's outcome (``state``, counts,
-        sources) is kept only while the browser it filled is still connected;
-        otherwise ``state`` says what the next start would do.
+        ``provider``, ``enabled`` and ``domains`` are read from the live config on
+        every call, so Settings shows a switch flipped while no browser runs. The
+        apply's outcome (``state``, count) is kept only while the browser it filled
+        is still connected and the settings are the ones it applied; otherwise
+        ``state`` says what comes next.
         """
-        # The browser the last apply filled is still up: the connected handle's,
-        # or a start still in flight (no handle yet) whose relay is open.
-        relay, handle = self._credentials_relay, self._handle
-        live = relay is not None and not relay.closed and (handle is None or handle.relay is relay)
-        snap = (self._credentials if live else credentials.CredentialStatus()).as_dict()
         provider = self._provider()
         name = credentials.provider_name(provider)
         settings = self._credential_settings(provider)
-        imported = credentials.has_imported(self.home)
-        snap.update(
-            provider=name,
-            imported=imported,
-            enabled=settings.enabled,
-            domains=list(settings.domains),
-            settings_from=settings.settings_from,
+        # The browser the last apply filled is still up: the connected handle's,
+        # or a start still in flight (no handle yet) whose relay is open.
+        relay, handle = self._credentials_relay, self._handle
+        live = (
+            relay is not None
+            and not relay.closed
+            and (handle is None or handle.relay is relay)
+            and self._applied_key is not None
+            and self._applied_key[1] == settings
         )
-        if not live:
-            if imported or (name is not None and settings.enabled):
+        snap = (self._credentials if live else credentials.CredentialStatus()).as_dict()
+        snap.update(provider=name, enabled=settings.enabled, domains=list(settings.domains))
+        if not live and name is not None:
+            if settings.enabled:
                 snap["state"] = credentials.STATE_PENDING
-            elif name is not None:
+            else:
                 snap["state"], snap["reason"] = credentials.STATE_DISABLED, "disabled"
         return snap
 
@@ -433,7 +426,7 @@ class HarnessSupervisor:
             pass
         except Exception:  # noqa: BLE001 - the failure is in status()["detail"]
             pass
-        # status() reads the config and the import file: off the loop.
+        # status() reads the config: off the loop.
         report = await asyncio.to_thread(self.status)
         if self.connected:
             try:
@@ -520,7 +513,6 @@ class HarnessSupervisor:
             self._set(ERROR, "could not pick a browser")
             raise BrowserUnavailable(self._detail)
         self._choice = choice
-        self._launch_args_dropped = 0
         browser_proc: asyncio.subprocess.Process | None = None
         daemon: asyncio.subprocess.Process | None = None
         relay = CdpRelay()
@@ -535,7 +527,6 @@ class HarnessSupervisor:
             relay_url = await relay.start(upstream)
             relay.on_upstream_closed = self._on_upstream_closed
             # Before the daemon: no agent op can reach the browser until this returns.
-            self._credentials_dirty = False
             await self._apply_credentials(relay, choice, "start")
             daemon = await self._start_daemon(state.python, relay_url)
             handle = HarnessHandle(choice, relay, daemon, None, browser_proc)
@@ -553,101 +544,71 @@ class HarnessSupervisor:
             raise
         self._handle = handle
         self._set(CONNECTED, "")
-        if self._credentials_dirty:
-            # An import or refresh landed after the first apply; the agent is not
-            # yet holding the handle, so this still precedes its first op.
-            self._credentials_dirty = False
-            await self._apply_credentials(relay, choice, "refresh")
         return handle
+
+    async def _credential_key(
+        self, provider: Any
+    ) -> tuple[str | None, credentials.CredentialSettings]:
+        """What an apply depends on: the provider's ``fingerprint()`` and the settings."""
+        settings = await asyncio.to_thread(self._credential_settings, provider)
+        return await credentials.provider_fingerprint(provider), settings
 
     async def _apply_credentials(
         self, relay: CdpRelay, choice: discover.BrowserChoice, reason: str
-    ) -> dict[str, Any]:
-        """Fill the browser behind *relay* from the edition provider and the owner's import."""
+    ) -> None:
+        """Fill the browser behind *relay* from the edition provider."""
         target = credentials.Target(kind=choice.kind, headless=choice.headless, reason=reason)
         provider = self._provider()
-        settings = await asyncio.to_thread(self._credential_settings, provider)
         # Read BEFORE the cookies, so a source that changes during the pull is seen
         # as changed at the next navigation rather than missed.
-        self._fingerprint = await credentials.provider_fingerprint(provider)
+        key = await self._credential_key(provider)
         self._credentials = await credentials.apply(
-            relay, provider=provider, home=self.home, target=target, settings=settings
+            relay, provider=provider, target=target, settings=key[1]
         )
-        self._credentials.launch_args_dropped = self._launch_args_dropped
+        self._applied_key = key
         self._credentials_relay = relay
         _audit_injection(self._credentials, reason)
-        return self._credentials.as_dict()
 
     async def refresh_credentials_if_source_changed(self) -> bool:
-        """Before an agent navigation: re-pull when the provider's fingerprint moved.
+        """Before an agent navigation: re-pull when the source or the settings moved.
 
-        Cheap when nothing changed (one bounded ``fingerprint()`` call). The re-pull
-        is bounded by :data:`NAV_REFRESH_BUDGET_SECS` (after the bounded fingerprint
-        check and lock wait), so a slow provider cannot hold the navigation: past
-        the bound it goes ahead
-        with what the browser holds, the status says ``refresh_timeout``, and the old
-        fingerprint is kept so the next navigation tries again. Returns whether it
-        re-applied. Never raises for a provider failure.
+        Cheap when nothing changed (one bounded ``fingerprint()`` call and a config
+        read; nothing at all without a provider). The re-pull is bounded by
+        :data:`NAV_REFRESH_BUDGET_SECS`, so a slow provider cannot hold the
+        navigation: past the bound it goes ahead with what the browser holds, the
+        status says ``refresh_timeout``, and the old key is kept so the next
+        navigation tries again. A start in flight is not waited on past
+        :data:`CREDENTIAL_LOCK_WAIT_SECS`. Returns whether it re-applied. Never
+        raises for a provider failure.
         """
+        handle = self._handle
+        if handle is None or handle.choice.kind != "kiro_chromium" or self._applied_key is None:
+            return False
         provider = self._provider()
-        fingerprint = await credentials.provider_fingerprint(provider)
-        if fingerprint is None or fingerprint == self._fingerprint:
+        if credentials.provider_name(provider) is None:
+            return False
+        fingerprint, settings = await self._credential_key(provider)
+        # A ``None`` fingerprint means "cannot tell" (a slow stat): not a change.
+        if (fingerprint or self._applied_key[0], settings) == self._applied_key:
             return False
         if not await self._acquire_briefly():
-            self._credentials_dirty = True
             return False
-        previous = self._fingerprint
         try:
             handle = self._handle
             if handle is None or not self.connected or handle.choice.kind != "kiro_chromium":
                 return False
             try:
+                # The key is recorded only once the apply finished, so a timeout or
+                # a cancellation leaves the old one and the next navigation retries.
                 await asyncio.wait_for(
                     self._apply_credentials(handle.relay, handle.choice, "source_changed"),
                     NAV_REFRESH_BUDGET_SECS,
                 )
             except asyncio.TimeoutError:
-                self._fingerprint = previous
                 self._credentials.reason = "refresh_timeout"
                 logger.warning("browser credentials: re-pull before navigation timed out")
                 return False
-            except asyncio.CancelledError:
-                # Not applied: keep the old fingerprint so the next navigation retries.
-                self._fingerprint = previous
-                raise
             return True
-        finally:
-            self._ensure_lock.release()
-
-    async def refresh_credentials(self) -> dict[str, Any]:
-        """Re-pull both sources into a live Kiro Chromium; no browser is started for it.
-
-        Returns the ``credentials`` status. With no live browser, or with the person's
-        own Chrome in use, nothing is written and the status says why.
-        """
-        self._credentials_dirty = True
-        if not await self._acquire_briefly():
-            # A start holds the lock (the person's Chrome can wait on its Allow sheet
-            # with no deadline); it sees the dirty flag and applies before it returns.
-            return await asyncio.to_thread(self._credentials_snapshot)
-        try:
-            self._credentials_dirty = False
-            handle = self._handle
-            if handle is None or not self.connected:
-                return await asyncio.to_thread(self._credentials_snapshot)
-            return await self._apply_credentials(handle.relay, handle.choice, "refresh")
-        finally:
-            self._ensure_lock.release()
-
-    async def forget_imported(self, cookies: list[dict[str, Any]]) -> int:
-        """Expire *cookies* (a cleared import) in a live Kiro Chromium; how many went."""
-        if not await self._acquire_briefly():
-            return 0  # a start in flight reads the (already deleted) import afresh
-        try:
-            handle = self._handle
-            if handle is None or not self.connected or handle.choice.kind != "kiro_chromium":
-                return 0
-            return await credentials.expire(handle.relay, cookies)
         finally:
             self._ensure_lock.release()
 
@@ -716,12 +677,6 @@ class HarnessSupervisor:
         profile = self.profile_dir
         await asyncio.to_thread(platform_compat.make_owner_only_dir, profile)
         argv = [str(exe), *_CHROMIUM_ARGS, f"--user-data-dir={profile}"]
-        provider = self._provider()
-        settings = await asyncio.to_thread(self._credential_settings, provider)
-        extra, self._launch_args_dropped = await credentials.provider_launch_args(
-            provider, settings
-        )
-        argv.extend(extra)
         if choice.headless:
             argv.append(_HEADLESS_ARG)
         if platform_compat.effective_uid() == _ROOT_UID:
@@ -935,15 +890,13 @@ _AUDIT_DOMAINS = 20
 
 
 def _audit_injection(status: credentials.CredentialStatus, reason: str) -> None:
-    """One SEL row per apply that set a cookie: provider, counts, domains. Never a value."""
-    applied = [s for s in status.sources if s.applied]
-    if not applied:
+    """One SEL row per apply that set a cookie: provider, count, domains. Never a value."""
+    if not status.applied:
         return
-    domains = sorted({d for s in applied for d in s.domains})
+    domains = status.applied_domains
     shown = ",".join("".join(ch for ch in d if ch.isprintable()) for d in domains[:_AUDIT_DOMAINS])
     if len(domains) > _AUDIT_DOMAINS:
         shown += f",+{len(domains) - _AUDIT_DOMAINS} more"
-    counts = " ".join(f"{s.source}={s.applied}" for s in applied)
     try:
         from kiro_crew.sel import sel
 
@@ -953,7 +906,8 @@ def _audit_injection(status: credentials.CredentialStatus, reason: str) -> None:
             outcome="applied",
             source="browser_api",
             resources=(
-                f"provider={status.provider or '-'} reason={reason} {counts} domains={shown}"
+                f"provider={status.provider or '-'} reason={reason} cookies={status.applied} "
+                f"domains={shown}"
             ),
         )
     except Exception:  # noqa: BLE001 - an audit failure never stops the browser

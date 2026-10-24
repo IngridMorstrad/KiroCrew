@@ -79,13 +79,8 @@ export function BrowserStatusCard({
         : i18nT('pages.settings.browserPanel.kind_short_kiro')
   // No status line on a failed install: the title already says it, and the
   // failure itself is the ErrorNotice below.
-  // Installing: say "automatically" only for the gateway's own startup job; a
-  // job this page asked for (or one it is asking for right now) is just installing.
-  const autoJob = job?.status === 'running' && job.trigger === 'auto'
   const line = state === 'installing'
-    ? (autoJob
-      ? i18nT('pages.settings.browserPanel.preparing_desc')
-      : i18nT('pages.settings.browserPanel.preparing_desc_settings'))
+    ? i18nT('pages.settings.browserPanel.preparing_desc')
     : state === 'install_failed'
       ? null
       : state === 'not_installed'

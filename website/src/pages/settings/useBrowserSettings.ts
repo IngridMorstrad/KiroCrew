@@ -110,13 +110,9 @@ export function useBrowserSettings() {
 
   const patch = useMutation({
     mutationFn: ({ path, value }: { path: string; value: unknown }) => api.patchConfig(path, value),
-    onSettled: invalidateConfig,
-    // A sign-in setting takes effect in a running Kiro Chromium only on a re-pull.
-    onSuccess: (_d, { path }) => { if (path.startsWith('browser.credentials.')) refreshCredentials.mutate() },
-  })
-  const refreshCredentials = useMutation({
-    mutationFn: () => api.refreshBrowserCredentials(),
-    onSettled: invalidateStatus,
+    // A sign-in setting reaches a running Kiro Chromium at its next page load;
+    // the status read says so at once.
+    onSettled: () => { invalidateConfig(); invalidateStatus() },
   })
   const install = useMutation({
     mutationFn: (req: BrowserInstallRequest = {}) => api.installBrowserHarness(req),
@@ -142,7 +138,6 @@ export function useBrowserSettings() {
     install,
     test,
     disconnect,
-    refreshCredentials,
   }
 }
 

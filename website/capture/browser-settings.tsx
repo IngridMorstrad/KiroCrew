@@ -59,12 +59,12 @@ const STATES: Record<string, BrowserStatusData> = {
 const cred = params.get('cred')
 const CREDENTIALS: Record<string, BrowserStatusData['credentials']> = {
   applied: {
-    provider: 'Example SSO', imported: false, enabled: true, domains: ['example.com'],
-    settings_from: 'edition', state: 'applied', reason: null, applied: 12, provider_status: null,
+    provider: 'Example SSO', enabled: true, domains: ['example.com'],
+    state: 'applied', reason: null, applied: 12, provider_status: null,
   },
   needs_refresh: {
-    provider: 'Example SSO', imported: false, enabled: true, domains: ['example.com'],
-    settings_from: 'config', state: 'needs_refresh', reason: 'source_expired', applied: 0,
+    provider: 'Example SSO', enabled: true, domains: ['example.com'],
+    state: 'needs_refresh', reason: 'source_expired', applied: 0,
     provider_status: { needs_refresh: true, message: 'Run example-login again to renew the sign-in.' },
   },
 }
@@ -90,7 +90,6 @@ stub.patchConfig = async () => ({ ok: true })
 stub.installBrowserHarness = async () => status
 stub.testBrowser = async () => ({ ok: true, connection: status.connection, detail: null })
 stub.disconnectBrowser = async () => status
-stub.refreshBrowserCredentials = async () => ({ ok: true, credentials: status.credentials })
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 

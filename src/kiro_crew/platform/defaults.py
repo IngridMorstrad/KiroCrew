@@ -769,10 +769,10 @@ class DefaultFeedbackTrackerProvider:
 
 
 class DefaultBrowserCredentialProvider:
-    """No edition credentials: Kiro's Chromium starts with only what the owner imported.
+    """No edition credentials: Kiro's Chromium starts with an empty profile.
 
-    ``name()`` answers ``None``, which tells the supervisor not to call the other
-    three, so the public browser is unchanged by the seam's existence.
+    ``name()`` answers ``None``, which tells the supervisor not to call the others,
+    so the public browser is unchanged by the seam's existence.
     """
 
     def name(self) -> Optional[str]:
@@ -784,14 +784,8 @@ class DefaultBrowserCredentialProvider:
     def cookies(self, target: "BrowserCredentialTarget") -> Sequence[Dict[str, Any]]:
         return []
 
-    def launch_args(self) -> Sequence[str]:
-        return []
-
     def fingerprint(self) -> Optional[str]:
         return None
-
-    def keep_expiry(self) -> bool:
-        return False
 
     def status(self) -> Optional[Dict[str, Any]]:
         return None

@@ -25,8 +25,7 @@ finished job cannot move a newer one.
 The gateway also starts that job by itself, once, at startup
 (:func:`auto_setup_browser_harness`): the owner should not have to press Install. That
 is not an agent route around the owner gate: the argv, the lock and the prefix are the
-same constants Install uses, nothing a request or an agent supplies reaches them, and
-the job is reported with ``trigger: "auto"`` so Settings says so.
+same constants Install uses, and nothing a request or an agent supplies reaches them.
 """
 
 from __future__ import annotations
@@ -82,21 +81,12 @@ class InstallJob:
     updated_at: float
     finished_at: float | None = None
     error: str | None = None
-    #: Who started it: ``settings`` (the owner pressed Install) or ``auto`` (the
-    #: gateway's startup auto-install, :func:`auto_setup_browser_harness`).
-    trigger: str = "settings"
 
     @classmethod
-    def start(cls, components: tuple[str, ...], trigger: str = "settings") -> InstallJob:
+    def start(cls, components: tuple[str, ...]) -> InstallJob:
         now = clock()
         return cls(
-            uuid.uuid4().hex,
-            components,
-            STATUS_RUNNING,
-            harness_install.STAGE_PREPARING,
-            now,
-            now,
-            trigger=trigger,
+            uuid.uuid4().hex, components, STATUS_RUNNING, harness_install.STAGE_PREPARING, now, now
         )
 
     @property
@@ -128,7 +118,6 @@ class InstallJob:
             "finished_at": _iso(self.finished_at) if self.finished_at is not None else None,
             "elapsed_s": round(max(0.0, end - self.started_at), 1),
             "error": self.error,
-            "trigger": self.trigger,
         }
 
 
@@ -173,9 +162,7 @@ def _deny_non_owner(request: web.Request, operation: str) -> web.Response | None
     return _owner_denial_response(request, "dashboard user required", "dashboard_user_required")
 
 
-def _audit(
-    request: web.Request, operation: str, outcome: str, error: str = "", *, detail: str = ""
-) -> None:
+def _audit(request: web.Request, operation: str, outcome: str, error: str = "") -> None:
     app_name = request.get("app", "")
     caller = f"app:{app_name}" if app_name else str(request.get("user") or "anonymous")
     try:
@@ -184,7 +171,7 @@ def _audit(
             operation=operation,
             outcome=outcome,
             source="browser_api",
-            resources=f"{request.path} {detail}" if detail else request.path,
+            resources=request.path,
             error=error,
         )
     except Exception:  # noqa: BLE001 - an audit failure never breaks the request
@@ -308,11 +295,9 @@ def _requested_components(body: dict[str, Any]) -> tuple[str, ...] | None:
     return components
 
 
-def _start_install_job(
-    state: Any, components: tuple[str, ...], *, refresh: bool = False, trigger: str = "settings"
-) -> None:
+def _start_install_job(state: Any, components: tuple[str, ...], *, refresh: bool = False) -> None:
     loop = asyncio.get_running_loop()
-    job = InstallJob.start(components, trigger)
+    job = InstallJob.start(components)
     state._browser_harness_install_job = job
 
     def _on_stage(stage: str, _detail: str) -> None:
@@ -421,7 +406,7 @@ async def auto_setup_browser_harness(
     ONE attempt per gateway process (a flag on *state*): a failure is not retried
     in a loop; it stays visible as the failed ``install_job`` in Settings, whose
     Install button is the retry. The install is the very job Settings starts
-    (:func:`_start_install_job`, ``trigger="auto"``), so the page shows it running
+    (:func:`_start_install_job`), so the page shows it running
     and a press of Install meanwhile gets the usual 409. Returns the outcome name
     (for the log and tests); never raises.
     """
@@ -438,7 +423,7 @@ async def auto_setup_browser_harness(
         components = await asyncio.to_thread(_auto_components, sup)
         if components:
             logger.info("browser harness: installing %s at startup", ", ".join(components))
-            _start_install_job(state, components, trigger="auto")
+            _start_install_job(state, components)
             await asyncio.wait({state._browser_harness_install_task})
             job = _job(state)
             if job is None or job.status != STATUS_SUCCEEDED:

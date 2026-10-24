@@ -354,10 +354,10 @@ class BrowserCredentialTarget:
 
     ``kind`` is always ``"kiro_chromium"`` when the provider is called (the core
     never asks for the person's own Chrome or Edge); ``headless`` says whether it
-    has a window; ``reason`` is ``"start"`` (a launch or relaunch),
-    ``"refresh"`` (the owner pressed refresh, or the edition called
-    ``HarnessSupervisor.refresh_credentials``) or ``"source_changed"`` (an agent
-    navigation found :meth:`BrowserCredentialProvider.fingerprint` changed).
+    has a window; ``reason`` is ``"start"`` (a launch or relaunch) or
+    ``"source_changed"`` (an agent navigation found
+    :meth:`BrowserCredentialProvider.fingerprint` or ``browser.credentials``
+    changed since the last apply).
     """
 
     kind: str
@@ -366,14 +366,14 @@ class BrowserCredentialTarget:
 
 
 class BrowserCredentialProvider(Protocol):
-    """Session cookies (and auth launch switches) for Kiro's own Chromium.
+    """Session cookies for Kiro's own Chromium.
 
     Kiro's Chromium starts with an empty profile, so a site behind a sign-in the
     agent cannot perform is a login wall. An edition that already holds the user's
     session for its own sites supplies it here. WIRED:
     ``browser_harness.supervisor.HarnessSupervisor`` (the gateway, outside every
-    sandbox) calls it at each start of Kiro's Chromium, on an explicit refresh, and
-    before an agent navigation whose :meth:`fingerprint` changed, then writes the
+    sandbox) calls it at each start of Kiro's Chromium and before an agent
+    navigation when :meth:`fingerprint` or the settings changed, then writes the
     cookies with CDP ``Storage.setCookies`` on the gateway's own connection to the
     browser -- never through the agent's ``browser`` tool -- before the daemon (and
     so any agent op) is up. Never called for the person's own Chrome or Edge.
@@ -386,12 +386,12 @@ class BrowserCredentialProvider(Protocol):
     ``source_fingerprint``) and raise its ``CredentialSourceError``: a missing or
     refused file then reads as a status, not a failure.
 
-    :meth:`domains`, :meth:`cookies`, :meth:`launch_args` and :meth:`status` run in
-    a worker thread, bounded at 15 s each
+    :meth:`domains`, :meth:`cookies` and :meth:`status` run in a worker thread,
+    bounded at 15 s each
     (``browser_harness.credentials.PROVIDER_TIMEOUT_SECS``); blocking I/O is fine
     there. :meth:`fingerprint` runs in a worker thread bounded at 2 s.
-    :meth:`name`, :meth:`default_settings` and :meth:`keep_expiry` may be read on
-    the gateway's event loop (an apply and a navigation's re-pull check ask for
+    :meth:`name` and :meth:`default_settings` may be read on the gateway's event
+    loop (an apply and a navigation's re-pull check ask for
     them), so they must answer from memory: return constants, never do I/O.
     A raise or a timeout is reduced to a fixed reason code and the browser starts
     without the cookies: never put a secret in an exception message, and never
@@ -415,7 +415,7 @@ class BrowserCredentialProvider(Protocol):
         """The host names this provider serves (``"example.com"``).
 
         Each covers itself and its subdomains. A cookie whose domain is not one of
-        these, or under one, is dropped and counted. A single label, an IP literal,
+        these, or under one, is dropped. A single label, an IP literal,
         a wildcard or a host with a port is ignored as a declaration.
         """
         ...
@@ -423,17 +423,15 @@ class BrowserCredentialProvider(Protocol):
     def cookies(self, target: BrowserCredentialTarget) -> Sequence[Dict[str, Any]]:
         """The cookies to set, in CDP ``Network.CookieParam`` shape.
 
-        Each needs ``name``, ``value`` and an explicit ``domain``; ``path``
-        (default ``/``), ``secure``, ``httpOnly``, ``sameSite``
-        (``Strict|Lax|None``) and ``expires`` (unix seconds; absent = session
-        cookie) are optional. Playwright's / the cookie extensions' spellings are
-        accepted too. At most 5,000; expired ones are dropped. A cookie with a
-        control character, over 4,096 bytes, or a bad ``secure``/``httpOnly``
-        value is dropped and counted, not the batch. Each is set as a SESSION cookie
-        (``expires`` removed, so nothing reaches the profile on disk and it is gone
-        when the browser closes) unless :meth:`keep_expiry` answers ``True``.
-        Raise ``browser_harness.credential_files.CredentialSourceError`` for a missing
-        or refused source: it becomes the status code, ``needs_refresh`` for a
+        Each needs string ``name``, ``value`` and an explicit ``domain``; ``path``
+        (default ``/``), boolean ``secure`` and ``httpOnly``, and ``sameSite``
+        (``Strict|Lax|None``) are optional. A cookie whose ``expires`` (unix
+        seconds) has passed, or with a control character or a non-boolean flag, is
+        dropped, not the batch. Each is set as a SESSION cookie (``expires``
+        removed, so nothing reaches the profile on disk and it is gone when the
+        browser closes). Raise
+        ``browser_harness.credential_files.CredentialSourceError`` for a missing or
+        refused source: it becomes the status code, ``needs_refresh`` for a
         missing one.
         """
         ...
@@ -448,16 +446,12 @@ class BrowserCredentialProvider(Protocol):
         """
         ...
 
-    def keep_expiry(self) -> bool:
-        """``True`` keeps each cookie's ``expires`` (persistent cookies). Default ``False``."""
-        ...
-
     def status(self) -> Optional[Dict[str, Any]]:
         """The source's own state for Settings, read after each apply. Never a value.
 
-        ``needs_refresh`` (bool: the person should re-run the sign-in), ``message``
-        (edition-authored, shown as-is, at most 200 printable characters),
-        ``earliest_expiry`` (unix seconds) and ``count``. ``None`` for none.
+        ``needs_refresh`` (bool: the person should re-run the sign-in) and
+        ``message`` (edition-authored, shown as-is, at most 200 printable
+        characters). Other keys are ignored. ``None`` for none.
         """
         ...
 
@@ -466,16 +460,6 @@ class BrowserCredentialProvider(Protocol):
 
         ``{"enabled": bool, "domains": [...]}``; either may be omitted. A value the
         owner set always wins. ``{}`` leaves the core default: off, no domains.
-        """
-        ...
-
-    def launch_args(self) -> Sequence[str]:
-        """Extra Chromium switches, read once per launch. Usually ``[]``.
-
-        Only ``--auth-server-allowlist=<patterns>`` is honoured (Negotiate /
-        Kerberos for the listed hosts; current Chromium reads no other HTTP-auth
-        setting from the command line). Anything else is dropped and counted in
-        ``credentials.launch_args_dropped``.
         """
         ...
 
