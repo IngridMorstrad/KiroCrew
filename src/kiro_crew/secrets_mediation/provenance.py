@@ -167,6 +167,37 @@ def initialize_secret_host_key(config_dir: str | Path | None = None) -> bytes:
             pass
 
 
+#: What an operator does when the signing key document is present but no longer
+#: certifies (a recreated ``token_signing.key``, a partial data-home restore). The
+#: gateway never repairs an occupied document, so a restart alone cannot fix it.
+UNUSABLE_KEY_REMEDY = (
+    f"remove {HOST_KEY_DIRNAME}/{_HOST_KEY_FILENAME} from the data home, restart the "
+    "gateway so it mints a new key, then re-run `kirocrew secrets authorize` for each "
+    "secret (existing authorizations were signed with the old key and are discarded)"
+)
+
+
+def host_key_problem(config_dir: str | Path) -> str | None:
+    """Say why the signing key cannot be used, with the remedy, or ``None`` if it can.
+
+    A MISSING key is minted by the next gateway start. A PRESENT key that fails to
+    load or certify is never repaired, so it needs :data:`UNUSABLE_KEY_REMEDY`.
+    """
+    try:
+        root = _load_secret_host_root(config_dir)
+    except RuntimeError as exc:
+        return (
+            f"{exc}. A gateway restart does not repair an existing key document: "
+            f"{UNUSABLE_KEY_REMEDY}"
+        )
+    if root is None:
+        return (
+            f"the mediated-secret policy signing key ({HOST_KEY_DIRNAME}/"
+            f"{_HOST_KEY_FILENAME}) does not exist yet; start the gateway to create it"
+        )
+    return None
+
+
 def _secret_policy_key(config_dir: str | Path, *, create: bool = False) -> bytes | None:
     """Derive the policy MAC subkey from the certified host-only root.
 
@@ -199,9 +230,10 @@ def sign_secret_authorizations(authorizations: Any, config_dir: str | Path) -> s
     """Return the owner HMAC, refusing when the gateway root is unavailable."""
     key = _secret_policy_key(config_dir)
     if key is None:
+        problem = host_key_problem(config_dir) or "the signing key could not be loaded"
         raise RuntimeError(
             "cannot load the gateway-certified host-only signing key for the "
-            "mediated-secret authorization policy; start the gateway to initialize it"
+            f"mediated-secret authorization policy: {problem}"
         )
     return hmac.new(key, _canonical_payload(authorizations), hashlib.sha256).hexdigest()
 

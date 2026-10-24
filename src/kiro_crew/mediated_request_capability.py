@@ -325,6 +325,24 @@ def invalidate_call(session_key: str, tool_call_id: str) -> None:
                 _active.pop(tok, None)
 
 
+def invalidate_session(session_key: str) -> None:
+    """Drop every grant, pending or claimed, of one session when its turn is cancelled.
+
+    An approval that already reached the harness keeps its grant for the queued
+    call, so a turn the operator stops would otherwise leave that call able to
+    claim and send the secret-bearing request without a fresh approval. Both ACP
+    cancellation paths call this before the cancel goes out. Other sessions'
+    grants are untouched, and a session with no key holds none.
+    """
+    if not session_key:
+        return
+    with _lock:
+        for key in [k for k in _pending if k[0] == session_key]:
+            _pending.pop(key, None)
+        for tok in [t for t, g in _active.items() if g.session_key == session_key]:
+            _active.pop(tok, None)
+
+
 def claim(session_key: str, tool_call_id: str, tool_args: dict[str, Any]) -> str:
     """Move one approved call's pending token into the endpoint-consumable set."""
     try:

@@ -82,6 +82,31 @@ def test_sign_raises_and_does_not_mint_when_the_host_key_is_missing(tmp_path, mo
     assert not (tmp_path / provenance.HOST_KEY_DIRNAME).exists()
 
 
+def test_an_uncertifiable_key_names_the_remedy_not_a_restart(tmp_path, monkeypatch):
+    """A present key that no longer certifies (token_signing.key recreated) is never
+    repaired by the gateway, so the error names how to recover instead of 'start
+    the gateway', which would fail the same way every time."""
+    _install_host_root(tmp_path, monkeypatch, token_root=b"T" * 32)
+    # The token root changes underneath the existing document.
+    monkeypatch.setattr(provenance, "_token_root", lambda: b"U" * 32)
+
+    problem = provenance.host_key_problem(tmp_path)
+    assert problem is not None and provenance.UNUSABLE_KEY_REMEDY in problem
+    with pytest.raises(RuntimeError) as raised:
+        sign_secret_authorizations(_AUTHZ, tmp_path)
+    assert provenance.UNUSABLE_KEY_REMEDY in str(raised.value)
+    assert "start the gateway to create it" not in str(raised.value)
+
+
+def test_a_missing_key_says_to_start_the_gateway(tmp_path, monkeypatch):
+    monkeypatch.setattr(provenance, "_token_root", lambda: b"T" * 32)
+    problem = provenance.host_key_problem(tmp_path)
+    assert problem is not None and "start the gateway" in problem
+    assert provenance.UNUSABLE_KEY_REMEDY not in problem
+    _install_host_root(tmp_path, monkeypatch)
+    assert provenance.host_key_problem(tmp_path) is None
+
+
 def test_gateway_refuses_an_uncertified_preseeded_key(tmp_path, monkeypatch):
     monkeypatch.setattr(provenance, "_token_root", lambda: b"T" * 32)
     key_dir = tmp_path / provenance.HOST_KEY_DIRNAME

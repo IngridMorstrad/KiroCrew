@@ -40,6 +40,7 @@ from kiro_crew.secrets_mediation.provenance import (
     SECRET_POLICY_DIRNAME,
     SIGNATURE_FIELD,
     _secret_policy_key,
+    host_key_problem,
     sign_secret_authorizations,
     verify_secret_authorizations,
 )
@@ -196,9 +197,10 @@ def _authorize_txn(args: "argparse.Namespace", cfg_dir, path) -> None:
         and _secret_policy_key(cfg_dir, create=False) is None
     ):
         raise SystemExit(
-            f"error: the gateway policy-signing key ({HOST_KEY_DIRNAME}/key.json) is missing, so "
-            f"{path} cannot be verified; refusing to overwrite its existing authorizations. "
-            "Restore the key (or remove the policy file) and re-run."
+            f"error: the gateway policy-signing key ({HOST_KEY_DIRNAME}/key.json) cannot be "
+            f"used, so {path} cannot be verified; refusing to overwrite its existing "
+            "authorizations. "
+            f"{host_key_problem(cfg_dir) or 'the signing key could not be loaded'}."
         )
     # Carry forward existing authorizations ONLY if the file is already validly
     # owner-signed. An unsigned/tampered map (what an agent could plant before the

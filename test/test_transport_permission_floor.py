@@ -1881,3 +1881,53 @@ async def test_client_transport_mints_under_the_lock_and_revokes_a_claimed_grant
     assert order == ["lock", "minted"]
     assert cap.consume("dashboard:member", claimed[0], event.raw_tool_params) is False
     assert cap._active == {}
+
+
+def _seed_grants(cap, monkeypatch):
+    """One pending and one claimed grant for the member, one pending for another session."""
+    monkeypatch.setattr(cap, "_pending", {})
+    monkeypatch.setattr(cap, "_active", {})
+    args = _mediated_event("r", "tc").raw_tool_params
+    for session, call in (
+        ("dashboard:member", "tc-1"),
+        ("dashboard:member", "tc-2"),
+        ("other", "tc-3"),
+    ):
+        assert cap.mint_for_gate_event(session, _mediated_event("r-" + call, call))
+    claimed = cap.claim("dashboard:member", "tc-2", args)
+    assert claimed
+    return args, claimed
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_handle_turn_revokes_its_mediated_grants_only(monkeypatch):
+    """A soft Stop must not leave an approved, delivered call able to run later."""
+    from kiro_crew import mediated_request_capability as cap
+
+    args, claimed = _seed_grants(cap, monkeypatch)
+    handle = _handle(session_key="dashboard:member")
+    handle._runtime.send_notification = AsyncMock()
+
+    await handle.cancel()
+
+    assert cap.claim("dashboard:member", "tc-1", args) == ""
+    assert cap.consume("dashboard:member", claimed, args) is False
+    # Another session's grant survives the cancel.
+    assert cap.claim("other", "tc-3", args)
+    handle._runtime.send_notification.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_client_turn_revokes_its_mediated_grants_only(monkeypatch, tmp_path):
+    from kiro_crew import mediated_request_capability as cap
+
+    args, claimed = _seed_grants(cap, monkeypatch)
+    client = _client(tmp_path)
+    client._session_key = "dashboard:member"
+    client._session_id = None  # no live process: the revoke must not depend on it
+
+    await client.cancel_session()
+
+    assert cap.claim("dashboard:member", "tc-1", args) == ""
+    assert cap.consume("dashboard:member", claimed, args) is False
+    assert cap.claim("other", "tc-3", args)

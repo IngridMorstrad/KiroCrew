@@ -814,7 +814,12 @@ before every spawn, so a policy publication (a rename inside the directory) neve
 replaces a mask mount point. The key document is certified by the independently hidden
 dashboard token-signing root. Gateway startup creates it; policy signing and
 verification never create it, and an occupied uncertified document fails closed
-instead of being adopted or replaced.
+instead of being adopted or replaced. Because a restart cannot repair such a
+document (a recreated `token_signing.key`, a partial data-home restore), the CLI
+error and the gateway's degradation audit both name the remedy
+(`provenance.UNUSABLE_KEY_REMEDY`): remove `secret-request-policy/key.json`,
+restart the gateway, then re-run `kirocrew secrets authorize`. A missing key says
+to start the gateway instead.
 
 After a credential-bearing send, EVERY outcome collapses to the same fixed
 withheld constant, padded until the normalized request timeout expires before
@@ -845,7 +850,10 @@ mint it as the LAST check under the ACP write lock, after the withdrawal, the
 runtime's liveness check and the grant deadline, and before the answer frame. No
 grant exists while an approval waits for that lock, so stopping a member during
 the wait leaves nothing to claim. If the answer is not delivered, the grant is
-revoked whether it is still pending or a caller has already claimed it. An approved call can wait
+revoked whether it is still pending or a caller has already claimed it. Cancelling
+a turn (both ACP cancel paths) revokes every pending and claimed grant of that
+session before the cancel goes out, so a call the operator stopped cannot run later
+on an approval it already received; other sessions' grants are untouched. An approved call can wait
 in the server's FIFO queue (`PENDING_CALLS_MAX` calls, each holding the worker
 for up to the stub's claim and request timeouts), so an unclaimed grant lives for
 that whole queue; once claimed it must be consumed within 30 s. An expired

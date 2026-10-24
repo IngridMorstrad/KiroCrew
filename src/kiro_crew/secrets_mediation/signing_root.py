@@ -14,7 +14,10 @@ import asyncio
 import logging
 from typing import Any
 
-from kiro_crew.secrets_mediation.provenance import initialize_secret_host_key
+from kiro_crew.secrets_mediation.provenance import (
+    UNUSABLE_KEY_REMEDY,
+    initialize_secret_host_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,14 @@ async def mint_mediation_signing_root() -> None:
     try:
         await asyncio.to_thread(initialize_secret_host_key)
     except (RuntimeError, OSError) as exc:
-        detail = str(exc)
+        # An occupied document that does not certify is never repaired, so a
+        # restart alone reproduces this; the audit names the operator's remedy.
+        detail = (
+            f"{exc}. A gateway restart does not repair an existing key document: "
+            f"{UNUSABLE_KEY_REMEDY}"
+            if isinstance(exc, RuntimeError)
+            else str(exc)
+        )
 
         def _audit_degradation() -> None:
             # Best-effort ONLY: the trigger is often the same unwritable or full

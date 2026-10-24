@@ -46,9 +46,12 @@ def test_mint_mediation_signing_root_degrades_on_invalid_signing_key(tmp_path, m
     # bounded filesystem init, so it must NOT run on the event loop thread.
     audit_threads: list[int] = []
 
+    audit_resources: list[str] = []
+
     class _RecordingSel:
-        def log_api_access(self, **_k: object) -> None:
+        def log_api_access(self, **k: object) -> None:
             audit_threads.append(threading.get_ident())
+            audit_resources.append(str(k.get("resources", "")))
 
     monkeypatch.setattr(_ta, "_sel_fn", lambda: _RecordingSel())
 
@@ -65,6 +68,9 @@ def test_mint_mediation_signing_root_degrades_on_invalid_signing_key(tmp_path, m
     assert verify_secret_authorizations({"K": {"origin": "https://x"}}, "0" * 64, tmp_path) is False
     # The degradation audit ran, and OFF the event loop thread (F3).
     assert audit_threads and loop_thread not in audit_threads
+    # A restart reproduces an occupied uncertifiable document, so the audit names
+    # the remedy rather than leaving the operator to restart forever.
+    assert audit_resources and provenance.UNUSABLE_KEY_REMEDY in audit_resources[0]
 
 
 def test_mint_mediation_signing_root_survives_a_failing_degradation_audit(
