@@ -160,7 +160,7 @@ async def test_create_cleanup_reads_the_live_machine_before_deleting(environment
     )
     cli.get.side_effect = SessionEnvironmentUnavailable("identity unavailable")
     with pytest.raises(SessionEnvironmentUnavailable, match="create failed"):
-        await env._create(KEY, env.profile("box"))
+        await env._create(KEY, env.profile("box"), KEY)
     cli.get.assert_awaited_once_with(NAME)
     cli.remove.assert_not_awaited()
     assert env.registry.get(KEY).name == NAME
