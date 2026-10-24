@@ -560,7 +560,10 @@ name; the bridge re-checks that id under the token it loads) on a POSIX
 gateway. boxd uses the gateway's own `boxd auth login`; a one-way fingerprint
 of `boxd auth --json` (account and active org) is recorded per machine, so a
 lookup miss under another account or org is refused, never read as a deletion,
-and so is a miss after which the account read differently than before it:
+and so is a miss after which the account read differently than before it.
+The fingerprint (Sprites: of the token) is saved with the reservation before
+the create, and the create refuses under any other one, so a create cut short
+before its record is bound still names the account its machine lives in.
 `boxd machine exec <m> -- sh -c <cmd>` streams stdin and stdout and returns the
 remote exit code like `coder ssh`, so `BoxdShell` drops into the unchanged
 launch, and the terminal is `boxd machine exec --tty <m>` changing into the

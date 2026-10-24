@@ -350,9 +350,21 @@ class PersistentVmEnvironments:
         """
         raise NotImplementedError
 
-    async def remote_create(self, profile: dict[str, Any], name: str) -> tuple[dict[str, Any], str]:
-        """Create ``name`` from the profile: the provider's record of it, and the
-        fingerprint of the credential that created it (as :meth:`remote_get`)."""
+    async def remote_credential(self, profile: dict[str, Any]) -> str:
+        """The fingerprint of the credential a create would use now (as
+        :meth:`remote_get`; "" for a provider with none of its own)."""
+        return ""
+
+    async def remote_create(
+        self, profile: dict[str, Any], name: str, *, used: str
+    ) -> dict[str, Any]:
+        """Create ``name`` from the profile and return the provider's record of it.
+
+        ``used`` is the fingerprint :meth:`remote_credential` returned, already
+        saved on the row: the create must go out under that same credential and
+        refuse when another one is current, so a row whose create was cut short
+        always names the account its machine lives in.
+        """
         raise NotImplementedError
 
     async def remote_delete(
@@ -508,6 +520,10 @@ class PersistentVmEnvironments:
         self, session_key: str, profile: dict[str, Any], progress_key: str
     ) -> SessionResource:
         report_start_stage(progress_key, "provisioning")
+        # The account is recorded with the reservation: a create cut short
+        # before its record is bound still names where its machine lives, so a
+        # later miss under another account keeps the row instead of replacing it.
+        used = await self.remote_credential(profile)
         row = SessionResource(
             session_key,
             str(profile["id"]),
@@ -515,11 +531,12 @@ class PersistentVmEnvironments:
             "",
             stamp(now_utc()),
             token_secret=str(profile.get("token_secret") or ""),
+            credential_id=used,
         )
         # Recorded before the create, so an archive (or a failure below) can delete it.
         await asyncio.to_thread(self.registry.put, row)
         try:
-            record, used = await self.remote_create(profile, row.name)
+            record = await self.remote_create(profile, row.name, used=used)
         except BaseException:
             try:
                 await self._delete(row)

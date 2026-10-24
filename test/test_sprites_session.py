@@ -274,6 +274,21 @@ async def test_a_blank_working_folder_runs_in_the_sprites_login_home(tmp_path):
 
 
 @sync
+async def test_a_sprite_is_created_only_under_the_token_its_row_recorded(tmp_path):
+    # The row names the token's fingerprint before the create; a token saved in
+    # between refuses the create instead of making a sprite in another account.
+    async with fake_api(tmp_path) as (fake, url):
+        envs, _seen = _envs(tmp_path, url, fake)
+        profile = envs.profile("fly-dev")
+        used = await envs.remote_credential(profile)
+        assert used and TOKEN not in used
+        envs._token_reader = lambda _name: "other-org/tok-2/another"
+        with pytest.raises(SessionEnvironmentUnavailable, match="changed before sprite"):
+            await envs.remote_create(profile, "kirocrew-0123456789abcdef", used=used)
+        assert envs.registry.all() == []
+
+
+@sync
 async def test_a_session_gets_a_sprite_and_its_worker_is_dialled_through_the_proxy(tmp_path):
     async with fake_api(tmp_path) as (fake, url):
         envs, seen = _envs(tmp_path, url, fake)
