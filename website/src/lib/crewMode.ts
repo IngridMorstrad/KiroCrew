@@ -93,6 +93,29 @@ export function withoutConductors<T extends { name: string; selection_kind?: str
   return choices.filter(c => c.selection_kind === 'member' || !isConductorAgent(c.name))
 }
 
+/** Every surface that can show a session's pending tool approval. Listed so one
+ *  test walks them all; a new surface joins the list and the rule below. */
+export const CREW_APPROVAL_SURFACES = [
+  'conductor_card',       // the conductor's approval card stack (CrewApprovalCards)
+  'worker_main_pane',     // the worker's own composer in the main pane
+  'worker_split_pane',    // the worker's composer in a Split View pane
+  'conductor_side_panel', // the conductor side panel's Approvals and attention tab
+  'session_dashboards',   // All Dashboards' Needs you section
+] as const
+export type CrewApprovalSurface = typeof CREW_APPROVAL_SURFACES[number]
+
+/** Whether *surface* may draw decision buttons (Approve, Reject, Trust) for
+ *  *slot*'s pending tool approval. The one rule, for every surface: a Crew Mode
+ *  worker's approval (a row with `crew_root`) is decided ONLY on its conductor's
+ *  approval card; every other surface shows it as info with a way to that card.
+ *  A session that is no worker keeps its usual controls everywhere. */
+export function crewApprovalDecidableHere(
+  slot: { crew_root?: string | null } | null | undefined, surface: CrewApprovalSurface,
+): boolean {
+  if (!slot?.crew_root) return true
+  return surface === 'conductor_card'
+}
+
 /** The person's own session list: a Crew Mode root's workers are left out (the
  *  side panel lists them under their root). `rootsOnly` keeps just the roots,
  *  for the session filter's Crew Mode chip. */

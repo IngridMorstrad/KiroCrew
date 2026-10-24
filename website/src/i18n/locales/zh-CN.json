@@ -157,7 +157,10 @@
     "timeline_loading": "正在加载时间线…",
     "workers_loading": "正在加载工作者…",
     "worker_reopen": "重新打开 {{title}} 查看",
-    "worker_reopen_failed": "无法重新打开该会话。请重试。"
+    "worker_reopen_failed": "无法重新打开该会话。请重试。",
+    "crew_approval_waiting": "等待工具决定的 worker：{{count}}",
+    "crew_approval_on_card": "请在 {{name}} 的审批卡片上决定。",
+    "open_approval_card": "打开审批卡片"
   },
   "terminalTab": {
     "rename": "重命名",
@@ -9647,7 +9650,10 @@
       "worker_open_conductor": "打开 {{name}}",
       "worker_root_closed_composer": "重新打开 {{name}} 以继续工作",
       "worker_reopen": "重新打开",
-      "steer_not_recorded": "已送达 {{name}}，但未记录到账本（{{reason}}）。"
+      "steer_not_recorded": "已发送给 {{name}}，但未记入台账。",
+      "steer_not_recorded_no_item": "已发送给 {{name}}，但未记入台账：该 worker 没有未完成的任务。",
+      "steer_not_recorded_crew_log_off": "已发送给 {{name}}，但未记入台账：crew 日志已关闭。",
+      "steer_not_recorded_ledger_failed": "已发送给 {{name}}，但未记入台账：写入台账失败。"
     },
     "guideLayer": {
       "region_label": "引导",

@@ -166,7 +166,10 @@
     "timeline_loading": "টাইমলাইন লোড হচ্ছে…",
     "workers_loading": "ওয়ার্কার লোড হচ্ছে…",
     "worker_reopen": "পড়তে {{title}} আবার খুলুন",
-    "worker_reopen_failed": "সেশনটি আবার খোলা যায়নি। আবার চেষ্টা করুন।"
+    "worker_reopen_failed": "সেশনটি আবার খোলা যায়নি। আবার চেষ্টা করুন।",
+    "crew_approval_waiting": "টুল সিদ্ধান্তের অপেক্ষায় ওয়ার্কার: {{count}}",
+    "crew_approval_on_card": "{{name}}-এর অনুমোদন কার্ডে সিদ্ধান্ত নিন।",
+    "open_approval_card": "অনুমোদন কার্ড খুলুন"
   },
   "terminalTab": {
     "rename": "নাম বদলাও",
@@ -9790,7 +9793,10 @@
       "worker_open_conductor": "{{name}} খুলুন",
       "worker_root_closed_composer": "কাজ চালিয়ে যেতে {{name}} আবার খুলুন",
       "worker_reopen": "আবার খুলুন",
-      "steer_not_recorded": "{{name}}-এ পৌঁছেছে, কিন্তু লেজারে লেখা হয়নি ({{reason}})।"
+      "steer_not_recorded": "{{name}}-কে পৌঁছানো হয়েছে, কিন্তু লেজারে লেখা হয়নি।",
+      "steer_not_recorded_no_item": "{{name}}-কে পৌঁছানো হয়েছে, কিন্তু লেজারে লেখা হয়নি: ওয়ার্কারের কোনো খোলা কাজ নেই।",
+      "steer_not_recorded_crew_log_off": "{{name}}-কে পৌঁছানো হয়েছে, কিন্তু লেজারে লেখা হয়নি: ক্রু লগ বন্ধ আছে।",
+      "steer_not_recorded_ledger_failed": "{{name}}-কে পৌঁছানো হয়েছে, কিন্তু লেজারে লেখা হয়নি: লেজারে লেখা ব্যর্থ হয়েছে।"
     },
     "guideLayer": {
       "region_label": "গাইড",

@@ -175,7 +175,10 @@
     "timeline_loading": "Chargement de la chronologie…",
     "workers_loading": "Chargement des exécutants…",
     "worker_reopen": "Rouvrir {{title}} pour le lire",
-    "worker_reopen_failed": "Impossible de rouvrir cette session. Réessayez."
+    "worker_reopen_failed": "Impossible de rouvrir cette session. Réessayez.",
+    "crew_approval_waiting": "Workers en attente d'une décision d'outil : {{count}}",
+    "crew_approval_on_card": "Décidez sur la carte d'approbation de {{name}}.",
+    "open_approval_card": "Ouvrir la carte d'approbation"
   },
   "terminalTab": {
     "rename": "Renommer",
@@ -9933,7 +9936,10 @@
       "worker_open_conductor": "Ouvrir {{name}}",
       "worker_root_closed_composer": "Rouvrez {{name}} pour continuer",
       "worker_reopen": "Rouvrir",
-      "steer_not_recorded": "Remis à {{name}}, mais non enregistré dans le registre ({{reason}})."
+      "steer_not_recorded": "Remis à {{name}}, mais non enregistré dans le registre.",
+      "steer_not_recorded_no_item": "Remis à {{name}}, mais non enregistré dans le registre : le worker n'a pas de tâche ouverte.",
+      "steer_not_recorded_crew_log_off": "Remis à {{name}}, mais non enregistré dans le registre : le journal de l'équipe est désactivé.",
+      "steer_not_recorded_ledger_failed": "Remis à {{name}}, mais non enregistré dans le registre : l'écriture dans le registre a échoué."
     },
     "guideLayer": {
       "region_label": "Guide",

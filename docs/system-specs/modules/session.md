@@ -715,8 +715,10 @@ else the board's newest recorded work unit, so it lands when the root has no liv
 session. The reply carries `ledger_event` (the item id) or `ledger_error`
 (`no_item`, `crew_log_off`, `crew_log_unit_unknown`, `not_recorded`), and a
 delivered steer with a `ledger_error` gets one muted line under the worker's
-composer ("Delivered to <worker>, but not recorded on the ledger: <reason>", the
-reason a localized sentence per code with a generic one for an unknown code). Both paths
+composer: one localized sentence per code ("Delivered to <worker>, but not recorded
+on the ledger: the worker has no open task", "... the crew log is off", "... the
+ledger write failed"), and a generic one for an unknown code; never the raw code
+(`steerUnrecordedLine`). Both paths
 refuse a message over 50,000 characters (`message_too_long`) before anything is
 queued, and the composer keeps the draft and says so. A `steer` newer than a
 worker's `question` report answers it on the board (`_is_outstanding`). Both routes take the root dashboard read's gate

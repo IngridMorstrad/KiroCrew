@@ -157,7 +157,10 @@
     "timeline_loading": "타임라인 불러오는 중…",
     "workers_loading": "작업자 불러오는 중…",
     "worker_reopen": "{{title}} 다시 열어 읽기",
-    "worker_reopen_failed": "세션을 다시 열지 못했습니다. 다시 시도하세요."
+    "worker_reopen_failed": "세션을 다시 열지 못했습니다. 다시 시도하세요.",
+    "crew_approval_waiting": "도구 결정을 기다리는 워커: {{count}}",
+    "crew_approval_on_card": "{{name}}의 승인 카드에서 결정하세요.",
+    "open_approval_card": "승인 카드 열기"
   },
   "terminalTab": {
     "rename": "이름 변경",
@@ -9647,7 +9650,10 @@
       "worker_open_conductor": "{{name}} 열기",
       "worker_root_closed_composer": "계속 작업하려면 {{name}}을(를) 다시 여세요",
       "worker_reopen": "다시 열기",
-      "steer_not_recorded": "{{name}}에 전달했지만 원장에 기록되지 않았습니다({{reason}})."
+      "steer_not_recorded": "{{name}}에 전달했지만 원장에 기록되지 않았습니다.",
+      "steer_not_recorded_no_item": "{{name}}에 전달했지만 원장에 기록되지 않았습니다: 워커에 열린 작업이 없습니다.",
+      "steer_not_recorded_crew_log_off": "{{name}}에 전달했지만 원장에 기록되지 않았습니다: 크루 로그가 꺼져 있습니다.",
+      "steer_not_recorded_ledger_failed": "{{name}}에 전달했지만 원장에 기록되지 않았습니다: 원장 기록에 실패했습니다."
     },
     "guideLayer": {
       "region_label": "가이드",

@@ -184,7 +184,10 @@
     "timeline_loading": "Загрузка хронологии…",
     "workers_loading": "Загрузка исполнителей…",
     "worker_reopen": "Открыть {{title}} снова для чтения",
-    "worker_reopen_failed": "Не удалось снова открыть сеанс. Попробуйте ещё раз."
+    "worker_reopen_failed": "Не удалось снова открыть сеанс. Попробуйте ещё раз.",
+    "crew_approval_waiting": "Исполнители ждут решения по инструменту: {{count}}",
+    "crew_approval_on_card": "Решите на карточке одобрения в {{name}}.",
+    "open_approval_card": "Открыть карточку одобрения"
   },
   "terminalTab": {
     "rename": "Переименовать",
@@ -10076,7 +10079,10 @@
       "worker_open_conductor": "Открыть {{name}}",
       "worker_root_closed_composer": "Откройте {{name}} снова, чтобы продолжить работу",
       "worker_reopen": "Открыть снова",
-      "steer_not_recorded": "Доставлено {{name}}, но не записано в журнал ({{reason}})."
+      "steer_not_recorded": "Доставлено {{name}}, но не записано в журнал.",
+      "steer_not_recorded_no_item": "Доставлено {{name}}, но не записано в журнал: у исполнителя нет открытой задачи.",
+      "steer_not_recorded_crew_log_off": "Доставлено {{name}}, но не записано в журнал: журнал команды выключен.",
+      "steer_not_recorded_ledger_failed": "Доставлено {{name}}, но не записано в журнал: запись в журнал не удалась."
     },
     "guideLayer": {
       "region_label": "Руководство",

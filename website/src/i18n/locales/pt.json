@@ -175,7 +175,10 @@
     "timeline_loading": "Carregando a linha do tempo…",
     "workers_loading": "Carregando os trabalhadores…",
     "worker_reopen": "Reabrir {{title}} para ler",
-    "worker_reopen_failed": "Não foi possível reabrir a sessão. Tente de novo."
+    "worker_reopen_failed": "Não foi possível reabrir a sessão. Tente de novo.",
+    "crew_approval_waiting": "Workers aguardando uma decisão de ferramenta: {{count}}",
+    "crew_approval_on_card": "Decida no cartão de aprovação em {{name}}.",
+    "open_approval_card": "Abrir o cartão de aprovação"
   },
   "terminalTab": {
     "rename": "Renomear",
@@ -9933,7 +9936,10 @@
       "worker_open_conductor": "Abrir {{name}}",
       "worker_root_closed_composer": "Reabra {{name}} para continuar trabalhando",
       "worker_reopen": "Reabrir",
-      "steer_not_recorded": "Entregue a {{name}}, mas não registrado no ledger ({{reason}})."
+      "steer_not_recorded": "Entregue a {{name}}, mas não registrado no livro.",
+      "steer_not_recorded_no_item": "Entregue a {{name}}, mas não registrado no livro: o worker não tem tarefa aberta.",
+      "steer_not_recorded_crew_log_off": "Entregue a {{name}}, mas não registrado no livro: o log da crew está desligado.",
+      "steer_not_recorded_ledger_failed": "Entregue a {{name}}, mas não registrado no livro: a gravação no livro falhou."
     },
     "guideLayer": {
       "region_label": "Guia",

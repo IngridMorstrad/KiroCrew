@@ -7,6 +7,7 @@ import { api } from '../../../api/client'
 import { useAppDispatch, useAppSelector, useAppStore } from '../../../store'
 import { appendSlotMessage, clearQuestionCard, isAnsweredQuestionEnding, markQuestionSettled, resolveQuestionCard, selectComposerBusy, setQuestionRequestInFlight } from '../../../store/chatSlice'
 import { restoreToComposer } from '../../../utils/composerRestore'
+import { sessionDisplayTitle } from '../../../utils/sessionDisplayTitle'
 import { answerFailureKey, answerRejectionReason, answerRestoredCommandCenterNotice, answersAsText, questionName } from '../../../utils/questionAnswers'
 import { sendTurn } from '../../../chat-core/transport/sendTurn'
 import { slotBusySteer } from '../../../components/chat-input/busySend'
@@ -41,6 +42,34 @@ export function RestoredQuestionNotice({ slot, question, title, onDismiss }: {
     >
       {t('commandCenter.open_session')}<ArrowUpRight size={13} />
     </Link>
+  </section>
+}
+
+/** A Crew Mode worker's tool approval, outside the conductor's approval card:
+ *  information with a link to that card, never a decision (`crewApprovalDecidableHere`). */
+function CrewCardNotice({ item, title, onOpenSession }: {
+  item: AttentionItem
+  title: string
+  onOpenSession?: (slot: string) => void
+}) {
+  const { t } = useTranslation()
+  const root = item.crewCard!
+  const rootRow = useAppSelector(state => state.dashboard.slots.find(slot => slot.key === root))
+  const rootTitle = rootRow ? sessionDisplayTitle(rootRow) : t('components.crewMode.eyebrow')
+  const rollup = item.crewCount !== undefined
+  const heading = rollup
+    ? t('commandCenter.crew_approval_waiting', { count: item.crewCount })
+    : item.approval ? approvalTitle(item.approval) || t('commandCenter.approval_needed') : t('commandCenter.approval_needed')
+  const linkClass = 'text-accent text-[12px] inline-flex items-center gap-1 shrink-0'
+  return <section className="rounded-lg border border-border bg-card p-3 space-y-2" data-testid="crew-approval-notice">
+    <div className="flex items-center gap-2 min-w-0">
+      <h3 className="text-sm font-semibold break-words min-w-0 flex-1"><ShieldCheck size={15} className="lucide-inline" />{heading}</h3>
+      {onOpenSession
+        ? <button type="button" onClick={() => onOpenSession(root)} className={linkClass}>{t('commandCenter.open_approval_card')}<ArrowUpRight size={13} /></button>
+        : <Link to={`/chat?sid=${encodeURIComponent(root)}`} className={linkClass}>{t('commandCenter.open_approval_card')}<ArrowUpRight size={13} /></Link>}
+    </div>
+    {!rollup && <p className="text-[12px] text-muted break-words">{t('commandCenter.from_session', { name: title })}</p>}
+    <p className="text-[12px] text-warn break-words">{t('commandCenter.crew_approval_on_card', { name: rootTitle })}</p>
   </section>
 }
 
@@ -185,6 +214,7 @@ export default function AttentionCard({ item, title, context, onDraftChange, onO
     mutation.mutate(action)
   }
   if (settledElsewhere) return null
+  if (item.crewCard) return <CrewCardNotice item={item} title={title} onOpenSession={onOpenSession} />
   return <section className="rounded-lg border border-border bg-card p-3 space-y-3">
     <div className="flex items-center gap-2 min-w-0">
       <h3 className="text-sm font-semibold break-words min-w-0 flex-1">{item.approval && <ShieldCheck size={15} className="lucide-inline" />}{approvalHeading || title}</h3>

@@ -166,7 +166,10 @@
     "timeline_loading": "Zeitleiste wird geladen…",
     "workers_loading": "Mitarbeiter werden geladen…",
     "worker_reopen": "{{title}} zum Lesen wieder öffnen",
-    "worker_reopen_failed": "Die Sitzung ließ sich nicht wieder öffnen. Versuche es erneut."
+    "worker_reopen_failed": "Die Sitzung ließ sich nicht wieder öffnen. Versuche es erneut.",
+    "crew_approval_waiting": "Worker, die auf eine Tool-Entscheidung warten: {{count}}",
+    "crew_approval_on_card": "Entscheide auf der Freigabekarte in {{name}}.",
+    "open_approval_card": "Freigabekarte öffnen"
   },
   "terminalTab": {
     "rename": "Umbenennen",
@@ -9790,7 +9793,10 @@
       "worker_open_conductor": "{{name}} öffnen",
       "worker_root_closed_composer": "Öffne {{name}} wieder, um weiterzuarbeiten",
       "worker_reopen": "Wieder öffnen",
-      "steer_not_recorded": "An {{name}} zugestellt, aber nicht im Ledger erfasst ({{reason}})."
+      "steer_not_recorded": "An {{name}} zugestellt, aber nicht im Ledger erfasst.",
+      "steer_not_recorded_no_item": "An {{name}} zugestellt, aber nicht im Ledger erfasst: der Worker hat keine offene Aufgabe.",
+      "steer_not_recorded_crew_log_off": "An {{name}} zugestellt, aber nicht im Ledger erfasst: das Crew-Log ist aus.",
+      "steer_not_recorded_ledger_failed": "An {{name}} zugestellt, aber nicht im Ledger erfasst: das Schreiben ins Ledger ist fehlgeschlagen."
     },
     "guideLayer": {
       "region_label": "Anleitung",

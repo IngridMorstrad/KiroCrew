@@ -7,7 +7,7 @@ import { createTestStore } from '../../test/helpers'
 const api = vi.hoisted(() => ({ crewWorkers: vi.fn() }))
 vi.mock('../../api/client', () => ({ api }))
 
-import { CrewWorkerComposerGate } from './CrewWorkerComposerGate'
+import { CrewWorkerComposerGate, steerUnrecordedLine } from './CrewWorkerComposerGate'
 import { clearCrewSteerNotice, noteCrewSteerReceipt } from '../../lib/crewSteerNotice'
 
 async function renderGate(slots: unknown[], waitingForApproval = false) {
@@ -33,12 +33,25 @@ describe('CrewWorkerComposerGate (edge review R2)', () => {
     await renderGate(live)
     expect(screen.queryByTestId('crew-steer-not-recorded')).toBeNull()
     act(() => { noteCrewSteerReceipt('w1', { ok: true, ledger_event: null, ledger_error: 'crew_log_off' }) })
-    expect(screen.getByTestId('crew-steer-not-recorded')).toHaveTextContent('Delivered to Worker B, but not recorded on the ledger (crew_log_off).')
+    expect(screen.getByTestId('crew-steer-not-recorded')).toHaveTextContent('Delivered to Worker B, but not recorded on the ledger: the crew log is off.')
     // A later recorded steer clears it; a plain send (no ledger fields) leaves it alone.
     act(() => { noteCrewSteerReceipt('w1', { ok: true }) })
     expect(screen.getByTestId('crew-steer-not-recorded')).toBeInTheDocument()
     act(() => { noteCrewSteerReceipt('w1', { ok: true, ledger_event: 'it_1', ledger_error: null }) })
     expect(screen.queryByTestId('crew-steer-not-recorded')).toBeNull()
+  })
+
+  it('G7: each ledger code reads as a sentence, never the raw code', async () => {
+    api.crewWorkers.mockResolvedValue({ root: 'root', workers: [] })
+    await renderGate(live)
+    act(() => { noteCrewSteerReceipt('w1', { ok: true, ledger_event: null, ledger_error: 'no_item' }) })
+    const line = screen.getByTestId('crew-steer-not-recorded')
+    expect(line).toHaveTextContent('Delivered to Worker B, but not recorded on the ledger: the worker has no open task.')
+    expect(line.textContent).not.toContain('no_item')
+    expect(steerUnrecordedLine('crew_log_unit_unknown', 'W')).toBe('Delivered to W, but not recorded on the ledger: the ledger write failed.')
+    expect(steerUnrecordedLine('not_recorded', 'W')).toBe('Delivered to W, but not recorded on the ledger: the ledger write failed.')
+    expect(steerUnrecordedLine('some_new_code', 'W')).toBe('Delivered to W, but not recorded on the ledger.')
+    act(() => { clearCrewSteerNotice('w1') })
   })
 
   it('F6: a queued steer (recorded at delivery) is not called unrecorded', async () => {

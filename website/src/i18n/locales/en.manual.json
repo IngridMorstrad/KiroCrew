@@ -166,7 +166,10 @@
     "timeline_loading": "Loading the timeline…",
     "workers_loading": "Loading the workers…",
     "worker_reopen": "Reopen {{title}} to read it",
-    "worker_reopen_failed": "Could not reopen that session. Try again."
+    "worker_reopen_failed": "Could not reopen that session. Try again.",
+    "crew_approval_waiting": "Workers waiting for a tool decision: {{count}}",
+    "crew_approval_on_card": "Decide it on the approval card in {{name}}.",
+    "open_approval_card": "Open the approval card"
   },
   "terminalTab": {
     "rename": "Rename",
@@ -4041,7 +4044,10 @@
       "worker_open_conductor": "Open {{name}}",
       "worker_root_closed_composer": "Reopen {{name}} to keep working",
       "worker_reopen": "Reopen",
-      "steer_not_recorded": "Delivered to {{name}}, but not recorded on the ledger ({{reason}})."
+      "steer_not_recorded": "Delivered to {{name}}, but not recorded on the ledger.",
+      "steer_not_recorded_no_item": "Delivered to {{name}}, but not recorded on the ledger: the worker has no open task.",
+      "steer_not_recorded_crew_log_off": "Delivered to {{name}}, but not recorded on the ledger: the crew log is off.",
+      "steer_not_recorded_ledger_failed": "Delivered to {{name}}, but not recorded on the ledger: the ledger write failed."
     },
     "guideLayer": {
       "region_label": "Guide",

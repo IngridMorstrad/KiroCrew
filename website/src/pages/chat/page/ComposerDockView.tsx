@@ -3,7 +3,7 @@ import { useId, useState, type RefObject, type Dispatch, type SetStateAction, ty
 import { OverlayPortal } from '../../../components/overlayRoot'
 import { Send, Undo2 } from 'lucide-react'
 import { CrewModeComposerChip, CrewModeMarkSource } from '../../../components/crew/CrewModeMarks'
-import { CREW_STEER_MAX_CHARS } from '../../../lib/crewMode'
+import { CREW_STEER_MAX_CHARS, crewApprovalDecidableHere } from '../../../lib/crewMode'
 import CrewApprovalCards from '../../../components/crew/CrewApprovalCards'
 import { CrewWorkerComposerGate } from '../../../components/crew/CrewWorkerComposerGate'
 import { useCrewRoot } from '../../../components/crew/useCrewRoot'
@@ -565,7 +565,7 @@ export default function ComposerDockView({
               lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : steerRootClosed ? i18nT('components.crewMode.worker_root_closed_composer', { name: steerRootTitle }) : undefined}
               // A worker's approval band (Allow once / Trust / Reject) is not drawn:
               // the conductor's approval card is the one place it is decided.
-              slotApprovalChrome={!crewWorkerView}
+              slotApprovalChrome={crewApprovalDecidableHere({ crew_root: crewWorkerView ? steerWorkerRoot : '' }, 'worker_main_pane')}
               // A worker's steer composer: its placeholder names the worker, and a
               // running turn takes the text as a steer (no queue choice to make).
               // The hint under it says which of the two a send does: cut into the

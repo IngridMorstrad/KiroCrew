@@ -13,6 +13,9 @@ import type { ChatSlot, PendingApproval } from '../../types'
 /** The longest tool input a card shows; the server cuts its copy the same way. */
 export const CREW_APPROVAL_INPUT_MAX = 2000
 
+/** One request's key in `firstSeen`: its worker and request id. */
+const requestKey = (worker: string, requestId: string): string => [worker, requestId].join('\u0000')
+
 /** When this tab first saw each pending request, so the stack is oldest first. */
 const firstSeen = new Map<string, number>()
 
@@ -39,13 +42,13 @@ export function crewApprovalRequests(
   for (const slot of slots) {
     const info = slot.pending_approval_info
     if (slot.crew_root !== root || !slot.pending_approval || !info?.request_id) continue
-    const id = `${slot.key}\u0000${info.request_id}`
+    const id = requestKey(slot.key, info.request_id)
     if (!firstSeen.has(id)) firstSeen.set(id, now)
     out.push({ worker: slot.key, title: sessionDisplayTitle(slot), task: tasks.get(slot.key) ?? '', approval: info })
   }
   out.sort((a, b) =>
-    (firstSeen.get(`${a.worker}\u0000${a.approval.request_id}`) ?? 0)
-    - (firstSeen.get(`${b.worker}\u0000${b.approval.request_id}`) ?? 0))
+    (firstSeen.get(requestKey(a.worker, a.approval.request_id)) ?? 0)
+    - (firstSeen.get(requestKey(b.worker, b.approval.request_id)) ?? 0))
   return out
 }
 

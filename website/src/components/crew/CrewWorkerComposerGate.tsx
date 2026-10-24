@@ -8,6 +8,19 @@ import { clearCrewSteerNotice, useCrewSteerNotice } from '../../lib/crewSteerNot
 import ErrorNotice from '../ErrorNotice'
 import { useCrewRoot } from './useCrewRoot'
 
+/** The line for a steer the ledger did not record (edge review R3 G7): one whole
+ *  sentence per server code, and a generic one for an unknown code, never the raw
+ *  code. Literal keys, so the catalog tooling sees every one. Exported for tests. */
+export function steerUnrecordedLine(code: string, name: string): string {
+  switch (code) {
+    case 'no_item': return i18nT('components.crewMode.steer_not_recorded_no_item', { name })
+    case 'crew_log_off': return i18nT('components.crewMode.steer_not_recorded_crew_log_off', { name })
+    case 'crew_log_unit_unknown':
+    case 'not_recorded': return i18nT('components.crewMode.steer_not_recorded_ledger_failed', { name })
+    default: return i18nT('components.crewMode.steer_not_recorded', { name })
+  }
+}
+
 /**
  * What a Crew Mode worker's own composer says in place of the decisions it does
  * not make (edge review R2 Y1, Y2, F6). Owner decisions:
@@ -66,7 +79,7 @@ export function CrewWorkerComposerGate({ root, worker, workerTitle, waitingForAp
       {reopenFailed && <ErrorNotice variant="inline" message={i18nT('commandCenter.worker_reopen_failed')} />}
       {unrecorded && (
         <p className="mt-1 px-1 text-[11px] text-muted" data-testid="crew-steer-not-recorded">
-          {i18nT('components.crewMode.steer_not_recorded', { name: workerTitle, reason: unrecorded })}
+          {steerUnrecordedLine(unrecorded, workerTitle)}
           {' '}
           <button type="button" onClick={() => clearCrewSteerNotice(worker)}
             aria-label={i18nT('components.errorNotice.dismiss')}
