@@ -182,7 +182,7 @@ def project_agent_view(
     crew_home_id: str,
     inherits_skills: bool,
     per_session_element: bool,
-    registry_mode: bool = False,
+    registry_mode: bool | None = None,
 ) -> tuple[dict[str, Any] | None, bool, str | None]:
     """*spec*'s native skill view: ``(view, is_search_agent, refusal)``.
 
@@ -190,14 +190,19 @@ def project_agent_view(
     ``kirocrew-core``'s ``skill_search`` instead; every other field is the spec's own.
     *source* is the spec's file, which a relative ``file://`` prompt is anchored to.
     *inherits_skills* says the agent's workspace lends it inherited skill trees.
-    *registry_mode* leaves the agent as authored: its ``skill://`` resources kept,
-    no ``kirocrew-core`` element and no ``skill_search`` injected, never a search
-    agent -- see :func:`prepare_native_skill_projection`, which reads the mode once.
+    Under registry mode the agent is left as authored: its ``skill://`` resources
+    kept, no ``kirocrew-core`` element and no ``skill_search`` injected, never a
+    search agent -- see :func:`prepare_native_skill_projection`. *registry_mode*
+    ``None`` reads the mode here, so every caller (the app launch copy too) agrees
+    with the mount; :func:`prepare_native_skill_projection` passes the value it
+    read once for all its agents.
     ``view`` is ``None``, with the sentence that says why, when the view is refused.
     Shared by :func:`prepare_native_skill_projection` and the app launch copy
     (``apps.agent_launch``), so the two views cannot drift apart.
     """
     search = False
+    if registry_mode is None:
+        registry_mode = session_mcp._registry_mode()
     # An iterative copy, not ``copy.deepcopy``: the reader admits a spec
     # nested hundreds of levels deep, and a recursive copy of it would
     # raise ``RecursionError`` out of the projection.

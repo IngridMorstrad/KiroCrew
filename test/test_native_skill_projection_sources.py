@@ -460,6 +460,33 @@ async def test_registry_mode_leaves_the_agent_as_authored_and_starts_the_session
     assert "skill://writing-tests" in direct.specs["kirocrew"]["resources"]
 
 
+def test_registry_mode_leaves_an_app_launch_copy_as_authored_too(tree, monkeypatch):
+    """The app launch copy runs the same view transform, so it reads the same ceiling.
+
+    ``apps.agent_launch`` builds its copy through ``native_skill_view`` without
+    calling the preparation. If that path did not read registry mode it would
+    still strip the copy's ``skill://`` resources and mark it a search copy, and
+    its session would meet the same "Cannot bind skill_search" abort.
+    """
+    from kiro_crew.agent_sdk.drivers.acp import native_skill_view
+
+    spec = {
+        "name": "kirocrew",
+        "tools": ["*"],
+        "resources": ["skill://writing-tests", "file://RULES.md"],
+        "mcpServers": {"kirocrew-core": MANAGED},
+    }
+    source = tree.agents / "kirocrew.json"
+    monkeypatch.setattr(session_mcp, "_registry_mode", lambda: True)
+    view, search, refusal = native_skill_view(spec, source, "kirocrew", crew_home_id="home")
+    assert refusal is None and search is False
+    assert "skill://writing-tests" in view["resources"]
+    assert projection._SEARCH_TOOL not in view.get("tools", [])
+    monkeypatch.setattr(session_mcp, "_registry_mode", lambda: False)
+    view, search, _ = native_skill_view(spec, source, "kirocrew", crew_home_id="home")
+    assert search is True and "skill://writing-tests" not in view["resources"]
+
+
 @pytest.mark.asyncio
 async def test_a_search_agent_with_nothing_granting_the_element_still_reaches_the_guard(
     tree, monkeypatch

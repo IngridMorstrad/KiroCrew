@@ -413,7 +413,9 @@ that with Crew's own discovery (the unmarked managed entry is dropped by the
 registry filter on both clients), so the overlay is skipped for BOTH clients under
 the mode -- native inheritance is restored rather than disabled -- keeping the
 decision identical across clients so alternating spawns on one workspace do not
-rewrite it against each other.
+rewrite it against each other. The app launch copy (`apps.agent_launch`) runs
+the same per-agent transform (`project_agent_view`), which reads the mode itself
+when no caller passes it, so a governed app agent is left as authored too.
 
 The workspace overlay owns `chat.disableInheritingDefaultResources=true` while
 Crew supplies discovery. Only literal JSON `true` in the original native setting
