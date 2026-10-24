@@ -92,6 +92,7 @@ class TestClassifySessionKey:
 
 
 class TestDefaultSessionTitle:
+
     @pytest.mark.parametrize(
         ("key", "kind", "expected"),
         [
@@ -630,9 +631,7 @@ class TestSessionsIncludeEndedArgument:
 
         slack = MockSlackClient()
         with patch("kiro_crew.slack.handler._collect_recent_sessions_off_loop", _fake):
-            await _handle_sessions_command(
-                command, slack, "C1", "1.0", "1.0", "slack:C1", None
-            )
+            await _handle_sessions_command(command, slack, "C1", "1.0", "1.0", "slack:C1", None)
         assert seen["include_ended"] is include_ended
 
 
