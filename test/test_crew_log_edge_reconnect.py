@@ -338,7 +338,6 @@ def test_reconnect_after_resume_repair_produces_coherent_new_turn():
         for e in body_after_repair
     ), "resume did not repair"
 
-    # Now the resumed process starts a new turn.
     emit.on_turn_started(SESSION, 2, "user")
     emit.on_tool_called(SESSION, 2, name="fs_write", call_id="tc-2")
     assert emit.flush()
