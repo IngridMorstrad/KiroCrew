@@ -303,7 +303,9 @@ class TestIsAncestor:
                 False,
                 id="test_a_cited_creator_with_no_log_ends_the_chain",
             ),
-            pytest.param("anyone", "missing", {}, False, id="test_an_unknown_slot_has_no_ancestors"),
+            pytest.param(
+                "anyone", "missing", {}, False, id="test_an_unknown_slot_has_no_ancestors"
+            ),
         ],
     )
     def test_ancestry_follows_creator_edges(self, ancestor, descendant, nodes, expected) -> None:
@@ -357,7 +359,9 @@ class TestFoldHolders:
     @pytest.mark.parametrize(
         ("number", "a", "b", "winner"),
         [
-            pytest.param(3, (10, 1), (20, 1), "b", id="test_among_unrelated_sessions_the_newest_wins"),
+            pytest.param(
+                3, (10, 1), (20, 1), "b", id="test_among_unrelated_sessions_the_newest_wins"
+            ),
             pytest.param(
                 4, (10, 1), (10, 9), "b", id="test_a_tie_on_recency_falls_to_the_larger_count"
             ),
