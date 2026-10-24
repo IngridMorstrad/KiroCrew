@@ -1406,6 +1406,5 @@ class TestToolBloatFixesRevocationsAndAliases:
 
         path = _run_install(tmp_path, cfg_dir)
         config = json.loads(path.read_text(encoding="utf-8"))
-        # Should get defaults (fresh install path)
         assert config["model"] == "claude-default"
         assert "@kirocrew-cron" in config["tools"]
