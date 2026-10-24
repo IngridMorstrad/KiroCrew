@@ -231,7 +231,7 @@ level before any tab exists is read by a tab created after it, as a session cook
 | Trigger | What happens |
 |---|---|
 | Every launch and relaunch | `_start` applies both sources before the daemon starts |
-| An agent `navigate` or `tabs` op | the op route (`dashboard/handlers/browser_ops.py`, under the gateway-wide op lock) calls `refresh_credentials_if_source_changed()`: one `fingerprint()` call bounded at 2 s; when it differs from the value read at the last apply, both sources are re-pulled before the page loads. `None` means "cannot tell" and nothing is re-pulled. A failure never fails the op |
+| An agent `navigate` or `tabs` op | the op route (`dashboard/handlers/browser_ops.py`, under the gateway-wide op lock) calls `refresh_credentials_if_source_changed()`: one `fingerprint()` call bounded at 2 s; when it differs from the value read at the last apply, both sources are re-pulled before the page loads. `None` means "cannot tell" and nothing is re-pulled. The re-pull is bounded at 8 s (`NAV_REFRESH_BUDGET_SECS`): past it the page loads with what the browser holds, `reason` reads `refresh_timeout`, and the old fingerprint is kept so the next navigation retries. A failure never fails the op |
 | `refresh_credentials()` / `POST /api/browser/credentials/refresh`, and every import | re-pull into a live browser without a relaunch |
 
 The navigation trigger is the one a person re-running their sign-in tool relies on:

@@ -135,6 +135,11 @@ WORKER_LINE_LIMIT = 8 * 1024 * 1024
 #: the work to that start: a start can hold the lock without deadline on the person's
 #: Allow sheet, and an owner's HTTP request must not hang behind it.
 CREDENTIAL_LOCK_WAIT_SECS = 5.0
+#: The most the re-pull after a changed credential source may take before an agent
+#: navigation. It runs after the ``fingerprint()`` check
+#: (``credentials.FINGERPRINT_TIMEOUT_SECS``) and the lock wait (``CREDENTIAL_LOCK_WAIT_SECS``), so a navigation waits at most
+#: the three together.
+NAV_REFRESH_BUDGET_SECS = 8.0
 
 #: Chromium flags. On POSIX ``--remote-debugging-pipe`` speaks CDP over fds 3 and 4 and
 #: opens NO port, so nothing in the agent sandbox can reach the browser except through
@@ -576,8 +581,13 @@ class HarnessSupervisor:
     async def refresh_credentials_if_source_changed(self) -> bool:
         """Before an agent navigation: re-pull when the provider's fingerprint moved.
 
-        Cheap when nothing changed (one bounded ``fingerprint()`` call). Returns
-        whether it re-applied. Never raises for a provider failure.
+        Cheap when nothing changed (one bounded ``fingerprint()`` call). The re-pull
+        is bounded by :data:`NAV_REFRESH_BUDGET_SECS` (after the bounded fingerprint
+        check and lock wait), so a slow provider cannot hold the navigation: past
+        the bound it goes ahead
+        with what the browser holds, the status says ``refresh_timeout``, and the old
+        fingerprint is kept so the next navigation tries again. Returns whether it
+        re-applied. Never raises for a provider failure.
         """
         provider = self._provider()
         fingerprint = await credentials.provider_fingerprint(provider)
@@ -586,11 +596,25 @@ class HarnessSupervisor:
         if not await self._acquire_briefly():
             self._credentials_dirty = True
             return False
+        previous = self._fingerprint
         try:
             handle = self._handle
             if handle is None or not self.connected or handle.choice.kind != "kiro_chromium":
                 return False
-            await self._apply_credentials(handle.relay, handle.choice, "source_changed")
+            try:
+                await asyncio.wait_for(
+                    self._apply_credentials(handle.relay, handle.choice, "source_changed"),
+                    NAV_REFRESH_BUDGET_SECS,
+                )
+            except asyncio.TimeoutError:
+                self._fingerprint = previous
+                self._credentials.reason = "refresh_timeout"
+                logger.warning("browser credentials: re-pull before navigation timed out")
+                return False
+            except asyncio.CancelledError:
+                # Not applied: keep the old fingerprint so the next navigation retries.
+                self._fingerprint = previous
+                raise
             return True
         finally:
             self._ensure_lock.release()

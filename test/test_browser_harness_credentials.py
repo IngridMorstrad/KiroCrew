@@ -873,3 +873,34 @@ async def test_a_provider_status_that_hangs_does_not_hold_the_start(
         assert await credentials._bounded_provider_status(Hangs()) is None
     finally:
         gate.set()
+
+
+@pytest.mark.asyncio
+async def test_a_slow_re_pull_never_holds_the_navigation_past_its_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import threading
+
+    gate = threading.Event()
+
+    class Slow(FakeProvider):
+        def cookies(self, target: Any) -> list[dict[str, Any]]:
+            if target.reason == "source_changed":
+                gate.wait()
+            return super().cookies(target)
+
+    provider = Slow()
+    provider.fp = "v1"
+    sup, _events, _relays, _argvs = _supervisor_with_fakes(tmp_path, monkeypatch, provider)
+    await sup.ensure()
+    monkeypatch.setattr(supervisor, "NAV_REFRESH_BUDGET_SECS", 0.05)
+    provider.fp = "v2"
+    try:
+        assert await asyncio.wait_for(sup.refresh_credentials_if_source_changed(), 5.0) is False
+    finally:
+        gate.set()
+    assert sup.status()["credentials"]["reason"] == "refresh_timeout"
+    # The old fingerprint is kept, so the next navigation tries again.
+    monkeypatch.setattr(supervisor, "NAV_REFRESH_BUDGET_SECS", 5.0)
+    assert await sup.refresh_credentials_if_source_changed() is True
