@@ -352,9 +352,9 @@ class TestBackfillFormatting:
         content = filler + split_secret + ("z" * 200)
 
         assert len(content) > boundary, "no split would happen at all"
-        assert (
-            len(filler) < cut < len(filler) + len(split_secret)
-        ), "the credential must straddle the cut for this test to mean anything"
+        assert len(filler) < cut < len(filler) + len(split_secret), (
+            "the credential must straddle the cut for this test to mean anything"
+        )
         _seed(slot, [("user", "paste"), ("assistant", content)])
 
         posted = await _drain(state, slot)
@@ -499,7 +499,9 @@ class TestBackfillOffWindowFirstTurn:
     async def test_transcript_read_failure_degrades_to_memory(self, tmp_path):
         state = _state(tmp_path)
         slot = state.get_or_create_slot("s1")
-        state.conversation_log.read_messages_chained = MagicMock(side_effect=OSError("disk gone"))
+        state.conversation_log.read_messages_chained = MagicMock(
+            side_effect=OSError("disk gone")
+        )
         rows = []
         for i in range(1, 8):
             rows.append(("user", f"q{i}"))
@@ -570,7 +572,9 @@ class TestBackfillHandlerWiring:
         assert "Session linked from dashboard" in sent[0], "anchor must be posted first"
         # sent[0] is the anchor, whose title legitimately quotes the first user
         # prompt — so only the posts AFTER it can evidence a completed backfill.
-        assert sent[1:] == [], "the request waited for the backfill instead of backgrounding it"
+        assert sent[1:] == [], (
+            "the request waited for the backfill instead of backgrounding it"
+        )
 
         pending = [t for t in state._background_tasks if not t.done()]
         assert pending, "link did not register a background drain"
