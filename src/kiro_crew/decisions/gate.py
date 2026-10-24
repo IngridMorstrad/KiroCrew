@@ -54,6 +54,7 @@ from kiro_crew.config.sections import (
 )
 from kiro_crew.decisions import consent as _consent
 from kiro_crew.decisions import log as _log
+from kiro_crew.decisions import provider as _provider
 from kiro_crew.decisions.types import (
     SCORE_MAX_LEVELS,
     SCORE_MIN_LEVELS,
@@ -91,23 +92,28 @@ DECISION_POINT_NAMES = (
 #: answered.
 JUDGE_POINT = "nudge.wake"
 
-#: The two lanes. ``jev`` is the shipped ``JevOracle`` over HTTP; ``llm`` is
-#: ``impl_llm.LlmOracle`` over one tool-less model call on the session's own
-#: provider. ``decisions.nudge_wake.provider`` also accepts ``auto``, which resolves to
-#: one of these two at decision time rather than being a third lane.
-LANE_JEV = "jev"
-LANE_LLM = "llm"
+#: The two lanes, owned by the provider registry (``decisions.provider``).
+#: :data:`LANE_ENDPOINT` is the configured System One endpoint, hosted or an
+#: attested local preset; :data:`LANE_SESSION_LLM` (``LANE_LLM``) is one
+#: tool-less model call on the session's own provider. ``decisions.nudge_wake.provider`` also accepts ``auto``,
+#: which resolves to one of these two at decision time rather than being a third
+#: lane. The endpoint lane's VALUE stays ``"jev"``: it is persisted in that config
+#: key, in the dashboard's judge rows and in the log. ``LANE_JEV`` is kept as an
+#: alias of the same value for existing readers.
+LANE_ENDPOINT = _provider.LANE_ENDPOINT
+LANE_SESSION_LLM = _provider.LANE_SESSION_LLM
+LANE_LLM = LANE_SESSION_LLM
+LANE_JEV = LANE_ENDPOINT
 
-#: The LLM lane's budget floor and ceiling, in seconds. The seam's own
-#: ``provider.timeout_ms`` is sized for Jev (1 s by default, ~100 ms in practice)
-#: and a text model cannot answer inside it, so a lane that honoured that number
-#: alone would time out on every tick and fall back forever -- the feature would
-#: read as "does nothing" rather than as "misconfigured". The configured value is
-#: therefore CLAMPED UP into this window rather than replaced, so an operator who
-#: deliberately raised ``timeout_ms`` still gets what they asked for, up to a
-#: ceiling that keeps one tick from holding its loop for a minute.
-_LLM_TIMEOUT_MIN_SECS = 8.0
-_LLM_TIMEOUT_MAX_SECS = 60.0
+#: The LLM lane's budget floor and ceiling, in seconds, from the registry entry
+#: that owns them (``provider.SESSION_LLM_TIMEOUT_WINDOW``). The seam's own
+#: ``provider.timeout_ms`` is sized for a System One call (1 s by default, ~100 ms
+#: in practice) and a text model cannot answer inside it, so a lane that honoured
+#: that number alone would time out on every tick and fall back forever. The
+#: configured value is therefore CLAMPED UP into this window rather than replaced,
+#: so an operator who deliberately raised ``timeout_ms`` still gets what they asked
+#: for, up to a ceiling that keeps one tick from holding its loop for a minute.
+_LLM_TIMEOUT_MIN_SECS, _LLM_TIMEOUT_MAX_SECS = _provider.SESSION_LLM_TIMEOUT_WINDOW
 
 #: Points whose request carries TOOL-CALL ARGUMENTS, and which therefore need the
 #: keystone's ``tool_args`` scope on top of consent itself
@@ -150,7 +156,7 @@ POINTS_NEEDING_MEMORY_TEXT = frozenset({"memory.recall"})
 POINTS_NEEDING_NUDGE_EVIDENCE = frozenset({"nudge.wake"})
 
 #: The model id sent when the config leaves ``provider.model`` empty -- the same
-#: fallback ``impl_jev`` applies, so the id the scrub clears is the id sent.
+#: fallback ``impl_systemone`` applies, so the id the scrub clears is the id sent.
 _DEFAULT_MODEL = DECISION_PROVIDER_MODEL_DEFAULT
 
 #: Bucket modulus and upper clamp, matching the config's declared 0..100 bounds.
@@ -277,7 +283,7 @@ def _decisions_config(config: Any | None) -> Any | None:
 def configured_endpoint(config: Any | None = None) -> str:
     """The endpoint a decision would be sent to under *config* (default when unset).
 
-    The same fallback ``impl_jev`` applies, spelled here so the consent check and
+    The same fallback ``impl_systemone`` applies, spelled here so the consent check and
     the send cannot disagree about where "" points.
     """
     decisions = _decisions_config(config)
@@ -305,7 +311,7 @@ def _capability_denied(session_key: str | None, *, local: bool = False) -> bool:
 
     *local* adds ``capabilities.decisions_local`` to ``capabilities.decisions``:
     true when the configured provider is a local preset, so a fleet that permits
-    hosted Jev can still withdraw a model on this machine. A hosted deny covers it.
+    the hosted endpoint can still withdraw a model on this machine. A hosted deny covers it.
 
     *session_key* is the turn's own identity, which is what a profile binds on, so a
     profile bound to THIS surface is consulted rather than a dashboard one. It is
@@ -544,7 +550,7 @@ def in_bucket(session_key: str | None, bucket: object) -> bool:
     return int.from_bytes(digest[:4], "big") % _BUCKET_MOD < wanted
 
 
-def timeout_secs(config: Any | None = None, *, lane: str = LANE_JEV) -> float:
+def timeout_secs(config: Any | None = None, *, lane: str = LANE_ENDPOINT) -> float:
     """The budget one ``decide`` call is bounded by, in seconds. Never raises.
 
     Public because a caller that schedules ``decide`` as a task needs the SAME
@@ -556,11 +562,12 @@ def timeout_secs(config: Any | None = None, *, lane: str = LANE_JEV) -> float:
     non-positive ``timeout_ms`` cannot become a value ``wait_for`` rejects or a
     deadline that never expires.
 
-    *lane* names which provider the budget is for, and only the LLM lane changes
-    the answer: its number is clamped into
-    ``_LLM_TIMEOUT_MIN_SECS.._LLM_TIMEOUT_MAX_SECS``, because one model call
-    cannot finish inside a budget sized for a ~100 ms System One call. Keyword-only
-    with a ``jev`` default, so every existing caller keeps the number it had.
+    *lane* names which provider the budget is for. A lane whose registry entry
+    carries a ``timeout_window`` has its number clamped into it -- today only the
+    LLM lane, ``_LLM_TIMEOUT_MIN_SECS.._LLM_TIMEOUT_MAX_SECS``, because one model
+    call cannot finish inside a budget sized for a ~100 ms System One call.
+    Keyword-only with the endpoint lane as default, so every existing caller keeps
+    the number it had.
     """
     try:
         provider = getattr(_decisions_config(config), "provider", None)
@@ -570,8 +577,10 @@ def timeout_secs(config: Any | None = None, *, lane: str = LANE_JEV) -> float:
     if not math.isfinite(ms):
         ms = _DEFAULT_TIMEOUT_MS
     secs = max(_MIN_TIMEOUT_SECS, ms / 1000.0)
-    if lane == LANE_LLM:
-        return min(_LLM_TIMEOUT_MAX_SECS, max(_LLM_TIMEOUT_MIN_SECS, secs))
+    window = _provider.timeout_window(lane)
+    if window is not None:
+        low, high = window
+        return min(high, max(low, secs))
     return secs
 
 
@@ -585,18 +594,20 @@ def _judge_config(config: Any | None) -> Any | None:
     return getattr(_decisions_config(config), "nudge_wake", None)
 
 
-def judge_lane(config: Any | None = None, *, jev_consented: bool) -> str:
-    """Which lane :data:`JUDGE_POINT` would use: :data:`LANE_JEV` or :data:`LANE_LLM`.
+def judge_lane(config: Any | None = None, *, endpoint_consented: bool) -> str:
+    """Which lane :data:`JUDGE_POINT` would use: :data:`LANE_ENDPOINT` or :data:`LANE_LLM`.
 
     ``decisions.nudge_wake.provider`` decides, and ``auto`` -- the default -- means
-    "Jev when it is ARMED for this point, the small model otherwise". *jev_consented*
-    is that arming, resolved by the caller: consent for the configured endpoint AND
-    this point's own scope. That is what makes the feature real on a machine with no
-    Jev key without asking its owner to choose a provider they have never heard of.
+    "the endpoint when it is ARMED for this point, the small model otherwise".
+    *endpoint_consented* is that arming, resolved by the caller: consent for the
+    configured endpoint AND this point's own scope. That is what makes the feature
+    real on a machine with no provider key without asking its owner to choose a
+    provider they have never heard of.
 
-    An explicit ``jev`` is honoured even with no consent, and the caller then
-    refuses: the owner named a lane, and silently answering from a different model
-    than the one they named would be worse than doing nothing.
+    An explicit ``jev`` (the endpoint lane's stored value) is honoured even with no
+    consent, and the caller then refuses: the owner named a lane, and silently
+    answering from a different model than the one they named would be worse than
+    doing nothing.
 
     Never raises: an unreadable section resolves the same way an absent one does.
     """
@@ -604,22 +615,22 @@ def judge_lane(config: Any | None = None, *, jev_consented: bool) -> str:
         provider = str(getattr(_judge_config(config), "provider", "") or "").strip().lower()
     except Exception:
         provider = ""
-    if provider == LANE_JEV:
-        return LANE_JEV
+    if provider == LANE_ENDPOINT:
+        return LANE_ENDPOINT
     if provider == LANE_LLM:
         return LANE_LLM
-    return LANE_JEV if jev_consented else LANE_LLM
+    return LANE_ENDPOINT if endpoint_consented else LANE_LLM
 
 
 def lane_model(config: Any | None = None, *, lane: str) -> str:
     """The model id *lane* would name, for the scrub to bound before anything is sent.
 
     Both lanes put an id somewhere an agent-writable config value should not reach
-    unbounded -- the Jev lane onto the wire, the LLM lane into the session layer's
+    unbounded -- the endpoint lane onto the wire, the LLM lane into the session layer's
     model selection -- so both go through the one ``ERROR_SCRUBBED_MODEL`` refusal
     in :func:`scrub_reason`.
 
-    For :data:`LANE_JEV` this is exactly ``provider.model`` with the shipped
+    For :data:`LANE_ENDPOINT` this is exactly ``provider.model`` with the shipped
     fallback, which is what every point other than the judge has always sent. For
     :data:`LANE_LLM` an empty ``llm_model`` resolves to
     ``impl_llm.JUDGE_MODEL_DEFAULT``, the word this build uses for "inherit": the
@@ -639,36 +650,34 @@ def lane_model(config: Any | None = None, *, lane: str) -> str:
     return str(getattr(provider, "model", "") or _DEFAULT_MODEL)
 
 
-def _oracle(lane: str, provider: Any, model: str = "") -> Any:
-    """The implementation *lane* names, imported at call time.
+def _oracle(lane: str, provider: Any, model: str = "") -> _provider.DecisionProvider:
+    """A fresh provider for one decision on *lane*, chosen by the registry.
 
-    Function-local imports for the reason every import in this module is: the
-    package is reached from hot paths, and neither ``aiohttp`` (the Jev lane) nor
-    the session layer (the LLM lane) belongs on their import graph. Each lane also
-    pays only its own dependency, so a machine using the LLM lane never imports
-    ``aiohttp`` for a decision.
+    ``decisions.provider.select`` picks the registered spec; its factory imports
+    the implementation at call time, for the reason every import in this module is
+    function-local: the package is reached from hot paths, and neither ``aiohttp``
+    (the endpoint lane) nor the session layer (the LLM lane) belongs on their import
+    graph. Each lane pays only its own dependency.
+
+    *model* is the id :func:`lane_model` resolved, the one the scrub bounded and
+    the log will record; the LLM lane asks for exactly it, so the picker means
+    something, and the endpoint client reads the same ``provider.model`` itself.
     """
-    if lane == LANE_LLM:
-        from kiro_crew.decisions.impl_llm import JUDGE_MODEL_DEFAULT, LlmOracle
-
-        # ``lane_model`` already resolved this, and it is the id the scrub bounded
-        # and the log will record. Passing it is what makes the picker mean
-        # anything: without it the call inherits whatever the boot-time runner
-        # captured. The inherit sentinel is not a model to ask for.
-        return LlmOracle(model="" if model == JUDGE_MODEL_DEFAULT else model)
-    from kiro_crew.decisions.impl_jev import JevOracle
-
-    return JevOracle(provider)
+    endpoint = _consent.normalize_endpoint(getattr(provider, "endpoint", ""))
+    spec = _provider.select(
+        lane, endpoint=endpoint, model=str(getattr(provider, "model", "") or "")
+    )
+    return spec.build(provider, model)
 
 
 def _point_scope_granted(point: str, state: dict) -> bool:
     """Whether *point*'s OWN evidence scope is recorded on the keystone. Fail-closed.
 
     Deliberately NOT :func:`_scope_consented`, and the difference is what arms the
-    judge's JEV lane. That function answers ``True`` for a point with no registered
+    judge's endpoint lane. That function answers ``True`` for a point with no registered
     scope, which is right for it -- ``skills.select`` sends nothing beyond what the
     main switch records, so it needs no extra scope. Here the absence of a
-    registered scope means the opposite: nothing has authorized Jev to receive this
+    registered scope means the opposite: nothing has authorized the endpoint to receive this
     point's worker transcripts, review comments and ledger events, so there is no
     grant to run on and the answer is ``False``.
 
@@ -688,17 +697,17 @@ def _point_scope_granted(point: str, state: dict) -> bool:
 
 
 def _judge_authority(
-    config: Any | None, session_key: str | None, *, jev_consented: bool
+    config: Any | None, session_key: str | None, *, endpoint_consented: bool
 ) -> tuple[str, bool]:
     """``(lane, authorized)`` for :data:`JUDGE_POINT`. Filesystem IO on this thread.
 
     There is no feature toggle, and the two lanes are authorized by different things,
     because they send to different places:
 
-    * The Jev lane sends conversation state to a paid third party, so it needs the
+    * The endpoint lane sends conversation state to a paid third party, so it needs the
       keystone in full -- consent for the configured endpoint AND the point's own
       ``nudge_evidence`` scope, which is what that scope MEANS: a category of THAT
-      egress. ``jev_consented`` is the endpoint read, already taken by the caller
+      egress. ``endpoint_consented`` is the endpoint read, already taken by the caller
       off the event loop, and it already folds the fleet ceiling in; the scope is
       read here, fail-closed, through :func:`_point_scope_granted`.
     * The LLM lane adds no destination. Its state goes to the model provider the
@@ -711,7 +720,7 @@ def _judge_authority(
       the whole authorization: no keystone involvement, no second consent row
       (RFC ``rfc-wake-judge``, Providers).
 
-    ``auto`` resolves against the Jev side ARMED rather than merely consented, so an
+    ``auto`` resolves against the endpoint side ARMED rather than merely consented, so an
     owner who consented to the endpoint but never granted this point's scope gets the
     small model instead of a refusal. An explicitly pinned ``jev`` still refuses:
     they named a lane, and quietly answering from a different one would be worse.
@@ -719,23 +728,25 @@ def _judge_authority(
     The FLEET ceiling still binds both. A managed install that pinned
     ``capabilities.decisions`` off has withdrawn the seam, not merely one provider's
     endpoint, and a lane that ran under that pin would be the seam running anyway.
-    So the LLM lane pays the governed probe itself, which the Jev lane gets for free
+    So the LLM lane pays the governed probe itself, which the endpoint lane gets for free
     inside ``_consented_for``.
 
-    Fail-closed on anything unreadable: ``(LANE_JEV, False)`` refuses, and a refusal
+    Fail-closed on anything unreadable: ``(LANE_ENDPOINT, False)`` refuses, and a refusal
     here is a tick that fires exactly as the ungated timer would. A build with no
-    scope registered for the point closes the JEV lane only; ``auto`` then lands on
+    scope registered for the point closes the endpoint lane only; ``auto`` then lands on
     the LLM lane, which that scope does not govern.
     """
     try:
-        jev_armed = jev_consented and _point_scope_granted(JUDGE_POINT, _consent.load_state())
-        lane = judge_lane(config, jev_consented=jev_armed)
-        if lane == LANE_JEV:
-            return LANE_JEV, jev_armed
+        endpoint_armed = endpoint_consented and _point_scope_granted(
+            JUDGE_POINT, _consent.load_state()
+        )
+        lane = judge_lane(config, endpoint_consented=endpoint_armed)
+        if lane == LANE_ENDPOINT:
+            return LANE_ENDPOINT, endpoint_armed
         return LANE_LLM, not _capability_denied(session_key)
     except Exception as exc:
         logger.debug("decisions: judge authority unreadable (%s)", type(exc).__name__)
-        return LANE_JEV, False
+        return LANE_ENDPOINT, False
 
 
 def judge_evidence_scope_granted(
@@ -956,7 +967,7 @@ def is_enabled(point: str, *, session_key: str | None = None, config: Any | None
         # ``decide`` so a hook that skips expensive state building on a False reads
         # the same answer the call would give.
         authorized = (
-            _judge_authority(cfg, session_key, jev_consented=consented)[1]
+            _judge_authority(cfg, session_key, endpoint_consented=consented)[1]
             if point == JUDGE_POINT
             else consented
         )
@@ -1041,10 +1052,10 @@ async def decide(
         # already sends to. ``_judge_authority`` is where that reasoning lives.
         # Off the loop for the same reason the keystone read is: it may run the
         # governed capability probe, which reads from disk.
-        lane, authorized = LANE_JEV, consented
+        lane, authorized = LANE_ENDPOINT, consented
         if point == JUDGE_POINT:
             lane, authorized = await asyncio.to_thread(
-                _judge_authority, cfg, session_key, jev_consented=consented
+                _judge_authority, cfg, session_key, endpoint_consented=consented
             )
         if not _sampled(point, session_key, cfg, consented=authorized):
             return None
@@ -1135,7 +1146,7 @@ async def decide(
 
     # The model id the SELECTED lane will name, so the scanned id IS the sent id.
     # For every lane but the judge's LLM one this is ``provider.model`` with the
-    # same fallback ``JevOracle`` applies, unchanged.
+    # same fallback the System One client applies, unchanged.
     model = lane_model(cfg, lane=lane)
     refusal = scrub_reason(state, questions, model=model)
     if refusal is not None:

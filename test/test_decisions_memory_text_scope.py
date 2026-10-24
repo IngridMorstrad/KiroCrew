@@ -252,7 +252,7 @@ class TestTheGateRefusesWithoutIt:
                 asked.append(state)
                 raise AssertionError("nothing may be sent for an unscoped point")
 
-        monkeypatch.setattr("kiro_crew.decisions.impl_jev.JevOracle", _Oracle)
+        monkeypatch.setattr("kiro_crew.decisions.impl_systemone.SystemOneProvider", _Oracle)
         rows = [{"key": "mem-a", "snippet": "an episode"}]
         answers = await gate.decide(
             mr.POINT, mr.build_state("hi", rows), mr.build_questions(rows), config=_config()

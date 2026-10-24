@@ -202,7 +202,7 @@ def _judge_lane(jev_armed: bool) -> str:
     from kiro_crew.decisions import gate as _gate
 
     try:
-        return str(_gate.judge_lane(jev_consented=jev_armed) or _gate.LANE_JEV)
+        return str(_gate.judge_lane(endpoint_consented=jev_armed) or _gate.LANE_JEV)
     except Exception:
         logger.debug("decisions: judge lane unreadable; judging the row on the keystone")
         return _gate.LANE_JEV

@@ -413,7 +413,7 @@ _LAZY_IMPORTS = {
     ),
     "kiro_crew.dashboard.handlers_system": "_get_owner_hash _get_static_system_info",
     "kiro_crew.dashboard.workflow_inject": "inject_bound_workflow_result",
-    "kiro_crew.decisions": "impl_jev local_runtime",
+    "kiro_crew.decisions": "impl_systemone local_runtime",
     "kiro_crew.diag.recorder": "_DiagRecorder get_recorder",
     "kiro_crew.history_index_worker": "SessionIndexWorkerSupervisor",
     "kiro_crew.kiro_prerequisite": "KiroPrerequisiteService register_turn_auth_service",

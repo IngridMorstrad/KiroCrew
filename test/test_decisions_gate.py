@@ -176,14 +176,14 @@ class _SlowOracle:
 def install_impl(monkeypatch):
     """Replace the one implementation ``decide`` constructs.
 
-    ``decide`` imports ``JevOracle`` inside its own body (the import stays off a
+    ``decide`` imports ``SystemOneProvider`` inside its own body (the import stays off a
     hot path's import graph), so the patch lands on the module the import
     resolves against, not on a name in ``gate``.
     """
-    import kiro_crew.decisions.impl_jev as impl_mod
+    import kiro_crew.decisions.impl_systemone as impl_mod
 
     def _install(oracle):
-        monkeypatch.setattr(impl_mod, "JevOracle", lambda provider: oracle)
+        monkeypatch.setattr(impl_mod, "SystemOneProvider", lambda provider: oracle)
         return oracle
 
     return _install
@@ -814,7 +814,7 @@ class TestScrub:
         assert model not in json.dumps(log_home())
 
     def test_an_empty_provider_model_is_the_default_and_passes(self, install_impl):
-        """The gate scrubs the id ``impl_jev`` would send, so "" is the default, not
+        """The gate scrubs the id ``impl_systemone`` would send, so "" is the default, not
         a refusal."""
         oracle = install_impl(_RecordingOracle())
         assert asyncio.run(decide(POINT, "clean", QUESTIONS, config=_config(model=""))) is not None
@@ -1457,7 +1457,7 @@ class TestExtraRowFields:
 
 
 class _MetaOracle:
-    """A passing oracle that exposes ``last_response_meta`` the way ``JevOracle`` does."""
+    """A passing oracle that exposes ``last_response_meta`` the way ``SystemOneProvider`` does."""
 
     def __init__(self, meta):
         self.last_response_meta = meta

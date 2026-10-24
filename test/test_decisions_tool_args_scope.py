@@ -181,7 +181,7 @@ class TestTheGateRefusesWithoutIt:
                 asked.append(state)
                 raise AssertionError("nothing may be sent for an unscoped point")
 
-        monkeypatch.setattr("kiro_crew.decisions.impl_jev.JevOracle", _Oracle)
+        monkeypatch.setattr("kiro_crew.decisions.impl_systemone.SystemOneProvider", _Oracle)
         answers = await gate.decide("tool.risk", {"tool": "bash"}, tr.questions(), config=_config())
         assert answers is None
         assert asked == []
