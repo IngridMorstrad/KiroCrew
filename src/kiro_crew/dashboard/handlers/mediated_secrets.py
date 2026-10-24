@@ -185,29 +185,29 @@ async def api_mediated_secret_request(request: web.Request) -> web.Response:
             {"error": "secret_name is required", "code": "secret_name_required"}, status=400
         )
 
-    # The mediation stack pulls ``requests`` and the vault, whose import is
-    # synchronous and heavy: import, build and dispatch all run in the worker
-    # thread so nothing synchronous touches the loop.
-    def _run_mediation() -> tuple[str, Any]:
-        _dispatch = importlib.import_module("kiro_crew.secrets_mediation.dispatch")
-        _policy = importlib.import_module("kiro_crew.secrets_mediation.policy")
-        _ssrf = importlib.import_module("kiro_crew.secrets_mediation.ssrf")
-        req = _dispatch.MediatedRequest(
-            secret_name=secret_name,
-            method=str(payload.get("method", "")),
-            url=str(payload.get("url", "")),
-            headers=payload.get("headers") or {},
-            query=payload.get("query") or {},
-            json_body=payload.get("json_body"),
-            timeout_s=float(payload.get("timeout_s") or 20.0),
-        )
-        try:
-            return "ok", _dispatch.perform_mediated_request(req, _config_dir())
-        except (_policy.PolicyError, _ssrf.SsrfError, _dispatch.MediationError) as exc:
-            # Safe, secret-free message; the value never appears in these.
-            return "refused", str(exc)
-
-    outcome, result = await asyncio.to_thread(_run_mediation)
+    # The mediation stack pulls the vault (``cryptography``), whose import is
+    # synchronous and heavy, so the module import runs in a worker thread. The
+    # dispatch itself is async: its blocking steps (policy read, DNS vet, vault
+    # read) each run off the loop inside it.
+    _dispatch = await asyncio.to_thread(
+        importlib.import_module, "kiro_crew.secrets_mediation.dispatch"
+    )
+    req = _dispatch.MediatedRequest(
+        secret_name=secret_name,
+        method=str(payload.get("method", "")),
+        url=str(payload.get("url", "")),
+        headers=payload.get("headers") or {},
+        query=payload.get("query") or {},
+        json_body=payload.get("json_body"),
+        timeout_s=float(payload.get("timeout_s") or 20.0),
+    )
+    outcome: str
+    result: Any
+    try:
+        outcome, result = "ok", await _dispatch.perform_mediated_request(req, _config_dir())
+    except (_dispatch.PolicyError, _dispatch.MediationError) as exc:
+        # Safe, secret-free message; the value never appears in these.
+        outcome, result = "refused", str(exc)
     if outcome == "refused":
         # Pre-send refusals never sent the secret, so they answer a distinct 400
         # and audit ``denied`` by the secret NAME only, never the value.

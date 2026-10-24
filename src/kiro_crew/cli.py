@@ -900,10 +900,9 @@ def main() -> None:
         # Lazily imported for the same reason as the guide.
         importlib.import_module("kiro_crew.mcp_mate").run_mcp_server()
     elif args.command == "mcp-secrets":
-        # Lazily imported like the other opt-in servers: the sandboxed forwarder
-        # pulls in requests (its loopback client), which the gateway boot path
-        # must not import just to exist. It does NOT import the vault -- the
-        # vault read happens host-side in the dashboard handler, never here.
+        # Lazily imported like the other opt-in servers, so the gateway boot path
+        # never loads the sandboxed forwarder just to exist. It does NOT import
+        # the vault -- the vault read happens host-side in the dashboard handler.
         importlib.import_module("kiro_crew.mcp_secrets").run_mcp_server()
     elif args.command.startswith("mcp-") and args.command[4:] in _BUILTIN_NAMES:
         # Registration gates this verb on _builtin_mcp_server_available, and

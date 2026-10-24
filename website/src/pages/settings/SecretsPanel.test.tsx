@@ -220,7 +220,7 @@ describe('SecretsPanel', () => {
     expect(await screen.findByText('MY_API_KEY')).toBeInTheDocument()
     expect(screen.getByText('DB_PASSWORD')).toBeInTheDocument()
     expect(screen.getByText('Custom secrets')).toBeInTheDocument()
-    expect(screen.getByText(/Reference one as secret:\/\/YOUR_KEY in an MCP server environment or a \.env setting/)).toBeInTheDocument()
+    expect(screen.getByText(/Reference one as secret:\/\/YOUR_KEY; the value is never shown in chat/)).toBeInTheDocument()
     // The plaintext is never rendered — only the mask is.
     expect(screen.getAllByText('••••••••')).toHaveLength(2)
     expect(screen.queryByText('No secrets stored yet.')).not.toBeInTheDocument()
@@ -729,9 +729,9 @@ describe('SecretsPanel custom secrets card', () => {
     // The disclaimer names BOTH supported consumers — MCP server env AND .env
     // credential settings — so an owner whose entry came from `secrets import`
     // is not told it is MCP-only — AND the mediated chat route (#8628).
-    expect(screen.getByText(/Encrypted secrets, never shown in chat/)).toBeInTheDocument()
-    expect(screen.getByText(/in an MCP server environment or a \.env setting/)).toBeInTheDocument()
-    expect(screen.getByText(/authorize a secret for an exact https origin with kirocrew secrets authorize/)).toBeInTheDocument()
+    expect(screen.getByText(/Encrypted keys for MCP servers and \.env settings/)).toBeInTheDocument()
+    // The CLI-only authorize step is labeled as a terminal command.
+    expect(screen.getByText(/run the terminal command kirocrew secrets authorize/)).toBeInTheDocument()
     // The token appears in both the disclaimer and the empty-state line.
     expect(screen.getAllByText(/secret:\/\/YOUR_KEY/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/never shown in chat/)).toBeInTheDocument()
@@ -745,7 +745,7 @@ describe('SecretsPanel custom secrets card', () => {
     mount()
     expect(await screen.findByText('WEATHER_API_KEY')).toBeInTheDocument()
     // Disclaimer persists alongside populated rows, and the empty line is gone.
-    expect(screen.getByText(/Encrypted secrets, never shown in chat/)).toBeInTheDocument()
+    expect(screen.getByText(/Encrypted keys for MCP servers and \.env settings/)).toBeInTheDocument()
     expect(screen.queryByText(/No custom secrets stored yet/)).not.toBeInTheDocument()
     // Value is masked, never rendered in plaintext.
     expect(screen.getByText('••••••••')).toBeInTheDocument()

@@ -829,6 +829,27 @@ also scanned with the credential and exfiltration-URL redactors and the request
 is refused before the vault read if either would change it, so the agent cannot
 smuggle a credential OUT through the request it hands the mediator.
 
+The destination check is the product's one fetch vet,
+`link_unfurl.vet_unfurl_url`, and the connection goes through
+`link_unfurl.pinned_connector`, the same pair link previews, the remote MCP probe
+and the calendar fetch use. The mediator only adds what the vet does not know:
+the origin must equal the owner-authorized one exactly (so an explicit port is
+allowed), the scheme must be https, and every redirect hop is checked against
+that origin and vetted and pinned again. The send runs as one task under
+`asyncio.wait_for` bounded by the request timeout, so a stalled origin is
+cancelled at the deadline inside the task and nothing is written after it.
+
+Each approved call is bound to a single-use capability that
+`mediated_request_capability` mints at approval time. An approved call can wait
+in the server's FIFO queue (`PENDING_CALLS_MAX` calls, each holding the worker
+for up to the stub's claim and request timeouts), so an unclaimed grant lives for
+that whole queue; once claimed it must be consumed within 30 s. An expired
+approval is logged apart from a no-match. The grants are held in the gateway
+process that answered the approval, which is the process that serves the two
+mediated routes, so the tool works from member conversations the gateway
+proxies. A harness approving the call in another process mints nothing the
+gateway can redeem, and the claim is refused.
+
 ### OS-Level Sandbox (`sandbox.py`)
 
 `kiro_crew.sandbox` is the import and patch surface. What one spawn masks, seals and

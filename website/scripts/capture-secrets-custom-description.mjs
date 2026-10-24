@@ -1,7 +1,7 @@
 /**
  * Screenshot harness for Settings → Secrets, Custom secrets card — proving the
  * reworded `settings.secrets.custom_description` copy renders (UX Review evidence
- * for PR #10383, the mediated Custom-secret egress feature).
+ * for PR #23756, the mediated Custom-secret egress feature).
  *
  * Runs the REAL built SPA (website/dist) behind the shared in-process static
  * server, every /api/** call answered from fixtures via Playwright route

@@ -114,7 +114,7 @@ async def test_happy_path_returns_only_sanitized_fields(
     _patch_common(monkeypatch)
     call_threads: list[int] = []
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
         call_threads.append(threading.get_ident())
         assert req.secret_name == "STRIPE_KEY"
         return SanitizedResponse(
@@ -141,15 +141,17 @@ async def test_happy_path_returns_only_sanitized_fields(
         "truncated": False,
         "final_url_origin": "https://api.stripe.com",
     }
-    # The blocking vault-read + dispatch must not run on the loop thread.
-    assert call_threads and loop_thread not in call_threads
+    # The dispatch is a coroutine awaited on the loop; its blocking steps (policy
+    # read, DNS vet, vault read) run in threads inside it, pinned by
+    # test_mediated_request_dispatch::test_blocking_steps_run_off_the_loop.
+    assert call_threads == [loop_thread]
 
 
 @pytest.mark.asyncio
 async def test_mediation_error_becomes_a_safe_400(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_common(monkeypatch)
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
         raise PolicyError(
             "Secret 'STRIPE_KEY' is authorized only for https://api.stripe.com, not "
             "https://evil.example. The request was refused before the secret was read."
@@ -197,7 +199,7 @@ async def test_a_non_internal_secret_caller_is_refused(monkeypatch: pytest.Monke
     """
     _patch_common(monkeypatch)
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:  # pragma: no cover
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:  # pragma: no cover
         raise AssertionError("dispatch must not run for a non-internal caller")
 
     monkeypatch.setattr(dispatch_mod, "perform_mediated_request", fake_perform)
@@ -233,7 +235,7 @@ async def test_a_missing_or_invalid_member_proof_is_refused(
     monkeypatch.setattr(sessions_mod, "member_request_scope", _unverified)
     monkeypatch.setattr(_shared_mod, "member_request_scope", _unverified)
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:  # pragma: no cover
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:  # pragma: no cover
         raise AssertionError("dispatch must not run without a verified member scope")
 
     monkeypatch.setattr(dispatch_mod, "perform_mediated_request", fake_perform)
@@ -262,7 +264,7 @@ async def test_approved_call_capability_is_consumed_once(monkeypatch: pytest.Mon
     _patch_common(monkeypatch)
     payload = {"secret_name": "K", "method": "POST", "url": "https://api.example.com"}
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
         return SanitizedResponse(200, {}, "", False, "https://api.example.com")
 
     monkeypatch.setattr(dispatch_mod, "perform_mediated_request", fake_perform)
@@ -370,7 +372,7 @@ async def test_a_collapsed_refusal_is_audited_as_ok_like_a_success(
     recording = _RecordingSel()
     monkeypatch.setattr(sessions_mod, "_sel", lambda: recording)
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
         # A post-send collapse returns the plain withheld constant -- there is no
         # longer any internal marker to set.
         return SanitizedResponse(
@@ -422,7 +424,6 @@ def test_sandboxed_tool_has_no_import_path_to_the_vault() -> None:
         "kiro_crew.secrets.SecretVault",
         "kiro_crew.secrets_mediation.dispatch",
         "kiro_crew.secrets_mediation.policy",
-        "kiro_crew.secrets_mediation.ssrf",
     }
     leaked = imported & forbidden
     assert not leaked, f"the sandboxed tool must not import the vault/dispatch: {leaked}"
@@ -694,7 +695,7 @@ async def test_request_endpoint_rejects_oversize_body_before_parsing(
     _patch_common(monkeypatch)
     dispatched: list[int] = []
 
-    def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
+    async def fake_perform(req: Any, _config_dir: Any) -> SanitizedResponse:
         dispatched.append(1)
         raise AssertionError("dispatch must not run for an oversize body")
 
@@ -769,3 +770,60 @@ async def test_a_body_spanning_many_transport_reads_is_decoded_whole(
     resp = await sessions_mod.api_mediated_secret_capability(request)
     assert resp.status == 200, _body(resp)
     assert _body(resp)["capability"]
+
+
+#: The arguments ``_mint`` approves.
+_QUEUED_ARGS = {"secret_name": "K", "method": "POST", "url": "https://api.example.com"}
+
+
+def test_pending_grant_outlives_a_full_queue_of_slow_calls(monkeypatch):
+    """An approval queued behind PENDING_CALLS_MAX slow calls is still claimable.
+
+    The approval mints before the call runs, and the server runs one call at a
+    time. A grant that expired after 30 s refused the second of two back-to-back
+    60 s calls; the pending lifetime has to cover the whole queue instead.
+    """
+    from kiro_crew import mcp_secrets
+    from kiro_crew.mcp_shared_calls import PENDING_CALLS_MAX
+
+    cap = mediated_request_capability
+    assert cap._QUEUE_DEPTH == PENDING_CALLS_MAX + 1
+    assert cap._QUEUED_CALL_BUDGET_SECONDS >= (
+        mcp_secrets.CLAIM_TIMEOUT_S + mcp_secrets.REQUEST_TIMEOUT_S
+    )
+
+    clock = [1000.0]
+    monkeypatch.setattr(cap.time, "monotonic", lambda: clock[0])
+    _reset_capability_registries()
+    try:
+        token = _mint(SESSION, "tc-queued")
+        assert token
+        # Wait out every call ahead of it, minus a hair.
+        clock[0] += cap._PENDING_TTL_SECONDS - 1.0
+        assert cap.claim(SESSION, "tc-queued", _QUEUED_ARGS) == token
+        assert cap.consume(SESSION, token, _QUEUED_ARGS) is True
+    finally:
+        _reset_capability_registries()
+
+
+def test_claimed_grant_gets_the_short_lifetime_and_expiry_is_logged(monkeypatch, caplog):
+    cap = mediated_request_capability
+    clock = [5000.0]
+    monkeypatch.setattr(cap.time, "monotonic", lambda: clock[0])
+
+    _reset_capability_registries()
+    try:
+        token = _mint(SESSION, "tc-short")
+        clock[0] += cap._PENDING_TTL_SECONDS - 1.0
+        assert cap.claim(SESSION, "tc-short", _QUEUED_ARGS) == token
+        # Once claimed it is consumed within the short window, not the queue budget.
+        clock[0] += cap._TTL_SECONDS + 1.0
+        assert cap.consume(SESSION, token, _QUEUED_ARGS) is False
+
+        assert _mint(SESSION, "tc-stale")
+        clock[0] += cap._PENDING_TTL_SECONDS + 1.0
+        with caplog.at_level("WARNING", logger=cap.__name__):
+            assert cap.claim(SESSION, "tc-stale", _QUEUED_ARGS) == ""
+        assert "expired before the call ran" in caplog.text
+    finally:
+        _reset_capability_registries()

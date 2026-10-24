@@ -774,7 +774,7 @@ _DASHBOARD_BOOT = tuple("""
     _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred
     _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred
     _deferred _deferred _deferred _deferred _deferred _deferred
-    _deferred
+    _deferred _deferred _deferred
     register_all subprocess_executor subprocess_executor subprocess_executor
     subprocess_executor subprocess_executor subprocess_executor _register_deploy_routes
     setup_knowledge_routes setup_weixin_routes setup_feedback_routes
@@ -801,7 +801,7 @@ _DASHBOARD_BOOT = tuple("""
     _reconcile_listener_publication _kick_workflow_initialization
     _kick_connections_warm_scavenge _kick_session_search_index _kick_config_watch
     _kick_local_decision_model _kick_knowledge_orphan_reclaim _kick_owner_only_sweep
-    _kick_display_verdicts _kick_otel_crew_log_subscriber
+    _kick_mediation_signing_root_mint _kick_display_verdicts _kick_otel_crew_log_subscriber
     load_loop_stall_exit_after
     _arm_prevent_sleep_poll register_pre_exec_stop safety_override safety_override
     safety_override
@@ -847,7 +847,7 @@ _API_BOOT = tuple("""
     _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred
     _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred _deferred
     _deferred _deferred _deferred _deferred _deferred _deferred
-    _deferred
+    _deferred _deferred _deferred
     _register_deploy_routes _register_stt_hooks _register_own_host_warm
     _register_config_watch _register_prevent_sleep_shutdown
     _register_listener_guard_shutdown _register_browser_install_cleanup
@@ -858,7 +858,8 @@ _API_BOOT = tuple("""
     subprocess_executor _resolved_bound_host _resolved_bound_host _note_listener_sidecar
     _resolved_bound_host _reconcile_listener_publication _kick_workflow_initialization
     _kick_connections_warm_scavenge _kick_session_search_index _kick_config_watch
-    _kick_local_decision_model _kick_owner_only_sweep _kick_display_verdicts
+    _kick_local_decision_model _kick_owner_only_sweep _kick_mediation_signing_root_mint
+    _kick_display_verdicts
     _arm_prevent_sleep_poll
     register_pre_exec_stop record_boot_to_ready _dispatch_healthy_boot_marker
     """.split())
@@ -1062,8 +1063,8 @@ def _routes(app: web.Application) -> list[tuple[str, str, str]]:
 #: SHA-256 of the MCP route table's ``"<method> <path> <handler>"`` rows in
 #: registration order, and their count. The table is shared by both entrypoints, so a
 #: route added to it on purpose updates these with it.
-_MCP_TABLE_ROWS = 309
-_MCP_TABLE_DIGEST = "b09f932d5cdec6d8687ad9a5272d5320ab11ea4dd3002793715f5f6b6f655dd7"
+_MCP_TABLE_ROWS = 311
+_MCP_TABLE_DIGEST = "1bb1b6340cbdafc17d3de6f35eedb6285a49e843a6ae4d3b0521d5f705fa414b"
 
 
 def test_the_mcp_route_table_keeps_its_rows_and_order() -> None:

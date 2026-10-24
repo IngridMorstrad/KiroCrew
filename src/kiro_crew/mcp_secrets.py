@@ -71,6 +71,12 @@ _MAX_MAP_ITEMS = 256
 #: Alias of the single mediated-request payload ceiling, so the tool's send-side
 #: cap and the host endpoints' receive-side cap are the same 1 MiB value.
 _MAX_REQUEST_PAYLOAD_BYTES = MAX_REQUEST_PAYLOAD_BYTES
+#: Loopback timeouts for the capability claim and the request itself. The request
+#: one sits a margin past the host's 60 s dispatch ceiling. Together they are the
+#: longest one call can hold the worker, which the pending-grant lifetime in
+#: ``mediated_request_capability`` is sized against.
+CLAIM_TIMEOUT_S = 5
+REQUEST_TIMEOUT_S = 75
 SERVER_VERSION = "1.0.0"
 
 _TOOL = "call_api_with_secret"
@@ -435,7 +441,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         )
         with unix_socket_urlopen(
             claim_req,
-            timeout=5,
+            timeout=CLAIM_TIMEOUT_S,
             socket_path=dashboard_socket_path(port),
             verify_peer=_verify_gateway_peer,
         ) as claim_resp:
@@ -446,7 +452,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
 
         with unix_socket_urlopen(
             req,
-            timeout=75,
+            timeout=REQUEST_TIMEOUT_S,
             socket_path=dashboard_socket_path(port),
             verify_peer=_verify_gateway_peer,
         ) as resp:

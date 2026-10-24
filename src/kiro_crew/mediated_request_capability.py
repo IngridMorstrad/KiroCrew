@@ -8,14 +8,27 @@ import logging
 import secrets
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _TOOL_SERVER = "kirocrew-secrets"
 _TOOL_NAME = "call_api_with_secret"
+#: Lifetime of a CLAIMED grant: the stub consumes it on the very next request,
+#: so this only has to cover one loopback round trip.
 _TTL_SECONDS = 30.0
+#: Lifetime of an approved, not-yet-claimed grant. The approval lands before the
+#: call runs, and the MCP server runs one call at a time with up to
+#: ``PENDING_CALLS_MAX`` more queued behind it, each of which can hold the worker
+#: for the dispatch ceiling (60 s, padded to the deadline). The grant must outlive
+#: that whole queue or an approved call queued behind a slow one is refused.
+#: Single use, digest-bound and dropped on deny/cancel, so the longer life widens
+#: no replay window. The per-call budget is the stub's two loopback timeouts
+#: (5 s claim + 75 s request); a test keeps both numbers in step.
+_QUEUED_CALL_BUDGET_SECONDS = 80.0
+_QUEUE_DEPTH = 33  # PENDING_CALLS_MAX queued + the one running
+_PENDING_TTL_SECONDS = _QUEUE_DEPTH * _QUEUED_CALL_BUDGET_SECONDS
 #: 1 MiB ceiling on a mediated-request JSON body. One source of truth for the
 #: whole mediated path: the in-sandbox ``kirocrew-secrets`` tool caps the payload
 #: it sends with this, and the two host endpoints that receive mediated bodies
@@ -187,7 +200,7 @@ def mint_for_approved_call(
         tool_call_id=tool_call_id,
         request_digest=digest,
         token=secrets.token_urlsafe(32),
-        expires_at=now + _TTL_SECONDS,
+        expires_at=now + _PENDING_TTL_SECONDS,
     )
     with _lock:
         _prune(now)
@@ -268,10 +281,22 @@ def claim(session_key: str, tool_call_id: str, tool_args: dict[str, Any]) -> str
         return ""
     now = time.monotonic()
     with _lock:
+        stale = _pending.get((session_key, tool_call_id))
+        if stale is not None and stale.expires_at <= now:
+            # Named apart from a no-match so an operator can tell an approval that
+            # waited too long from a forged or replayed claim.
+            logger.warning(
+                "mediated-secret capability claim refused: the approval for "
+                "tool_call_id=%s expired before the call ran",
+                tool_call_id[:64],
+            )
         _prune(now)
         grant = _pending.pop((session_key, tool_call_id), None)
         if grant is None or not secrets.compare_digest(grant.request_digest, digest):
             return ""
+        # A claimed grant is consumed on the next request, so it gets the short
+        # lifetime from here on, whatever was left of the queued-call budget.
+        grant = replace(grant, expires_at=now + _TTL_SECONDS)
         _active[grant.token] = grant
         return grant.token
 
