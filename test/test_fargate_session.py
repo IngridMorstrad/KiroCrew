@@ -686,6 +686,27 @@ async def test_a_session_gets_a_task_and_keeps_it_while_it_lives(provider, ecs, 
 
 @posix_guest
 @sync
+async def test_a_subagent_start_reports_its_stages_on_itself_not_its_parent(provider, ecs):
+    # The task is keyed by the parent; the start stages go on the starting
+    # session, the only one whose runtime start clears them.
+    from kiro_crew import session_environment as se
+
+    envs, _state = provider
+    root, child = "dashboard:chat-root", "subagent:child-1"
+    se.clear_start_stage(root)
+    se.clear_start_stage(child)
+    try:
+        await envs.prepare(root, "aws-dev", progress_key=child)
+        assert envs.registry.get(root) is not None and envs.registry.get(child) is None
+        assert se.start_progress(root) is None
+        assert se.start_progress(child)["stage"] == "connecting"
+    finally:
+        se.clear_start_stage(root)
+        se.clear_start_stage(child)
+
+
+@posix_guest
+@sync
 @pytest.mark.parametrize("failure", [OSError("vault busy"), ValueError("bad vault entry")])
 async def test_a_vault_read_failure_never_stops_a_live_task(provider, ecs, monkeypatch, failure):
     envs, _state = provider
@@ -1050,13 +1071,18 @@ async def test_a_fargate_choice_is_prepared_by_the_fargate_provider(monkeypatch,
     )
     seen = []
 
-    async def prepare(self, key, profile_id):
-        seen.append((key, profile_id))
+    async def prepare(self, key, profile_id, *, progress_key=None):
+        seen.append((key, profile_id, progress_key))
         return "prepared"
 
     monkeypatch.setattr(fargate_launch.FargateSessionEnvironments, "prepare", prepare)
     assert await session_launch.prepare_for_session("dashboard:chat-5") == "prepared"
-    assert seen == [("dashboard:chat-5", "aws-dev")]
+    assert seen == [("dashboard:chat-5", "aws-dev", "dashboard:chat-5")]
+    # A subagent reuses its root's task, but its start is reported on itself.
+    choices = session_launch.SessionEnvironmentChoices(tmp_path / "coder" / "session-choices.json")
+    assert choices.inherit("subagent:child-5", "dashboard:chat-5") == "aws-dev"
+    assert await session_launch.prepare_for_session("subagent:child-5") == "prepared"
+    assert seen[-1] == ("dashboard:chat-5", "aws-dev", "subagent:child-5")
 
 
 @posix_guest
