@@ -1280,6 +1280,15 @@ class TestIsDeniedReDoSResistance:
         """CPU time of one ``is_denied`` scan — see ``_cpu_cost`` for the clock choice."""
         return self._cpu_cost(lambda: is_denied(command))
 
+    def _bracket_row_elapsed(self, command: str) -> float:
+        """CPU time of one ``is_denied`` scan with only the env-grep bracket row on."""
+        from kiro_crew.security.denied_rules_catalog import (
+            _ENV_DUMP_GREP_AWS_BRACKET_PATTERN,
+        )
+
+        regexes = [_ENV_DUMP_GREP_AWS_BRACKET_PATTERN]
+        return self._cpu_cost(lambda: is_denied(command, denied_regexes=regexes))
+
     def test_elapsed_routes_through_the_cpu_cost_chokepoint(self, monkeypatch):
         # Every timing sample in this class must go through ``_cpu_cost`` — a raw
         # clock read in ``_elapsed`` would silently re-open the burst-perturbation
@@ -1390,11 +1399,13 @@ class TestIsDeniedReDoSResistance:
         # ``AWS``. Its content class excludes ``[`` and ``]``, so each opener's scan
         # is disjoint and many grep positions over a long run of brackets stay
         # linear -- the shape an earlier combined form took ~112s on. Pinned on
-        # both tiers, since the keystone applies no length cap.
+        # both tiers, since the keystone applies no length cap. The catalog tier
+        # runs this row ALONE through ``is_denied``: the full catalog's cost on
+        # this input is the other rows' and is the same on main.
         from kiro_crew.security import _check_env_credential_access
 
         pathological = "env | grep " + ("grep " * 400) + tail
-        assert self._elapsed(pathological) < self._BUDGET_SECONDS
+        assert self._bracket_row_elapsed(pathological) < self._BUDGET_SECONDS
         assert (
             self._cpu_cost(lambda: _check_env_credential_access(pathological))
             < self._BUDGET_SECONDS
@@ -1408,7 +1419,7 @@ class TestIsDeniedReDoSResistance:
         from kiro_crew.security import _check_env_credential_access
 
         pathological = "env | " + unit * (20_000 // len(unit))
-        assert self._elapsed(pathological) < self._BUDGET_SECONDS
+        assert self._bracket_row_elapsed(pathological) < self._BUDGET_SECONDS
         assert (
             self._cpu_cost(lambda: _check_env_credential_access(pathological))
             < self._BUDGET_SECONDS

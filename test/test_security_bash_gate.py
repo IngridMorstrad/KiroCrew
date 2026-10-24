@@ -148,6 +148,14 @@ class TestEnvDumpGrepAwsNarrowing:
         # Fixed-string mode is exempt only when no regex matcher flag is beside it.
         "env | grep -E -F '[AWS-x]'",
         "env | grep -F -P '[AWS-x]'",
+        # Option-like text that is NOT an option does not exempt: quoted or escaped
+        # inside the pattern, or after ``--``. A real flag after the quoted pattern
+        # is refused too, in the safe direction.
+        "env | grep -- '[AWS-x -f]'",
+        "env | grep '[AWS-x -f]'",
+        'env | grep "[AWS-x --fixed-strings]"',
+        "env | grep -- [AWS-x] -f -",
+        "env | grep '[AWS-x]' -F",
         # The selecting stage is not the first stage after the dump.
         "env | grep -v PATH | grep AWS_SECRET",
         "env | tr ' ' '\\n' | grep AWS_SECRET",

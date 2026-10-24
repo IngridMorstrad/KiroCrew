@@ -511,7 +511,9 @@ def _url_payload_command(n: int) -> str:
 #: it is a separate row. The literal grep selector is unchanged. Nineteen more for
 #: its grep-word operand stop (linear at the 20 KB ceiling) and the escaped-bracket
 #: and fixed-string exemptions, with their comments, and the facade manifest entries.
-_PACKAGE_LINE_BUDGET = 32_600
+#: Seven more so a quoted, escaped or post-``--`` ``-f`` cannot switch on the
+#: fixed-string exemption: one helper class, its comment and its facade entry.
+_PACKAGE_LINE_BUDGET = 32_607
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

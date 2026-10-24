@@ -188,7 +188,12 @@ _ENV_DUMP_AWK_SED_AWS_PATTERN = (
 #   under ``-f FILE`` the quoted word is a file to search, not a pattern (an unseen
 #   pattern file is out of scope, as for the literal row). Any ``-e``/``-E``/
 #   ``-G``/``-P`` beside it voids the exemption, so ``grep -E -F '[AWS-x]'`` and
-#   ``grep -F -e ...`` stay refused (the second in the safe direction).
+#   ``grep -F -e ...`` stay refused (the second in the safe direction). The
+#   exempting flag counts only when no quote, backslash or ``--`` comes before it
+#   in the operand: ``grep -- '[AWS-x -f]'`` quotes ``-f`` as pattern text and
+#   ``grep -- [AWS-x] -f -`` ends the options first, so both stay refused. A real
+#   flag written after the quoted pattern (``grep '[AWS-x]' -F``) or quoted itself
+#   is refused too, in the safe direction.
 # * Still open: what lies between the opener and ``AWS`` holds no ``]``, no ``[``
 #   and no separator (so an unclosed ``[`` cannot reach an ``aws`` in a later
 #   ``; echo`` command). The opener is an UNESCAPED ``[`` (with an optional ``^``
@@ -210,8 +215,9 @@ _ENV_DUMP_AWK_SED_AWS_PATTERN = (
 # scan to grep's operand.
 _GREP_WORD = r"(?<![\w-])[a-z0-9]{0,5}grep(?!\w)"
 _GREP_OPERAND_CHAR = rf"(?:(?!{_GREP_WORD})[^|&;\n])"
+_GREP_FLAG_LEAD_CHAR = rf"(?:(?!{_GREP_WORD}|--\s)[^|&;\n'\"\\])"
 _GREP_FIXED_STRINGS = (
-    rf"(?={_GREP_OPERAND_CHAR}*\s(?:-[a-z]*f|--fixed-strings|--file))"
+    rf"(?={_GREP_FLAG_LEAD_CHAR}*\s(?:-[a-z]*f|--fixed-strings|--file))"
     rf"(?!{_GREP_OPERAND_CHAR}*\s-[a-z]*[egp])"
 )
 _AWS_BRACKET_RANGE_SELECTOR = (

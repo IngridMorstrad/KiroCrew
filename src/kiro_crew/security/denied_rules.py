@@ -1495,6 +1495,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _ENV_DUMP_GREP_AWS_PATTERN,
         _ENV_DUMP_VERBS,
         _GREP_FIXED_STRINGS,
+        _GREP_FLAG_LEAD_CHAR,
         _GREP_OPERAND_CHAR,
         _GREP_WORD,
         _NETCAT_EXEC_PATTERN,
