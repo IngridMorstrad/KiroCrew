@@ -38,10 +38,31 @@ export interface KiroChromiumState {
  */
 export interface BrowserInstallJob {
   status: 'running' | 'succeeded' | 'failed' | 'interrupted'
+  /** Who started it: the gateway at startup (`auto`) or this page (`settings`).
+   *  Absent from an older gateway, read as `settings`. */
+  trigger?: 'auto' | 'settings'
   /** Server-authored stage name; rendered verbatim as a progress hint. */
   stage?: string | null
   /** Redacted, then truncated, by the gateway. Never translated. */
   error_detail?: string | null
+}
+
+/**
+ * The `credentials` block of `GET /api/browser/status`: who signs Kiro's Chromium
+ * in, and how the last apply went. Counts, codes and domain names only, never a
+ * cookie value. `provider` is the edition provider's display name, `null` when
+ * the edition supplies none (then Settings shows no sign-in control).
+ */
+export interface BrowserCredentialsStatus {
+  provider: string | null
+  imported: boolean
+  /** Effective: the config's value, or the edition's default when unset. */
+  enabled: boolean
+  domains: string[]
+  settings_from?: string
+  state: 'none' | 'applied' | 'skipped' | 'error' | 'pending' | 'disabled' | 'needs_refresh' | string
+  reason?: string | null
+  applied?: number
 }
 
 /**
@@ -61,6 +82,7 @@ export interface BrowserStatusData {
   detail: string | null
   chromium?: KiroChromiumState | null
   install_job?: BrowserInstallJob | null
+  credentials?: BrowserCredentialsStatus | null
   /** The gateway host's OS, as `sys.platform` spells it (`darwin`, `linux`, `win32`). */
   platform?: string
 }
@@ -91,6 +113,9 @@ export function createBrowserHarnessEndpoints({ get, post, j }: ClientTransport)
     testBrowser: () => post('/api/browser/test', {}).then(j) as Promise<BrowserTestData>,
     // Detaches the relay from the browser; the next agent call re-attaches.
     disconnectBrowser: () => post('/api/browser/disconnect', {}).then(j) as Promise<BrowserStatusData>,
+    // Re-pulls the sign-in into a running Kiro Chromium after its settings change.
+    refreshBrowserCredentials: () =>
+      post('/api/browser/credentials/refresh', {}).then(j) as Promise<{ ok: boolean; credentials: BrowserCredentialsStatus }>,
   }
   return { browserHarness }
 }

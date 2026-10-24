@@ -105,6 +105,8 @@ async def test_steps_build_the_strip_and_each_change_publishes_one_event(hub) ->
         ],
         "rung": 0,
         "fps": 0.0,
+        "turn_over": False,
+        "tab": "",
     }
 
 
@@ -221,7 +223,6 @@ async def test_turn_ended_stops_the_stream_opens_the_lock_and_folds_the_card(hub
         "chat-1", FakeRelay(), "a", browser="edge", headless=False, stream_factory=FakeStream
     )
     h.step("chat-1", "one")
-    await h.claim("chat-1")
     h.turn_ended("chat-1")
     await _settled(h)
     assert ("stop", None) in stream.calls
@@ -230,6 +231,36 @@ async def test_turn_ended_stops_the_stream_opens_the_lock_and_folds_the_card(hub
     assert ev["state"] == "done" and ev["steps"] == [{"label": "one", "status": "done"}]
     assert ev["step"] == {"index": 0, "label": "one"}
     h.turn_ended("never-started")  # no record, no error
+
+
+async def test_a_turn_that_ends_under_a_takeover_folds_only_at_the_hand_back(hub) -> None:
+    """The agent, unable to wait for the hand-back, ends its turn while the person is
+    drawing; the card must not fold under their hands and drop their strokes."""
+    h, wire = hub
+    relay = FakeRelay()
+    stream = await h.start_stream(
+        "chat-1", relay, "a", browser="edge", headless=False, stream_factory=FakeStream
+    )
+    h.step("chat-1", "one")
+    await h.claim("chat-1")
+    h.turn_ended("chat-1")
+    await _settled(h)
+    # Still the person's: stream running, lock held, state in_control, steps settled.
+    assert ("stop", None) not in stream.calls
+    assert h.in_control("chat-1") is True and h.get("chat-1").stream is stream
+    ev = wire.events[-1][1]
+    assert ev["state"] == "in_control" and ev["steps"] == [{"label": "one", "status": "done"}]
+    sent = await h.input_event("chat-1", {"type": "mouse", "x": 1, "y": 1, "button": "left"})
+    assert sent == 2
+    # The hand-back is what folds the card.
+    await h.release("chat-1")
+    await _settled(h)
+    assert ("stop", None) in stream.calls and stream.calls[-2] == ("takeover", False)
+    assert h.in_control("chat-1") is False and h.get("chat-1").stream is None
+    assert wire.events[-1][1]["state"] == "done"
+    # The next turn opens fresh: ``turn_started`` on a done record is a new turn.
+    h.turn_started("chat-1", "t2")
+    assert h.get("chat-1").state != "done" and h.get("chat-1").fold_on_release is False
 
 
 async def test_visibility_and_acks_reach_the_stream(hub) -> None:
@@ -440,9 +471,13 @@ async def test_wait_for_release_returns_on_the_hand_back_and_on_the_bound(hub) -
     assert await quick.wait_for_release("chat-2", 600) is False
     assert slept == [600]
     assert quick.in_control("chat-2") is True
-    # ``turn_ended`` is a release too.
+    # ``turn_ended`` under a takeover leaves the browser with the person (the card
+    # stays theirs past the turn); their hand-back is the release, and folds it.
     quick.turn_ended("chat-2")
+    assert await quick.wait_for_release("chat-2", 600) is False
+    await quick.release("chat-2")
     assert await quick.wait_for_release("chat-2", 600) is True
+    assert quick.get("chat-2").state == lh.STATE_DONE
 
 
 async def test_claim_on_a_finished_card_is_refused(hub) -> None:
@@ -474,3 +509,244 @@ async def test_an_ack_naming_another_stream_releases_nothing(hub) -> None:
     assert stream.calls.count(("ack", 7)) == 0
     assert h.ack("chat-1", 7, "new1") is True
     assert h.ack("chat-1", 8) is True, "no stream named: the current one"
+
+
+# ── reopen: the finished card's "Open live" ──────────────────────────────
+
+
+class LedgerRelay(FakeRelay):
+    """A relay with the tab ledger ``CdpRelay`` keeps (``agent_targets``)."""
+
+    def __init__(self, targets: tuple[str, ...] = ("tgt",)) -> None:
+        super().__init__()
+        self.targets = list(targets)
+        self.closed = False
+
+    def agent_targets(self) -> list[str]:
+        return list(self.targets)
+
+
+async def _finished(h: lh.LiveHub, relay: Any, *, browser: str = "kiro_chromium") -> FakeStream:
+    """A turn that browsed tab ``tgt`` on *relay* and ended: the card is done."""
+    h.turn_started("chat-1", "t1")
+    h.bind_target("chat-1", "tgt")
+    stream = await h.start_stream(
+        "chat-1", relay, "tgt", browser=browser, headless=True, stream_factory=FakeStream
+    )
+    h.step("chat-1", "open")
+    h.turn_ended("chat-1")
+    await _settled(h)
+    assert h.get("chat-1").state == lh.STATE_DONE and ("stop", None) in stream.calls
+    return stream
+
+
+@pytest.mark.parametrize("browser", ["kiro_chromium", "user_chrome", "edge"])
+async def test_reopen_streams_the_tab_again_under_the_same_turn_and_takes_over(
+    hub, browser: str
+) -> None:
+    h, wire = hub
+    relay = LedgerRelay()
+    await _finished(h, relay, browser=browser)
+    done = wire.events[-1][1]
+    assert done["state"] == "done" and done["turn_over"] is True and done["tab"] == "open"
+
+    assert await h.reopen("chat-1", relay, stream_factory=FakeStream) == lh.REOPEN_LIVE
+    await _settled(h)
+    sess = h.get("chat-1")
+    stream = sess.stream
+    assert isinstance(stream, FakeStream) and stream.target_id == "tgt" and stream.relay is relay
+    ev = wire.events[-1][1]
+    # The same card grows back: same turn, live, its steps kept, still a finished turn.
+    assert (ev["turn_id"], ev["state"], ev["turn_over"], ev["tab"]) == ("t1", "live", True, "open")
+    assert ev["browser"] == browser and ev["steps"] == [{"label": "open", "status": "done"}]
+    # Again is a no-op while it streams.
+    assert await h.reopen("chat-1", relay, stream_factory=FakeStream) == lh.REOPEN_LIVE
+    assert sess.stream is stream
+
+    # Take over and hand back exactly as during a turn.
+    assert await h.claim("chat-1") is True
+    assert ("takeover", True) in stream.calls and h.in_control("chat-1")
+    assert await h.input_event("chat-1", {"type": "mouse", "x": 1, "y": 1, "button": "left"}) == 2
+    await h.release("chat-1")
+    await _settled(h)
+    assert h.in_control("chat-1") is False and sess.stream is stream
+    assert wire.events[-1][1]["state"] == "live", "a hand-back keeps the reopened view"
+
+    # A later turn that never browses ends without folding the person's view.
+    h.turn_ended("chat-1")
+    await _settled(h)
+    assert sess.stream is stream and sess.state == lh.STATE_LIVE
+
+    # Close folds it, back to the done line, and Open live is offered again.
+    assert await h.close_view("chat-1") is True
+    await _settled(h)
+    assert sess.stream is None and ("stop", None) in stream.calls
+    assert wire.events[-1][1]["state"] == "done" and wire.events[-1][1]["tab"] == "open"
+    assert await h.close_view("chat-1") is False
+
+
+async def test_reopen_of_a_closed_tab_says_so_and_starts_nothing(hub) -> None:
+    h, wire = hub
+    relay = LedgerRelay()
+    await _finished(h, relay)
+    relay.targets.clear()  # the tab was closed (Target.targetDestroyed)
+    made: list[FakeStream] = []
+
+    def factory(*a: Any, **k: Any) -> FakeStream:
+        made.append(FakeStream(*a, **k))
+        return made[-1]
+
+    assert await h.reopen("chat-1", relay, stream_factory=factory) == lh.REOPEN_TAB_GONE
+    await _settled(h)
+    assert made == [] and h.get("chat-1").stream is None
+    ev = wire.events[-1][1]
+    assert ev["state"] == "done" and ev["tab"] == "closed"
+    # A relay that hung up, or none at all, is a gone tab too.
+    relay.targets.append("tgt")
+    relay.closed = True
+    assert await h.reopen("chat-1", relay, stream_factory=factory) == lh.REOPEN_TAB_GONE
+    assert await h.reopen("never", None) == lh.REOPEN_TAB_GONE
+
+
+async def test_reopen_whose_attach_fails_is_a_gone_tab_not_a_crash(hub) -> None:
+    h, wire = hub
+    relay = LedgerRelay()
+    await _finished(h, relay)
+
+    class Dead(FakeStream):
+        async def start(self) -> None:
+            raise RuntimeError("No target with given id found")
+
+    assert await h.reopen("chat-1", relay, stream_factory=Dead) == lh.REOPEN_TAB_GONE
+    await _settled(h)
+    assert h.get("chat-1").stream is None and wire.events[-1][1]["tab"] == "closed"
+
+
+async def test_reopen_refuses_a_running_turn_another_chats_tab_and_live_off(hub) -> None:
+    h, _wire = hub
+    relay = LedgerRelay()
+    h.turn_started("chat-1", "t1")
+    h.bind_target("chat-1", "tgt")
+    await h.start_stream(
+        "chat-1", relay, "tgt", browser="kiro_chromium", headless=True, stream_factory=FakeStream
+    )
+    await h.stop_stream("chat-1")
+    with pytest.raises(LookupError):
+        await h.reopen("chat-1", relay, stream_factory=FakeStream)  # the agent's turn
+    h.turn_ended("chat-1")
+    h.bind_target("chat-2", "tgt")  # another chat owns that tab now
+    assert await h.reopen("chat-1", relay, stream_factory=FakeStream) == lh.REOPEN_TAB_GONE
+    h.get("chat-2").targets.clear()
+    h.get("chat-1").tab_closed = False
+    h._config = sc.LiveConfig(enabled=False)
+    assert await h.reopen("chat-1", relay, stream_factory=FakeStream) == lh.REOPEN_LIVE_OFF
+
+
+async def test_a_turn_that_browses_after_a_reopen_joins_the_running_stream(hub) -> None:
+    h, wire = hub
+    relay = LedgerRelay()
+    await _finished(h, relay)
+    await h.reopen("chat-1", relay, stream_factory=FakeStream)
+    stream = h.get("chat-1").stream
+    h.turn_started("chat-1", "t2")
+    await _settled(h)
+    sess = h.get("chat-1")
+    assert sess.turn_over is False and sess.stream is stream
+    ev = wire.events[-1][1]
+    assert (ev["turn_id"], ev["state"], ev["turn_over"]) == ("t2", "live", False)
+    h.turn_ended("chat-1")  # this turn's end is what folds it now
+    await _settled(h)
+    assert sess.stream is None and wire.events[-1][1]["state"] == "done"
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+async def _held_past_its_turn(clock: _Clock) -> tuple[lh.LiveHub, Wire, FakeStream]:
+    wire = Wire()
+    h = lh.LiveHub(clock=clock)
+    h.bind(wire.publish, wire.send_frame)
+    h.turn_started("chat-1", "t1")
+    stream = await h.start_stream(
+        "chat-1", FakeRelay(), "a", browser="edge", headless=False, stream_factory=FakeStream
+    )
+    await h.claim("chat-1")
+    h.turn_ended("chat-1")
+    await _settled(h)
+    return h, wire, stream
+
+
+async def test_a_takeover_held_past_its_turn_is_handed_back_once_the_card_goes_quiet() -> None:
+    """The claim is plain HTTP: a card closed mid-takeover sends no release, and a
+    takeover outlives its turn, so a quiet card must not hold the chat's browser
+    for good."""
+    clock = _Clock()
+    h, wire, stream = await _held_past_its_turn(clock)
+    clock.t += lh.TAKEOVER_IDLE_S - 1
+    assert h.in_control("chat-1") is True
+    clock.t += 2
+    assert h.in_control("chat-1") is False
+    await _settled(h)
+    assert h.get("chat-1").state == "done" and h.get("chat-1").stream is None
+    assert ("stop", None) in stream.calls
+    assert wire.events[-1][1]["state"] == "done"
+
+
+async def test_input_acks_and_scrolling_into_view_keep_the_takeover() -> None:
+    clock = _Clock()
+    h, _wire, _stream = await _held_past_its_turn(clock)
+    for touch in (
+        lambda: h.input_event("chat-1", {"type": "mouse", "x": 1, "y": 1, "button": "left"}),
+        lambda: h.set_visible("chat-1", True),
+    ):
+        clock.t += lh.TAKEOVER_IDLE_S - 1
+        await touch()
+        assert h.in_control("chat-1") is True
+    clock.t += lh.TAKEOVER_IDLE_S - 1
+    h.ack("chat-1", 1)
+    clock.t += lh.TAKEOVER_IDLE_S - 1
+    assert h.in_control("chat-1") is True
+
+
+async def test_a_claim_inside_its_own_running_turn_is_never_expired_by_idleness() -> None:
+    clock = _Clock()
+    h = lh.LiveHub(clock=clock)
+    h.turn_started("chat-1", "t1")
+    await h.start_stream(
+        "chat-1", FakeRelay(), "a", browser="edge", headless=False, stream_factory=FakeStream
+    )
+    await h.claim("chat-1")
+    clock.t += lh.TAKEOVER_IDLE_S * 10
+    assert h.in_control("chat-1") is True
+
+
+async def test_a_quiet_claim_from_an_earlier_turn_does_not_hold_the_next_turns_ops() -> None:
+    clock = _Clock()
+    h, _wire, _stream = await _held_past_its_turn(clock)
+    clock.t += lh.TAKEOVER_IDLE_S + 1
+    h.turn_started("chat-1", "t2")
+    assert h.in_control("chat-1") is False
+    assert h.get("chat-1").state != "done"
+
+
+async def test_the_handback_poll_frees_a_quiet_claim_from_an_earlier_turn() -> None:
+    clock = _Clock()
+
+    async def instant(_s: float) -> None:
+        clock.t += lh.TAKEOVER_IDLE_S
+
+    wire = Wire()
+    h = lh.LiveHub(clock=clock, sleep=instant)
+    h.bind(wire.publish, wire.send_frame)
+    h.turn_started("chat-1", "t1")
+    await h.start_stream(
+        "chat-1", FakeRelay(), "a", browser="edge", headless=False, stream_factory=FakeStream
+    )
+    await h.claim("chat-1")
+    h.turn_ended("chat-1")
+    assert await h.wait_for_release("chat-1", 3.0) is True

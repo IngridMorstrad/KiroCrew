@@ -192,6 +192,24 @@ def install_state(home: Path) -> InstallState:
     )
 
 
+def harness_current(home: Path) -> bool:
+    """The Harness is installed AND was installed from the lock this build ships.
+
+    :func:`install_state` answers "installed" from the version alone; a build that
+    re-pins a dependency without moving ``HARNESS_VERSION`` changes only the lock,
+    so the marker's ``lock_sha256`` is what tells a stale venv apart. Never raises:
+    an unreadable marker or lock reads as "not current", which the startup
+    auto-install answers by running the install again.
+    """
+    if not install_state(home).installed:
+        return False
+    try:
+        data = json.loads((harness_prefix(home) / MARKER_FILE).read_text(encoding="utf-8"))
+        return isinstance(data, dict) and data.get("lock_sha256") == lock_digest()
+    except (OSError, ValueError):
+        return False
+
+
 async def install(
     home: Path,
     progress: ProgressCallback | None = None,
@@ -293,7 +311,8 @@ def _run(argv: list[str], timeout: float, *, cwd: Path) -> subprocess.CompletedP
     """The installer's one spawn: a fixed argv of our own interpreter and the venv's.
 
     Every token is a constant of this module or a path derived from the data home;
-    the only trigger is the owner pressing Install in Settings. The working
+    the two triggers are the owner pressing Install in Settings and the gateway's
+    own startup auto-install, and neither passes anything a caller chose. The working
     directory is the prefix (owner-only, never the gateway's own cwd), the
     interpreter runs isolated (``-I`` in the argv) and the environment is
     :func:`_child_env`: three fences against the same agent-writable cwd.

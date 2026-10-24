@@ -54,6 +54,8 @@ interface Props {
   onHandBack?: () => void
   /** Hover-to-take-over affordance: a click while live claims input. */
   onClaim?: () => void
+  /** Told when the drawn frame's pixel size changes, so the box can take its ratio. */
+  onFrameSize?: (size: FrameSize) => void
   className?: string
   'aria-label': string
 }
@@ -76,9 +78,11 @@ async function decode(frame: DecodedBrowserFrame): Promise<ImageBitmap | HTMLIma
 }
 
 const BrowserLiveCardCanvas = forwardRef<BrowserLiveCanvasHandle, Props>(function BrowserLiveCardCanvas(
-  { sessionKey, turnId, visible, interactive, onHandBack, onClaim, className, 'aria-label': ariaLabel },
+  { sessionKey, turnId, visible, interactive, onHandBack, onClaim, onFrameSize, className, 'aria-label': ariaLabel },
   ref,
 ) {
+  const onFrameSizeRef = useRef(onFrameSize)
+  onFrameSizeRef.current = onFrameSize
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sizeRef = useRef<FrameSize | null>(null)
   const latestRef = useRef<DecodedBrowserFrame | null>(null)
@@ -105,7 +109,9 @@ const BrowserLiveCardCanvas = forwardRef<BrowserLiveCanvasHandle, Props>(functio
       canvas.width = w
       canvas.height = h
     }
+    const prev = sizeRef.current
     sizeRef.current = { w, h }
+    if (!prev || prev.w !== w || prev.h !== h) onFrameSizeRef.current?.({ w, h })
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     let img: ImageBitmap | HTMLImageElement

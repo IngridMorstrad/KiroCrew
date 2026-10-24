@@ -45,6 +45,8 @@ from kiro_crew.config.sections import (
     BROWSER_LOCAL_ORIGINS_MAX,
     COMPACT_WAIT_SECS_MAX,
     COMPACT_WAIT_SECS_MIN,
+    CREDENTIAL_DOMAIN_PATTERN,
+    CREDENTIAL_DOMAINS_CAP,
     DECISION_BUCKET_MAX,
     DECISION_BUCKET_MIN,
     DECISION_MODEL_ROUTE_TIERS,
@@ -465,20 +467,34 @@ _EDITABLE_CONFIG: dict[str, dict] = {
         "min": DECISION_BUCKET_MIN,
         "max": DECISION_BUCKET_MAX,
     },
-    # Browser (Settings -> Browser, RFC browser-live-harness section 8). Every
-    # key here is a preference the agent cannot widen anything with: the browser
-    # pick only moves between browsers the discovery order already offers, the
-    # live-view keys shape a stream that reaches OWNER websockets only, and the
-    # first-run flag is UI state. The two closed enums refuse a typo rather than
-    # degrade it, unlike the loader, so a user sees the refusal where they typed.
+    # Browser (Settings -> Browser, RFC browser-live-harness section 8). Owner
+    # writes only; the change-card classes (``change_card_catalog_kinds``) say
+    # which of these widen what an agent may reach: the browser pick (the
+    # person's own Chrome holds their logins), turning password masking off and
+    # turning the sign-in on. The live-view keys shape a stream that reaches
+    # OWNER websockets only. The two
+    # closed enums refuse a typo rather than degrade it, unlike the loader, so a
+    # user sees the refusal where they typed.
     # Values come from the config section itself, so this gate and the loader's
     # own normalization cannot drift.
     "browser.choice": {"type": "enum", "values": list(BROWSER_CHOICES)},
-    "browser.first_run_dismissed": {"type": "bool"},
     "browser.live.enabled": {"type": "bool"},
     "browser.live.quality": {"type": "enum", "values": list(LIVE_QUALITIES)},
     "browser.live.max_fps": {"type": "enum", "values": list(LIVE_MAX_FPS_CHOICES)},
     "browser.live.mask_passwords": {"type": "bool"},
+    # Sign-in for Kiro's Chromium (the edition's browser-credential provider). The
+    # switch decides whether the provider's cookies go into Kiro's own Chromium;
+    # the domains narrow which of the provider's domains may be used. Only the
+    # intersection with what the provider declares is ever applied, and the
+    # person's own Chrome is never filled. Settings shows both only when a
+    # provider exists.
+    "browser.credentials.enabled": {"type": "bool"},
+    "browser.credentials.domains": {
+        "type": "str_list",
+        "max_items": CREDENTIAL_DOMAINS_CAP,
+        "max_item_len": 253,
+        "item_pattern": CREDENTIAL_DOMAIN_PATTERN,
+    },
     # The Preview tab's allowlist (Settings -> Browser -> Local preview). A list
     # of `host:port` loopback origins; `item_pattern` refuses any other shape at
     # the write so the editor can say so, and the loader's

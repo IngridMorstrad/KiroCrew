@@ -45,6 +45,14 @@ SHIM_MARGIN_S = 10.0
 #: worker thread, and the ACP tool-stall watchdog kills a tool call silent for
 #: 600 s, so the hold is sliced and each slice pings the session keepalive.
 HOLD_TIMEOUT_S = 10 * 60.0
+#: A takeover that outlived its turn (held past the turn's end, or taken on a
+#: reopened view) is handed back after this long with no sign the card is still
+#: open: a claim, an input event, a frame ack, the card scrolling into view. The
+#: claim is plain HTTP with no socket to watch, so without this a card closed
+#: mid-takeover would hold the chat's browser for good and every later turn's
+#: ops would sit out the whole ``HOLD_TIMEOUT_S``. Shorter than that hold, so a
+#: parked op is freed by this bound first.
+TAKEOVER_IDLE_S = 5 * 60.0
 #: Seconds between two hand-back polls from the parked tool.
 HANDBACK_POLL_S = 5.0
 #: How long one ``/api/browser/handback`` call may wait on the release signal
@@ -80,4 +88,5 @@ __all__ = [
     "SHIM_MARGIN_S",
     "SHIM_SLOW_TIMEOUT_S",
     "SLOW_OP_TIMEOUT_S",
+    "TAKEOVER_IDLE_S",
 ]

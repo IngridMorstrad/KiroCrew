@@ -71,6 +71,7 @@ import { createBrowserAndComputerUseEndpoints } from './client/browserAndCompute
 export type {
   BrowserKind,
   BrowserConnection,
+  BrowserCredentialsStatus,
   BrowserStatusData,
   BrowserTestData,
   BrowserInstallRequest,

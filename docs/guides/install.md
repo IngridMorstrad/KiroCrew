@@ -644,19 +644,21 @@ so all user customizations survive.
 
 Kiro Crew's `browser` tool drives one browser through
 [Browser Harness](https://github.com/browser-use/browser-harness), run locally by
-the gateway with its telemetry and cloud path switched off. Set it up from
-**Settings → Browser**:
+the gateway with its telemetry and cloud path switched off. **Settings → Browser**
+shows one card for it, whose single button follows the state:
 
-1. **Install the engine.** One click installs the pinned driver into Kiro Crew's
-   own data home (`<data-home>/browser-harness`). No `npm`, no Node.js, no
-   `sudo`.
-2. **Connect your own Chrome** (macOS, Linux desktop, Windows): open
+1. **The engine.** The pinned driver lives in Kiro Crew's own data home
+   (`<data-home>/browser-harness`). No `npm`, no Node.js, no `sudo`. While it
+   installs the card says so; if it is not installed the card offers Install,
+   and a failed install offers Retry with the reason.
+2. **Your own Chrome** (macOS, Linux desktop, Windows): open
    `chrome://inspect/#remote-debugging` once and turn remote debugging on; the
    first time the agent connects, Chrome asks **Allow remote debugging?** and
-   you click Allow. Your logins are used where they exist; the agent never
-   types a password. On Windows without Chrome the agent uses Edge the same way.
-   Or choose **Skip, use the fallback browser**: Kiro's own headless Chromium,
-   which is also what a server or a remote gateway with no display uses.
+   you click Allow (the card turns yellow until you do). Your logins are used
+   where they exist; the agent never types a password. On Windows without Chrome
+   the agent uses Edge the same way. Or set **Which browser** to Kiro's Chromium,
+   and under **More** turn on **Run with no window** for a server or a remote
+   gateway with no display.
 3. **Try it.** Ask the agent to open a page. The page appears in the chat as a
    live card; click it to take over (a CAPTCHA, a 2FA prompt, a login), press
    Esc to hand it back.

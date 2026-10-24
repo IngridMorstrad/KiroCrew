@@ -66,9 +66,8 @@ function readPanel(file: string): string {
  * an unlisted file fails, so the choice is always conscious.
  */
 const UNMAPPED_PANELS: Record<string, string> = {
-  'BrowserEngineSection.tsx': "the Browser tab's Engine rows (Harness version, Kiro's Chromium) with a Redownload action and a locked Privacy statement; status and one action, no setting of its own",
-  'BrowserFirstRun.tsx': "the Browser tab's three-step first-run list; its buttons install, open Chrome or dismiss (browser.first_run_dismissed is written by BrowserPanel, which is mapped), no searchable setting",
-  'BrowserStatusCard.tsx': "the Browser tab's status card (browser in use, connection, fallback order) with Test and Disconnect actions; it reports the engine and holds no setting",
+  'BrowserEngineSection.tsx': "the Browser tab's Engine row under More (Harness and Chromium versions) with a Redownload action; status and one action, no setting of its own",
+  'BrowserStatusCard.tsx': "the Browser tab's main card (browser, status dot, one state-dependent Install / Retry / Allow / Connect / Disconnect action); it reports the engine and holds no setting",
   'KiroHarnessFallbackNote.tsx': 'informational note ChatPanel mounts above the fallback pickers on a Kiro harness, zero controls',
   'ChannelDisabledPanel.tsx': 'informational placeholder (locked/loading/error states), zero controls',
   'ChannelFolderBackfill.tsx': 'one action button shared by the channel panels; files existing conversations into the folder the OWNING panel configures, and holds no setting of its own',
@@ -207,6 +206,10 @@ type BareCounts = Partial<Record<(typeof BARE_CONTROL_TAGS)[number], number>>
  * settingsManual.ts entry; "transient" means it is not a persistent setting.
  */
 const WAIVED_BARE_CONTROLS: Record<string, { counts: BareCounts; reason: string }> = {
+  'BrowserCredentialDomains.tsx': {
+    counts: { Input: 1 },
+    reason: "the chip editor's entry field for a new sign-in domain -- part of the browser.credentials.domains composite the extractor indexes whole (the list carries the configKey)",
+  },
   'BrowserLocalOrigins.tsx': {
     counts: { Input: 1 },
     reason: "the chip editor's entry field for a new origin -- part of the dashboard.browser_local_origins composite the extractor indexes whole (the list carries the configKey)",

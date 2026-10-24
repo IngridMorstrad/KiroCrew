@@ -85,6 +85,7 @@ omit the policy.
 | `mobile_connect` | adapter | `DefaultMobileConnectProvider` (personal-install pair: `tailnet_qr` + `login_link` (id == kind by design)) | edition-specific phone-connection methods (descriptor-only `{id, kind}`; minting stays on each method's own endpoint; an empty list hides the dashboard entry; list + mint governed by `capabilities.mobile_connect`) |
 | `remote_provisioners` | adapter | `DefaultRemoteProvisionerProvider` (the built-in `aws_ec2` lane backed by `RealLaunchEngine`, **plus a conditional `aws_fargate` lane** backed by `FargateLaunchEngine` that is offered only when `cloud.json` carries a complete `fargate` block; id == kind by design for both) | edition-specific ways to CREATE a remote instance (a managed dev environment, a container task): descriptor-only `{id, kind, label, posix_only, step_labels, confirm_before_launch}` plus a `LaunchEngine` per id (`confirm_before_launch` carries what the operator must see and confirm before that lane may launch -- `POST /api/cloud/launch` requires `confirm_recipient` to equal it, so the requirement is derived from the row rather than hard-coded to one id, and a lane with nothing to confirm leaves it empty); the core's durable launch job still drives every launch, so cancel, rollback and orphan reaping are inherited rather than reimplemented |
 | `feedback` | adapter | `DefaultFeedbackTrackerProvider` (`report_issue_url()` → `None`) | the edition's issue tracker behind **Report a Problem** and `kirocrew doctor`. **REPLACE-capable** like `tips`: a supplied URL takes over from the public pre-filled GitHub bug-report link rather than being appended to it, because that link's query string is GitHub's form. The backend half of the dashboard's `setFeedbackTracker` seam (`website/docs/extension-seams.md` § "Feedback tracker"): the frontend-built links live there; this one is built by the gateway because it carries the bundle's facts |
+| `browser_credentials` | adapter | `DefaultBrowserCredentialProvider` (`name()` → `None`; nothing else is called) | session cookies, and the Negotiate allowlist switch, for Kiro's own Chromium on the edition's own domains; applied by the gateway's browser supervisor at every start and on refresh, never to the person's own Chrome ([browser](browser.md) § Credentials) |
 | `feature_apps` | tuple | **RESERVED** — `()`; apps register via `apps_loader` (provenance record only) | — (slot inert) |
 
 > `remote_provisioners` note — this seam lets the Set-up tab under Settings →
@@ -1418,6 +1419,36 @@ is byte-identical) with no `CONTRACT_VERSION` bump.
   link. The wire field keeps its `github_issue_url` name (a rename is a take-away
   change). v1
   addition; the second half of the frontend `setFeedbackTracker` seam.
+
+- `BrowserCredentialProvider` — `name() -> Optional[str]`, `domains() -> Sequence[str]`,
+  `cookies(target: BrowserCredentialTarget) -> Sequence[Dict]`, `launch_args() ->
+  Sequence[str]`, `fingerprint() -> Optional[str]`, `keep_expiry() -> bool`,
+  `status() -> Optional[Dict]`, `default_settings() -> Dict` — WIRED:
+  `browser_harness.supervisor.HarnessSupervisor` applies it with CDP
+  `Storage.setCookies` on the gateway's own relay connection: in `_start` before the
+  daemon (every launch and relaunch of Kiro's Chromium), in `refresh_credentials()`,
+  and in `refresh_credentials_if_source_changed()`, which the op route calls before
+  every agent `navigate`/`tabs` and which re-pulls only when `fingerprint()` changed.
+  `BrowserCredentialTarget` is `{kind, headless, reason}` with `kind` always
+  `kiro_chromium` and `reason` `start|refresh|source_changed`. OPT-IN:
+  `browser.credentials.enabled` (unset takes `default_settings()`, else off) and a
+  cookie's domain must be in BOTH `domains()` and `browser.credentials.domains`.
+  Cookies are CDP `Network.CookieParam` dicts, set as session cookies unless
+  `keep_expiry()`; `launch_args()` is filtered to `--auth-server-allowlist=`.
+  `status()` is reduced to `{needs_refresh, message, earliest_expiry, count}`. A
+  provider reading a file uses `browser_harness.credential_files` and raises its
+  `CredentialSourceError`, which reads as a status (`needs_refresh` when missing),
+  never a crash. `name()` `None` (the Default) means no other method is called, so
+  the public browser is byte-identical. `domains()`, `cookies()`, `launch_args()`
+  and `status()` run in a worker thread (15 s each; `fingerprint()` 2 s);
+  `name()`, `default_settings()` and `keep_expiry()` may be read on the event loop
+  and must answer from memory. A raise is a reason code, never its message. The provider
+  runs in the gateway: the edition keeps whatever it reads from HIDDEN through its
+  own sandbox policy, and the core changes no sandbox list for it. Status reaches
+  `GET /api/browser/status` as `credentials`; each apply that set a cookie writes one
+  SEL row (provider, counts, domains). Read through `current_context()`; a
+  `PlatformCompositionError` fails the browser start, any other lookup error means
+  no provider. v1 addition.
 
 **`McpToolingProvider` is intentionally scoped to MCP tooling only** —
 `extra_mcp_servers()`, `extra_skills()`, and `extra_mcp_scopes()`. Agent

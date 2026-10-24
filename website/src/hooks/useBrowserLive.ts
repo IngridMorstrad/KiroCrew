@@ -54,7 +54,13 @@ export interface BrowserLiveEvent {
   fps?: number
   /** Server-authored detail for `error`; rendered verbatim, never translated. */
   detail?: string
+  /** The card's turn has ended. With a live state this is a REOPENED view. */
+  turn_over?: boolean
+  /** The tab the card showed: still `open` (Open live works), `closed`, or none. */
+  tab?: BrowserLiveTab
 }
+
+export type BrowserLiveTab = '' | 'open' | 'closed'
 
 /** One turn's browsing, as the card sees it. Replaced (not mutated) on every event. */
 export interface BrowserLiveTurn {
@@ -83,6 +89,10 @@ export interface BrowserLiveTurn {
    * succeeded or the server has since moved the state. Rendered verbatim.
    */
   controlError: string
+  /** The turn is over; a live state then means the person reopened the card. */
+  turnOver: boolean
+  /** Whether the tab the card showed is still there for "Open live". */
+  tab: BrowserLiveTab
 }
 
 interface SessionRecord {
@@ -125,6 +135,14 @@ export const REPLAY_RINGS_KEPT = 2
 
 /** Frames a turn may receive with no card showing it before the session is reported hidden. */
 export const UNSEEN_FRAMES_BEFORE_PAUSE = 30
+/**
+ * While the person holds the browser and the card is on screen, the gateway is
+ * told so again this often. A static page sends no frames (so no acks) and
+ * visibility is only posted on change, so without this a person reading a page
+ * through a takeover that outlived its turn would look gone to the gateway's
+ * idle bound (`TAKEOVER_IDLE_S`, 5 minutes) and be handed back.
+ */
+export const TAKEOVER_HEARTBEAT_MS = 60_000
 
 /** The text a failed write leaves for the card: the gateway's own, else the error's. */
 function errorText(e: unknown): string {
@@ -167,6 +185,8 @@ export function readBrowserLiveEvent(raw: unknown): BrowserLiveEvent | null {
     rung: typeof d.rung === 'number' && Number.isFinite(d.rung) ? d.rung : undefined,
     fps: typeof d.fps === 'number' && Number.isFinite(d.fps) ? d.fps : undefined,
     detail: typeof d.detail === 'string' ? d.detail : undefined,
+    turn_over: typeof d.turn_over === 'boolean' ? d.turn_over : undefined,
+    tab: d.tab === 'open' || d.tab === 'closed' || d.tab === '' ? d.tab : undefined,
   }
 }
 
@@ -175,6 +195,18 @@ const isEnded = (s: BrowserLiveState) => s === 'done' || s === 'error'
 /** Map keys are `session + SEP + id`; a NUL cannot appear in either half. */
 const SEP = '\u0000'
 const joinKey = (a: string, b: string) => a + SEP + b
+
+/** The gateway's `code` for a refused write (`{"error","code"}` body), or ''. */
+function errorCode(e: unknown): string {
+  const body = (e as { body?: unknown } | null)?.body
+  if (typeof body !== 'string' || !body) return ''
+  try {
+    const code = (JSON.parse(body) as { code?: unknown }).code
+    return typeof code === 'string' ? code : ''
+  } catch {
+    return ''
+  }
+}
 
 /** Swallow a write's rejection: the card's writes are best effort, and the
  *  journal already has the `ApiError`. */
@@ -186,6 +218,7 @@ class BrowserLiveStore {
   private listeners = new Set<Listener>()
   private frameListeners = new Map<string, Set<FrameListener>>()
   private documentListening = false
+  private heartbeat: ReturnType<typeof setInterval> | null = null
   /** Injected for tests; production uses the facade's methods. */
   private writes = {
     ack: (k: string, seq: number, stream: string) => api.browserLiveAck(k, seq, stream) as Promise<unknown>,
@@ -194,6 +227,8 @@ class BrowserLiveStore {
     release: (k: string) => api.browserInputRelease(k) as Promise<unknown>,
     input: (k: string, e: BrowserInputEvent) => api.browserInputEvent(k, e) as Promise<unknown>,
     open: (k: string) => api.browserLiveOpenInBrowser(k) as Promise<unknown>,
+    reopen: (k: string, turnId: string) => api.browserLiveReopen(k, turnId) as Promise<unknown>,
+    close: (k: string) => api.browserLiveClose(k) as Promise<unknown>,
   }
 
   private session(key: string): SessionRecord {
@@ -233,6 +268,7 @@ class BrowserLiveStore {
       const closed: BrowserLiveTurn = { ...s.current, state: 'done', endedAt: now }
       s.turns.set(closed.turnId, closed)
     }
+    const turnOver = ev.turn_over ?? (isEnded(ev.state) || (prev?.turnOver ?? false))
     const next: BrowserLiveTurn = {
       sessionKey: ev.session_key,
       turnId: ev.turn_id,
@@ -247,7 +283,9 @@ class BrowserLiveStore {
       fps: ev.fps ?? prev?.fps ?? 0,
       detail: ev.detail ?? (ev.state === 'error' ? prev?.detail ?? '' : ''),
       startedAt: prev?.startedAt ?? now,
-      endedAt: isEnded(ev.state) ? (prev?.endedAt ?? now) : null,
+      // A reopened view keeps the turn's own end, so the done line's duration is the
+      // agent's browsing, not the time the person spent looking afterwards.
+      endedAt: isEnded(ev.state) || turnOver ? (prev?.endedAt ?? now) : null,
       hasFrame: prev?.hasFrame ?? false,
       ring: prev?.ring ?? new FrameRing(),
       // A control write's failure text is kept while the server keeps saying the
@@ -255,6 +293,8 @@ class BrowserLiveStore {
       // after a failed take over); a state CHANGE is the server's word on the
       // lock and clears it, as does the turn ending.
       controlError: prev && ev.state === prev.state && !isEnded(ev.state) ? prev.controlError : '',
+      turnOver,
+      tab: ev.tab ?? prev?.tab ?? '',
     }
     s.turns.set(next.turnId, next)
     s.current = next
@@ -348,14 +388,14 @@ class BrowserLiveStore {
     const cur = s.current
     if (!cur) return null
     if (running) {
-      if (isEnded(cur.state) && this.isBound(sessionKey, cur.turnId)) return null
+      if ((isEnded(cur.state) || cur.turnOver) && this.isBound(sessionKey, cur.turnId)) return null
       this.anchors.set(ak, cur.turnId)
       return cur
     }
     // Settled turn, never bound: claim the newest unbound FINISHED record only
     // when the clocks agree, so a reload cannot hand an old turn a newer turn's
     // browsing, and a settled turn never shows a turn that is still live.
-    if (!isEnded(cur.state) || this.isBound(sessionKey, cur.turnId)) return null
+    if ((!isEnded(cur.state) && !cur.turnOver) || this.isBound(sessionKey, cur.turnId)) return null
     if (anchorTs !== null) {
       const end = cur.endedAt ?? Date.now()
       if (anchorTs < cur.startedAt - BIND_SLACK_MS || anchorTs > end + BIND_SLACK_MS) return null
@@ -405,6 +445,24 @@ class BrowserLiveStore {
     quiet(this.writes.visibility(sessionKey, v))
   }
 
+  /** Re-post `visible: true` for every session the person holds on screen; stops
+   *  itself once none is held. */
+  private startHeartbeat(): void {
+    if (this.heartbeat !== null) return
+    this.heartbeat = setInterval(() => {
+      let held = false
+      for (const [k, s] of this.sessions) {
+        if (s.current?.state !== 'in_control') continue
+        held = true
+        if (this.effectiveVisible(s)) quiet(this.writes.visibility(k, true))
+      }
+      if (!held && this.heartbeat !== null) {
+        clearInterval(this.heartbeat)
+        this.heartbeat = null
+      }
+    }, TAKEOVER_HEARTBEAT_MS)
+  }
+
   private listenToDocument(): void {
     if (this.documentListening || typeof document === 'undefined') return
     this.documentListening = true
@@ -425,6 +483,7 @@ class BrowserLiveStore {
     this.setState(sessionKey, 'in_control', '')
     try {
       await this.writes.claim(sessionKey)
+      this.startHeartbeat()
       return true
     } catch (e) {
       if (s.current?.turnId === before.turnId) this.setState(sessionKey, before.state, errorText(e))
@@ -466,6 +525,40 @@ class BrowserLiveStore {
     quiet(this.writes.open(sessionKey))
   }
 
+  /** Whether `turnId` is the session's newest record: only that card can reopen. */
+  isCurrentTurn(sessionKey: string, turnId: string): boolean {
+    return this.sessions.get(sessionKey)?.current?.turnId === turnId
+  }
+
+  /**
+   * The finished card's "Open live". The server's `browser_live` event is what
+   * turns the card live; this only waits for the answer. `tab_gone` marks the
+   * record's tab closed (the card says so and keeps Replay); any other refusal
+   * is kept as the record's control error.
+   */
+  async reopen(sessionKey: string, turnId: string): Promise<boolean> {
+    try {
+      await this.writes.reopen(sessionKey, turnId)
+      return true
+    } catch (e) {
+      const s = this.session(sessionKey)
+      const rec = s.turns.get(turnId)
+      if (rec) {
+        const gone = errorCode(e) === 'tab_gone'
+        const next = { ...rec, tab: gone ? 'closed' as const : rec.tab, controlError: gone ? '' : errorText(e) }
+        s.turns.set(turnId, next)
+        if (s.current?.turnId === turnId) s.current = next
+        this.notify()
+      }
+      return false
+    }
+  }
+
+  /** Fold a reopened view back to its done line (the server's event does the folding). */
+  closeLive(sessionKey: string): void {
+    quiet(this.writes.close(sessionKey))
+  }
+
   private setState(sessionKey: string, state: BrowserLiveState, controlError?: string): void {
     const s = this.session(sessionKey)
     if (!s.current) return
@@ -486,6 +579,8 @@ class BrowserLiveStore {
   }
 
   __resetForTests(): void {
+    if (this.heartbeat !== null) clearInterval(this.heartbeat)
+    this.heartbeat = null
     this.sessions.clear()
     this.anchors.clear()
     this.frameListeners.clear()
@@ -511,6 +606,15 @@ export function useBrowserLiveInControl(sessionKey: string | null): boolean {
   return useSyncExternalStore(
     browserLiveStore.subscribe,
     () => browserLiveStore.inControl(sessionKey),
+    () => false,
+  )
+}
+
+/** Whether `turnId` is the session's newest record (only that card may "Open live"). */
+export function useBrowserLiveIsCurrent(sessionKey: string | null, turnId: string): boolean {
+  return useSyncExternalStore(
+    browserLiveStore.subscribe,
+    () => Boolean(sessionKey && turnId) && browserLiveStore.isCurrentTurn(sessionKey as string, turnId),
     () => false,
   )
 }

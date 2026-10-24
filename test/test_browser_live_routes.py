@@ -29,6 +29,8 @@ ROUTES = (
     "/api/browser/live/visibility",
     "/api/browser/live/ack",
     "/api/browser/live/open-in-browser",
+    "/api/browser/live/reopen",
+    "/api/browser/live/close",
     "/api/browser/input/claim",
     "/api/browser/input/release",
     "/api/browser/input/event",
@@ -222,6 +224,56 @@ async def test_open_in_browser_reports_whether_the_window_was_focused() -> None:
         )
         assert status == 200 and body["focused"] is True
         assert relay.calls[0][0] == "Target.activateTarget"
+
+
+async def test_reopen_restarts_the_finished_cards_stream_and_close_folds_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, wire = _app()
+    hub = lh.get_live_hub()
+    relay = FakeRelay()
+    monkeypatch.setattr(mod, "_current_relay", lambda: relay)
+    real_reopen = hub.reopen
+
+    async def reopen(key: str, r: Any = None, **kw: Any) -> str:
+        return await real_reopen(key, r, stream_factory=FakeStream)
+
+    monkeypatch.setattr(hub, "reopen", reopen)
+    async with TestClient(TestServer(app)) as client:
+        hub.turn_started("chat-1", "t1")
+        hub.bind_target("chat-1", "tgt")
+        await _live()
+        hub.turn_ended("chat-1")
+        body_ok = {"session_key": "chat-1", "turn_id": "t1"}
+        status, body = await _post(client, "/api/browser/live/reopen", {"session_key": "chat-1"})
+        assert status == 400 and body["code"] == "invalid_turn"
+        status, body = await _post(
+            client, "/api/browser/live/reopen", {"session_key": "chat-1", "turn_id": "t0"}
+        )
+        assert status == 409 and body["code"] == "stale_turn"
+        status, body = await _post(client, "/api/browser/live/reopen", body_ok)
+        assert status == 200 and body["live"] is True
+        assert isinstance(hub.get("chat-1").stream, FakeStream)
+        assert wire.events[-1][1]["state"] == "live" and wire.events[-1][1]["turn_id"] == "t1"
+        status, body = await _post(client, "/api/browser/input/claim", {"session_key": "chat-1"})
+        assert status == 200 and body["in_control"] is True
+        status, body = await _post(client, "/api/browser/live/close", {"session_key": "chat-1"})
+        assert status == 200 and body["closed"] is True
+        assert hub.get("chat-1").stream is None and hub.in_control("chat-1") is False
+        assert wire.events[-1][1]["state"] == "done"
+        # The tab is gone: 409 tab_gone, and the card is told ``tab: closed``.
+        relay.closed = True  # type: ignore[attr-defined]
+        status, body = await _post(client, "/api/browser/live/reopen", body_ok)
+        assert status == 409 and body["code"] == "tab_gone"
+        status, body = await _post(client, "/api/browser/live/close", {"session_key": "chat-1"})
+        assert status == 200 and body["closed"] is False
+
+
+async def test_the_current_relay_never_starts_a_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kiro_crew.browser_harness import ops as harness_ops
+
+    monkeypatch.setattr(harness_ops, "browsing_available", lambda _home: False)
+    assert mod._current_relay() is None
 
 
 async def test_the_slice_binds_the_hub_to_the_owner_senders_and_registers_cleanup() -> None:

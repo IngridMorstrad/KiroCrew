@@ -1,4 +1,4 @@
-"""Route registration for the live browser card (visibility, acks, takeover, open-in-browser).
+"""Route registration for the live browser card (visibility, acks, takeover, open, reopen).
 
 Browser-called and cookie-authed, like the computer-use config pair in
 ``system.py``: these are the dashboard owner's own controls over the agent's
@@ -39,6 +39,8 @@ def register(app: web.Application) -> None:
     app.router.add_post(
         "/api/browser/live/open-in-browser", handlers.api_browser_live_open_in_browser
     )
+    app.router.add_post("/api/browser/live/reopen", handlers.api_browser_live_reopen)
+    app.router.add_post("/api/browser/live/close", handlers.api_browser_live_close)
     app.router.add_post("/api/browser/input/claim", handlers.api_browser_input_claim)
     app.router.add_post("/api/browser/input/release", handlers.api_browser_input_release)
     app.router.add_post("/api/browser/input/event", handlers.api_browser_input_event)

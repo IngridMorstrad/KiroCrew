@@ -121,6 +121,7 @@ export const PANEL_TAB_MAP: Record<string, PanelTarget> = {
   // The Browser tab's sections (RFC browser-live-harness section 8), each mounted
   // by BrowserPanel: the live-view and Advanced controls, and the Preview tab's
   // origin list. Mapped with it so a control any of them gains stays indexed.
+  'BrowserCredentialDomains.tsx': 'browser',
   'BrowserLiveSection.tsx': 'browser',
   'BrowserLocalOrigins.tsx': 'browser',
   // The Browser tab's managed-browser and existing-browser sections, mounted by

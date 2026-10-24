@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # avoid import cycles — config.loader imports heavy modules
         AgentRuntime,
         AppRegistryPolicy,
         AppsLoader,
+        BrowserCredentialProvider,
         CapabilityManager,
         CredentialPolicy,
         DashboardContributor,
@@ -348,6 +349,11 @@ class PlatformContext:
     # the dashboard's ``setFeedbackTracker`` seam. v1 addition (no
     # CONTRACT_VERSION bump).
     feedback: "FeedbackTrackerProvider"
+    # Session cookies (and the Negotiate allowlist switch) for Kiro's own
+    # Chromium, applied by the gateway's browser supervisor at every start and
+    # on an explicit refresh; never for the person's own Chrome. The Default
+    # supplies nothing. v1 addition (no CONTRACT_VERSION bump).
+    browser_credentials: "BrowserCredentialProvider"
 
     # ── bundled feature apps ──
     feature_apps: "Tuple[FeatureApp, ...]"  # [RESERVED] — see RESERVED_SLOTS

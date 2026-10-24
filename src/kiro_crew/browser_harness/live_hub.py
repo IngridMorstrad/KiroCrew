@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from kiro_crew.browser_harness.budgets import TAKEOVER_IDLE_S
 from kiro_crew.browser_harness.screencast import (
     LiveConfig,
     LiveStream,
@@ -94,6 +95,15 @@ class LiveSession:
     fps: float = 0.0
     started_at: float = 0.0
     ended_at: float = 0.0
+    #: The turn ended while the person held the browser: ``release`` folds the card.
+    fold_on_release: bool = False
+    #: The turn the person's claim was taken in, and when the card last showed it
+    #: is open (claim, input, ack, scrolled into view). Together they bound a
+    #: takeover that outlived its turn (:meth:`LiveHub._expire_stale_claim`).
+    claim_turn: str = ""
+    seen_at: float = 0.0
+    #: The card's turn folded (:meth:`LiveHub._fold`); cleared by the next turn.
+    ended: bool = False
     #: The agent tab this session's ops run on, and every tab it has owned. The op
     #: route binds before each op (``browser_ops._bind_target``), so two chats never
     #: drive one daemon tab and a takeover in one chat fences exactly that chat's tab.
@@ -102,6 +112,10 @@ class LiveSession:
     #: The relay the last stream ran on, kept after the stream stops so the finished
     #: card's "Open in Chrome" can still activate the retained tab.
     last_relay: Relay | None = None
+    #: The tab the last stream showed: what the finished card's "Open live" reopens.
+    shown_target: str = ""
+    #: A reopen found ``shown_target`` gone; cleared when a stream starts again.
+    tab_closed: bool = False
     #: The op fence (see :meth:`LiveHub.op_fence`): held by the op route for the
     #: whole of bind + op, taken by :meth:`LiveHub.claim` so a takeover lands
     #: between ops, never inside one.
@@ -119,6 +133,61 @@ class LiveSession:
     @property
     def relay(self) -> Relay | None:
         return self.stream.relay if self.stream is not None else self.last_relay
+
+    @property
+    def turn_over(self) -> bool:
+        """The turn this card belongs to has ended (folded, or held by the person past it).
+
+        A stream running on a session whose turn is over is a REOPENED view: the
+        person's own look at the tab, which no turn will fold (see
+        :meth:`LiveHub.reopen`).
+        """
+        return self.ended or self.fold_on_release
+
+    @property
+    def tab(self) -> str:
+        """``open`` / ``closed`` for the tab the card showed, ``""`` when it showed none.
+
+        ``open`` is the relay's ledger still listing the tab (a relay with no ledger
+        is taken at its word); a reopen that found it gone sets ``closed`` for good.
+        """
+        if not self.shown_target:
+            return ""
+        if self.stream is not None:
+            return TAB_OPEN
+        return (
+            TAB_OPEN
+            if not self.tab_closed and tab_alive(self.last_relay, self.shown_target)
+            else TAB_CLOSED
+        )
+
+
+#: ``LiveSession.tab`` values, on the wire as the event's ``tab`` field.
+TAB_OPEN = "open"
+TAB_CLOSED = "closed"
+
+#: :meth:`LiveHub.reopen` outcomes.
+REOPEN_LIVE = "live"
+REOPEN_TAB_GONE = "tab_gone"
+REOPEN_LIVE_OFF = "live_off"
+
+
+def tab_alive(relay: Relay | None, target_id: str) -> bool:
+    """Whether *relay* can still reach *target_id*: connected, and the tab in its ledger.
+
+    The ledger (``CdpRelay.agent_targets``) drops a tab on ``Target.targetDestroyed``,
+    so a tab the person or the agent closed reads gone without a CDP round trip. A
+    relay with no ledger (a test stand-in) is taken at its word.
+    """
+    if relay is None or not target_id or getattr(relay, "closed", False):
+        return False
+    ledger = getattr(relay, "agent_targets", None)
+    if not callable(ledger):
+        return True
+    try:
+        return target_id in ledger()
+    except Exception:  # noqa: BLE001 - a ledger that cannot be read is no proof the tab lives
+        return False
 
 
 def live_event(sess: LiveSession) -> dict[str, Any]:
@@ -141,6 +210,8 @@ def live_event(sess: LiveSession) -> dict[str, Any]:
         "steps": [{"label": s.label, "status": s.status} for s in sess.steps],
         "rung": int(sess.rung),
         "fps": float(sess.fps),
+        "turn_over": bool(sess.turn_over),
+        "tab": sess.tab,
     }
 
 
@@ -204,10 +275,15 @@ class LiveHub:
     def turn_started(self, session_key: str, turn_id: str) -> None:
         """A turn began browsing: reset the strip; the card attaches to this turn."""
         sess = self._session(session_key)
+        self._expire_stale_claim(sess)
         sess.turn_id = str(turn_id)
         sess.steps = []
         sess.started_at = self._clock()
         sess.ended_at = 0.0
+        sess.ended = False
+        # A reopened view (or a takeover held past the last turn) joins this turn:
+        # the stream keeps running and this turn's end is what folds it.
+        sess.fold_on_release = False
         if sess.state in ("", STATE_DONE):
             sess.state = ""
         self._emit(sess)
@@ -225,13 +301,33 @@ class LiveHub:
         self._emit(sess)
 
     def turn_ended(self, session_key: str) -> None:
-        """The turn is over: the stream stops, the lock opens, the card folds to one line."""
+        """The turn is over: the stream stops, the lock opens, the card folds to one line.
+
+        Unless the person holds the browser. An agent that cannot wait for the
+        hand-back ends its turn while they are mid-takeover; folding the card then
+        would stop the stream under their hands and throw their strokes away. The
+        card stays theirs, and :meth:`release` folds it the moment they hand back.
+        """
         sess = self._sessions.get(session_key)
         if sess is None:
+            return
+        if sess.ended:
+            # This card's turn already ended. The chat runner calls this at the end of
+            # EVERY turn, so a later turn that never browsed must not fold a view the
+            # person reopened (:meth:`reopen`); only :meth:`close_view` does.
             return
         for s in sess.steps:
             if s.status == "active":
                 s.status = "done"
+        if sess.lock.held() and sess.lock.owner == USER:
+            sess.fold_on_release = True
+            self._emit(sess)
+            return
+        self._fold(sess)
+
+    def _fold(self, sess: LiveSession) -> None:
+        sess.fold_on_release = False
+        sess.ended = True
         sess.lock.release()
         sess.released.set()
         sess.ended_at = self._clock()
@@ -244,7 +340,31 @@ class LiveHub:
     def in_control(self, session_key: str) -> bool:
         """Whether the person holds the input lock; an agent op holds until they let go."""
         sess = self._sessions.get(session_key)
-        return sess is not None and sess.lock.held()
+        if sess is None:
+            return False
+        self._expire_stale_claim(sess)
+        return sess.lock.held()
+
+    def _expire_stale_claim(self, sess: LiveSession) -> bool:
+        """Hand back a takeover that outlived its turn and whose card went quiet.
+
+        Applies only to a claim held by the person past the turn it was taken in
+        (``turn_over``, or a later turn has started) with no sign of the card for
+        ``TAKEOVER_IDLE_S``. Folds the card exactly as the hand-back would. A claim
+        inside its own running turn is never expired here: the agent's hold
+        (``HOLD_TIMEOUT_S``) bounds that one. Checked lazily wherever the agent
+        side asks who holds the browser, so a dead card frees the chat on the
+        next op or hand-back poll. Returns whether it folded.
+        """
+        if not (sess.lock.held() and sess.lock.owner == USER):
+            return False
+        if not (sess.turn_over or sess.claim_turn != sess.turn_id):
+            return False
+        if self._clock() - sess.seen_at < TAKEOVER_IDLE_S:
+            return False
+        logger.info("browser live: handing back an idle takeover of %s", sess.session_key)
+        self._fold(sess)
+        return True
 
     async def wait_for_release(self, session_key: str, timeout: float) -> bool:
         """Wait until the person hands the browser back, at most *timeout* seconds.
@@ -256,6 +376,7 @@ class LiveHub:
         runs on the hub's injected sleep, never on a blocking call.
         """
         sess = self._session(session_key)
+        self._expire_stale_claim(sess)
         if not sess.lock.held():
             return True
         waiter = asyncio.ensure_future(sess.released.wait())
@@ -266,6 +387,7 @@ class LiveHub:
             for t in (waiter, timer):
                 if not t.done():
                     t.cancel()
+        self._expire_stale_claim(sess)
         return not sess.lock.held()
 
     # ── the op fence (shared by the op route and the person's claim) ───────
@@ -405,6 +527,8 @@ class LiveHub:
         # ``target_id`` and stop every later op from starting a working one.
         await stream.start()
         sess.stream = stream
+        sess.shown_target = str(target_id)
+        sess.tab_closed = False
         if sess.lock.held():
             await stream.set_takeover(True)
         sess.rung = stream.rung
@@ -433,6 +557,8 @@ class LiveHub:
     async def set_visible(self, session_key: str, visible: bool) -> None:
         sess = self._session(session_key)
         sess.visible = bool(visible)
+        if sess.visible:
+            sess.seen_at = self._clock()
         if sess.stream is not None:
             await sess.stream.set_visible(sess.visible)
 
@@ -447,6 +573,7 @@ class LiveHub:
         sess = self._sessions.get(session_key)
         if sess is None or sess.stream is None:
             return False
+        sess.seen_at = self._clock()
         if stream is not None and stream != getattr(sess.stream, "stream_id", stream):
             return False
         return sess.stream.ack(int(seq))
@@ -467,6 +594,8 @@ class LiveHub:
             raise LookupError("turn_over")
         if not sess.lock.claim(USER):
             return False
+        sess.claim_turn = sess.turn_id
+        sess.seen_at = self._clock()
         sess.released.clear()
         task = sess.op_task
         if task is not None and not task.done():
@@ -488,6 +617,13 @@ class LiveHub:
         if sess is None:
             return
         was_held = sess.lock.held()
+        if was_held and sess.fold_on_release:
+            # The agent's turn ended while the person held the browser: this hand-back
+            # is what folds the card (see ``turn_ended``).
+            if sess.stream is not None:
+                await sess.stream.set_takeover(False)
+            self._fold(sess)
+            return
         sess.lock.release()
         sess.released.set()
         if sess.stream is not None:
@@ -502,6 +638,7 @@ class LiveHub:
         sess = self._sessions.get(session_key)
         if sess is None or not sess.lock.held() or sess.lock.owner != USER:
             raise LookupError("not_in_control")
+        sess.seen_at = self._clock()
         stream = sess.stream
         if stream is None or not stream.session_id:
             raise LookupError("no_stream")
@@ -509,6 +646,86 @@ class LiveHub:
         sent = await dispatch_input(stream.relay, stream.session_id, event, scale=scale)
         stream.note_input()
         return sent
+
+    async def reopen(
+        self,
+        session_key: str,
+        relay: Relay | None = None,
+        *,
+        stream_factory: Callable[..., LiveStream] | None = None,
+    ) -> str:
+        """The finished card's "Open live": stream the tab it showed again.
+
+        The screencast restarts on ``shown_target`` through *relay* (the gateway's
+        current one; the last stream's when ``None``) and the card is ``live`` again
+        under the SAME ``turn_id``, so the card that folded is the card that grows
+        back, and Take over / Hand back work on it exactly as during a turn. The
+        session's turn stays over: a later turn that never browses does not fold
+        the view (:meth:`turn_ended`), a turn that browses joins it, and
+        :meth:`close_view` folds it on the person's word.
+
+        Fenced like a claim: under the session's op fence, so it never lands inside
+        an op. It moves no daemon tab and runs no op, so it does not take the
+        gateway-wide op lock. Refuses a tab another session owns, and a tab the
+        relay does not list (``tab_gone``, published as ``tab: closed``).
+        """
+        sess = self._sessions.get(session_key)
+        if sess is None or not sess.shown_target:
+            return REOPEN_TAB_GONE
+        if sess.stream is not None:
+            return REOPEN_LIVE
+        if not sess.turn_over:
+            # A turn that has not ended is the agent's: its own ops start the stream.
+            raise LookupError("turn_running")
+        if not self._config.enabled:
+            return REOPEN_LIVE_OFF
+        relay = relay if relay is not None else sess.last_relay
+        target = sess.shown_target
+        if not tab_alive(relay, target) or self._owned_elsewhere(session_key, target):
+            return self._tab_gone(sess)
+        assert relay is not None  # tab_alive is False without one
+        async with sess.op_fence:
+            if sess.stream is not None:
+                return REOPEN_LIVE
+            try:
+                stream = await self.start_stream(
+                    session_key,
+                    relay,
+                    target,
+                    browser=sess.browser,
+                    headless=sess.headless,
+                    stream_factory=stream_factory,
+                )
+            except Exception:  # noqa: BLE001 - the tab closed between the check and the attach
+                logger.debug("browser live: reopen could not attach", exc_info=True)
+                return self._tab_gone(sess)
+        return REOPEN_LIVE if stream is not None else REOPEN_LIVE_OFF
+
+    def _owned_elsewhere(self, session_key: str, target_id: str) -> bool:
+        return any(
+            key != session_key and target_id in other.targets
+            for key, other in self._sessions.items()
+        )
+
+    def _tab_gone(self, sess: LiveSession) -> str:
+        sess.tab_closed = True
+        self._emit(sess)
+        return REOPEN_TAB_GONE
+
+    async def close_view(self, session_key: str) -> bool:
+        """Fold a view whose turn is over (a reopened one, or a takeover held past it).
+
+        Stops the stream, opens the lock and publishes ``done``. ``False`` when there
+        is nothing to fold: no session, already done, or a turn still running (that
+        card folds at the turn's end, never on this route).
+        """
+        sess = self._sessions.get(session_key)
+        if sess is None or sess.state == STATE_DONE or not sess.turn_over:
+            return False
+        if sess.stream is not None and sess.lock.held():
+            await sess.stream.set_takeover(False)
+        self._fold(sess)
+        return True
 
     async def open_in_browser(self, session_key: str) -> bool:
         """Focus the real tab the card shows or showed.

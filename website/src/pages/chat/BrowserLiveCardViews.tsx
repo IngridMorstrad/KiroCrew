@@ -1,8 +1,8 @@
-import type { RefObject } from 'react'
+import { useRef, useState, type RefObject } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
   Check, ExternalLink, Globe, Hand, Lock, LogIn, Maximize2, Minimize2,
-  Monitor, MoreHorizontal, MousePointer2, Pause, Play, ShieldCheck,
+  Monitor, MoreHorizontal, MousePointer2, Pause, Play, ShieldCheck, X,
 } from 'lucide-react'
 
 import { Btn } from '../../components/ui'
@@ -12,7 +12,9 @@ import { i18nT } from '../../i18n/t'
 import { fmtDuration } from '../../i18n/format'
 import { sanitizeLlmOutput } from '../../utils/sanitize'
 import type { BrowserKind, BrowserLiveTurn } from '../../hooks/useBrowserLive'
+import type { FrameSize } from '../../hooks/useBrowserLive.input'
 import BrowserLiveCardCanvas, { type BrowserLiveCanvasHandle } from './BrowserLiveCardCanvas'
+import { frameBoxStyle, useFrameMaxHeight } from './browserLiveFit'
 
 /**
  * The three faces of BrowserLiveCard. Each is the INSIDE of the card's one
@@ -103,7 +105,7 @@ export function BrowserLiveAllowView({ turn, onSwitchToBrowser, onUseKiroBrowser
 
 // ---- Live and In control -----------------------------------------------------
 
-export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim, onRelease, onOpenInBrowser, onToggleExpand }: {
+export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim, onRelease, onOpenInBrowser, onToggleExpand, onCloseLive }: {
   turn: BrowserLiveTurn
   grown: boolean
   onScreen: boolean
@@ -112,6 +114,8 @@ export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim,
   onRelease: () => void
   onOpenInBrowser: () => void
   onToggleExpand: () => void
+  /** A reopened view (the turn is over): fold it back to the done line. */
+  onCloseLive?: () => void
 }) {
   const reduce = useReducedMotion()
   const inControl = turn.state === 'in_control'
@@ -120,13 +124,18 @@ export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim,
   const pageTitle = title(turn)
   const step = turn.step ? sanitizeLlmOutput(turn.step.label).slice(0, 120) : ''
   const frameLabel = i18nT('pages.chat.browserLiveCard.frame_label', { host: hostOf(turn.url) })
+  const rootRef = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [frameSize, setFrameSize] = useState<FrameSize | null>(null)
+  const maxHeight = useFrameMaxHeight(rootRef, boxRef)
 
   // Narrow-first: one column at every width. The header's address pill is the
   // only flexible item (min-w-0 + truncate), the browser chip leaves below `sm`,
   // the Take over label collapses to its icon below `sm`, and the step strip
-  // wraps. The frame keeps its 16:10 box at any width.
+  // wraps. The frame box takes the frame's own ratio and fits the visible
+  // transcript height (`browserLiveFit`), so the whole page shows without scrolling.
   return (
-    <div data-testid="browser-live-live">
+    <div ref={rootRef} data-testid="browser-live-live">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border min-h-[44px]">
         {inControl ? (
@@ -192,6 +201,12 @@ export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim,
                   {grown ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
                   {grown ? i18nT('pages.chat.browserLiveCard.shrink') : i18nT('pages.chat.browserLiveCard.expand')}
                 </DropdownMenuItem>
+                {turn.turnOver && onCloseLive && (
+                  <DropdownMenuItem onSelect={onCloseLive} data-testid="browser-live-close-live">
+                    <X size={14} aria-hidden="true" />
+                    {i18nT('pages.chat.browserLiveCard.close_live')}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </>
@@ -217,7 +232,7 @@ export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim,
       )}
 
       {/* Frame */}
-      <div className="group relative bg-card" style={{ aspectRatio: '16 / 10' }}>
+      <div ref={boxRef} data-testid="browser-live-frame-box" className="group relative bg-card" style={frameBoxStyle(frameSize, maxHeight)}>
         {turn.hasFrame ? (
           <BrowserLiveCardCanvas
             ref={canvasRef}
@@ -227,6 +242,7 @@ export function BrowserLiveLiveView({ turn, grown, onScreen, canvasRef, onClaim,
             interactive={inControl}
             onHandBack={onRelease}
             onClaim={inControl ? undefined : onClaim}
+            onFrameSize={setFrameSize}
             aria-label={inControl ? i18nT('pages.chat.browserLiveCard.frame_label_in_control', { host: hostOf(turn.url) }) : frameLabel}
           />
         ) : (
@@ -287,13 +303,16 @@ function durationLabel(turn: BrowserLiveTurn): string {
   return fmtDuration([[Math.floor(s / 60), 'minute'], [s % 60, 'second']], { dropZero: true })
 }
 
-export function BrowserLiveDoneRow({ turn, onScreen, canvasRef, replaying, onReplay, onOpenInBrowser }: {
+export function BrowserLiveDoneRow({ turn, onScreen, canvasRef, replaying, onReplay, onOpenInBrowser, canOpenLive, onOpenLive }: {
   turn: BrowserLiveTurn
   onScreen: boolean
   canvasRef: RefObject<BrowserLiveCanvasHandle>
   replaying: boolean
   onReplay: () => void
   onOpenInBrowser: () => void
+  /** The tab is still open and this is the session's newest card: "Open live" works. */
+  canOpenLive: boolean
+  onOpenLive: () => void
 }) {
   const count = turn.steps.length
   const target = openTarget(turn)
@@ -303,13 +322,33 @@ export function BrowserLiveDoneRow({ turn, onScreen, canvasRef, replaying, onRep
     durationLabel(turn),
     browserLabel(turn.browser, turn.headless),
   ]
-  if (turn.browser === 'user_chrome' || turn.browser === 'edge') parts.push(i18nT('pages.chat.browserLiveCard.tab_kept_open'))
+  if (turn.tab === 'closed') parts.push(i18nT('pages.chat.browserLiveCard.tab_closed'))
+  else if (turn.browser === 'user_chrome' || turn.browser === 'edge') parts.push(i18nT('pages.chat.browserLiveCard.tab_kept_open'))
+  // The thumbnail is a shortcut to the first button: Open live when the tab is
+  // still there, else Replay.
+  const thumbAction = canOpenLive ? onOpenLive : turn.hasFrame ? onReplay : undefined
+  const thumbLabel = canOpenLive
+    ? i18nT('pages.chat.browserLiveCard.open_live')
+    : i18nT('pages.chat.browserLiveCard.replay_steps', { count })
 
   // Narrow-first: the thumbnail is 112px wide on a phone and 200px from `sm`;
   // the text column truncates; the two buttons wrap under it when they must.
   return (
     <div className="flex items-stretch gap-3 p-2" data-testid="browser-live-done">
       <div className="relative shrink-0 w-[112px] sm:w-[200px] overflow-hidden rounded-md border border-border bg-bg" style={{ aspectRatio: '16 / 10' }}>
+        {thumbAction && (
+          <button
+            type="button"
+            onClick={thumbAction}
+            aria-label={thumbLabel}
+            title={thumbLabel}
+            data-testid="browser-live-done-thumb"
+            // A pointer shortcut for the Open live button beside it: out of the
+            // tab order so a keyboard user meets that action once.
+            tabIndex={-1}
+            className="absolute inset-0 z-10 cursor-pointer rounded-md focus-ring-accent-inset"
+          />
+        )}
         {turn.hasFrame ? (
           <BrowserLiveCardCanvas
             ref={canvasRef}
@@ -332,14 +371,25 @@ export function BrowserLiveDoneRow({ turn, onScreen, canvasRef, replaying, onRep
         {turn.state === 'error' && (
           <ErrorNotice variant="inline" message={turn.detail || i18nT('pages.chat.browserLiveCard.error_generic')} askAgent />
         )}
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        {turn.controlError && (
+          <ErrorNotice variant="inline" message={turn.controlError} askAgent testId="browser-live-control-error" />
+        )}
+        {/* Two actions, never three: Open live (whose live view carries "Open in
+            Chrome" in its menu) and Replay; else Replay and Open in. */}
+        <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="browser-live-done-actions">
+          {canOpenLive && (
+            <Btn primary onClick={onOpenLive} data-testid="browser-live-open-live">
+              <Hand size={13} aria-hidden="true" />
+              {i18nT('pages.chat.browserLiveCard.open_live')}
+            </Btn>
+          )}
           {turn.hasFrame && (
             <Btn onClick={onReplay} aria-pressed={replaying}>
               {replaying ? <Pause size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
               {replaying ? i18nT('pages.chat.browserLiveCard.stop_replay') : i18nT('pages.chat.browserLiveCard.replay_steps', { count })}
             </Btn>
           )}
-          {target && (
+          {target && !canOpenLive && (
             <Btn onClick={onOpenInBrowser} className="border-transparent">
               <ExternalLink size={13} aria-hidden="true" />
               {i18nT('pages.chat.browserLiveCard.open_in', { browser: target })}

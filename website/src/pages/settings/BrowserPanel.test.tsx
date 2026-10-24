@@ -17,21 +17,15 @@ vi.mock('../../api/client', async (importOriginal) => {
       disconnectBrowser: vi.fn(),
       kirocrewConfig: vi.fn(),
       patchConfig: vi.fn(),
+      refreshBrowserCredentials: vi.fn(),
     },
   }
 })
 
-/* The hand-off to a chat navigates away; here it is only observed. */
-const sendErrorToChat = vi.fn(() => true)
-vi.mock('../../utils/errorReport', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../utils/errorReport')>()),
-  sendErrorToChat: (...args: unknown[]) => sendErrorToChat(...(args as [])),
-}))
-
 import { api, type BrowserStatusData } from '../../api/client'
 import { i18next } from '../../i18n/all'
 import { BrowserPanel } from './BrowserPanel'
-import { firstRunProgress } from './browserStatus'
+import { choiceFromHeadless, choiceFromPicker, pickerValueOf, primaryState } from './browserStatus'
 
 function status(overrides: Partial<BrowserStatusData> = {}): BrowserStatusData {
   return {
@@ -54,7 +48,7 @@ type Cfg = {
 
 function config(overrides: Cfg = {}): Cfg {
   return {
-    browser: { choice: 'auto', first_run_dismissed: false, live: { enabled: true, quality: 'auto', max_fps: 60, mask_passwords: true } },
+    browser: { choice: 'auto', live: { enabled: true, quality: 'auto', max_fps: 60, mask_passwords: true } },
     dashboard: { browser_local_origins: ['localhost:5173'] },
     ...overrides,
   }
@@ -67,6 +61,7 @@ const mocked = api as unknown as {
   disconnectBrowser: ReturnType<typeof vi.fn>
   kirocrewConfig: ReturnType<typeof vi.fn>
   patchConfig: ReturnType<typeof vi.fn>
+  refreshBrowserCredentials: ReturnType<typeof vi.fn>
 }
 
 beforeEach(async () => {
@@ -77,249 +72,285 @@ beforeEach(async () => {
   mocked.disconnectBrowser.mockReset().mockResolvedValue(status({ connection: 'disconnected', browser: null }))
   mocked.kirocrewConfig.mockReset().mockResolvedValue(config())
   mocked.patchConfig.mockReset().mockResolvedValue({ ok: true })
-  sendErrorToChat.mockClear()
+  mocked.refreshBrowserCredentials.mockReset().mockResolvedValue({ ok: true, credentials: null })
 })
 
 afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('firstRunProgress', () => {
-  it('starts at step 1 with nothing installed', () => {
-    const p = firstRunProgress(status({ installed: false, connection: 'disconnected', browser: null }))
-    expect(p).toMatchObject({ engine: 'active', connect: 'pending', try: 'pending', doneCount: 0 })
+describe('primaryState', () => {
+  it('reports an install job first, whatever else the status says', () => {
+    expect(primaryState(status({ install_job: { status: 'running', stage: 'venv' } }))).toBe('installing')
+    expect(primaryState(status(), true)).toBe('installing')
   })
 
-  it('moves to step 2 once the engine is installed, and infers remote debugging from the Allow prompt', () => {
-    const p = firstRunProgress(status({ connection: 'waiting_allow', browser: null }))
-    expect(p).toMatchObject({ engine: 'done', connect: 'active', try: 'pending', doneCount: 1 })
-    expect(p.debuggingOn).toBe(true)
-    expect(p.allowed).toBe(false)
+  it('splits "not installed" into failed and idle', () => {
+    expect(primaryState(status({ installed: false, install_job: { status: 'failed', error_detail: 'x' } }))).toBe('install_failed')
+    expect(primaryState(status({ installed: false, install_job: null }))).toBe('not_installed')
   })
 
-  it('treats a connected user browser as step 2 done and step 3 next', () => {
-    const p = firstRunProgress(status())
-    expect(p).toMatchObject({ engine: 'done', connect: 'done', try: 'active', doneCount: 2, debuggingOn: true, allowed: true })
-  })
-
-  it("treats Kiro's own Chromium as step 2 done too: there is nothing to allow", () => {
-    const p = firstRunProgress(status({ browser: { kind: 'kiro_chromium', headless: true } }))
-    expect(p.connect).toBe('done')
-    expect(p.allowed).toBe(false)
-  })
-
-  it('knows nothing before the status answers', () => {
-    expect(firstRunProgress(undefined)).toMatchObject({ engine: 'active', connect: 'pending', doneCount: 0 })
+  it('leaves a failed job on an INSTALLED engine to the Engine row: the card follows the connection', () => {
+    expect(primaryState(status({ install_job: { status: 'failed', error_detail: 'x' } }))).toBe('connected')
+    for (const c of ['waiting_allow', 'error', 'disconnected', 'connected'] as const) {
+      expect(primaryState(status({ connection: c }))).toBe(c)
+    }
   })
 })
 
-describe('BrowserPanel - first run (S2)', () => {
-  it('shows the three steps with the count of done ones, and the primary card is one element', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'disconnected', browser: null }))
-    renderWithProviders(<BrowserPanel />)
-    const card = await screen.findByTestId('browser-primary-card')
-    expect(within(card).getByTestId('browser-first-run')).toBeTruthy()
-    expect(within(card).getByText('1 of 3 done')).toBeTruthy()
-    expect(within(card).getByTestId('browser-switch-chrome')).toBeTruthy()
-    expect(within(card).getByTestId('browser-skip')).toBeTruthy()
-    expect(screen.queryByTestId('browser-status-card')).toBeNull()
+describe('browser.choice across the picker and the no-window switch', () => {
+  it('the picker reads headless as Kiro’s Chromium and an unknown value as auto', () => {
+    expect(pickerValueOf('headless')).toBe('kiro_chromium')
+    expect(pickerValueOf('kiro_chromium')).toBe('kiro_chromium')
+    expect(pickerValueOf('user_chrome')).toBe('user_chrome')
+    expect(pickerValueOf('nonsense')).toBe('auto')
   })
 
-  it('installs the engine from step 1 and shows the job stage', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, chromium: null }))
-    renderWithProviders(<BrowserPanel />)
-    const install = await screen.findByTestId('browser-install')
-    // After the POST the gateway reports the running job on every status read.
-    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, chromium: null, install_job: { status: 'running', stage: 'venv' } }))
-    fireEvent.click(install)
-    await waitFor(() => expect(mocked.installBrowserHarness).toHaveBeenCalledTimes(1))
-    // The POST's answer carries the running job, which the panel paints at once.
-    await screen.findByText('venv')
+  it('picking Kiro’s Chromium while headless writes nothing; any other pick writes that value', () => {
+    expect(choiceFromPicker('headless', 'kiro_chromium')).toBeNull()
+    expect(choiceFromPicker('auto', 'auto')).toBeNull()
+    expect(choiceFromPicker('headless', 'auto')).toBe('auto')
+    expect(choiceFromPicker('auto', 'kiro_chromium')).toBe('kiro_chromium')
   })
 
-  it('marks the Allow sub-row as waiting and keeps the step open until Chrome answers', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'waiting_allow', browser: null }))
-    renderWithProviders(<BrowserPanel />)
-    await screen.findByText('Waiting for you')
-    expect(screen.getByTestId('browser-first-run')).toBeTruthy()
-  })
-
-  it('Switch to Chrome asks the gateway to attach, and a prior fallback pick is moved back to Chrome', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'disconnected', browser: null }))
-    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { choice: 'kiro_chromium', first_run_dismissed: false } }))
-    renderWithProviders(<BrowserPanel />)
-    fireEvent.click(await screen.findByTestId('browser-switch-chrome'))
-    await waitFor(() => expect(mocked.testBrowser).toHaveBeenCalledTimes(1))
-    expect(mocked.patchConfig).toHaveBeenCalledWith('browser.choice', 'user_chrome')
-  })
-
-  it('Skip pins the fallback browser and dismisses the steps for good', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'disconnected', browser: null }))
-    renderWithProviders(<BrowserPanel />)
-    fireEvent.click(await screen.findByTestId('browser-skip'))
-    await waitFor(() => {
-      expect(mocked.patchConfig).toHaveBeenCalledWith('browser.choice', 'kiro_chromium')
-      expect(mocked.patchConfig).toHaveBeenCalledWith('browser.first_run_dismissed', true)
-    })
-  })
-
-  it('step 3 stays open once Chrome is connected; Try it stages the prompt and dismisses the steps', async () => {
-    renderWithProviders(<BrowserPanel />)
-    const tryBtn = await screen.findByTestId('browser-try')
-    expect(tryBtn).not.toBeDisabled()
-    expect(screen.getByText('2 of 3 done')).toBeTruthy()
-    fireEvent.click(tryBtn)
-    expect(sendErrorToChat).toHaveBeenCalledTimes(1)
-    expect(String(sendErrorToChat.mock.calls[0][0])).toContain('example.com')
-    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.first_run_dismissed', true))
-  })
-
-  it('Done leaves the steps for the status card without a hand-off, in the SAME card element', async () => {
-    renderWithProviders(<BrowserPanel />)
-    const before = await screen.findByTestId('browser-primary-card')
-    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { first_run_dismissed: true } }))
-    fireEvent.click(screen.getByTestId('browser-first-run-done'))
-    expect(sendErrorToChat).not.toHaveBeenCalled()
-    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.first_run_dismissed', true))
-    await screen.findByTestId('browser-status-card')
-    const after = screen.getByTestId('browser-primary-card')
-    expect(after.getAttribute('data-testid')).toBe(before.getAttribute('data-testid'))
-    expect(screen.queryByTestId('browser-first-run')).toBeNull()
-  })
-
-  it('a config that already dismissed the steps opens on the status card', async () => {
-    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { first_run_dismissed: true } }))
-    renderWithProviders(<BrowserPanel />)
-    const card = await screen.findByTestId('browser-status-card')
-    expect(card.getAttribute('data-connection')).toBe('connected')
-    expect(screen.queryByTestId('browser-first-run')).toBeNull()
+  it('the switch writes headless on and Kiro’s Chromium (with a window) off', () => {
+    expect(choiceFromHeadless(true)).toBe('headless')
+    expect(choiceFromHeadless(false)).toBe('kiro_chromium')
   })
 })
 
-describe('BrowserPanel - status card (S1)', () => {
-  beforeEach(() => {
-    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { first_run_dismissed: true } }))
-  })
+async function openMore() {
+  fireEvent.click(await screen.findByRole('button', { name: 'More' }))
+}
 
-  it('shows the browser in use, its connection, and lights its chip in the fallback order', async () => {
+describe('BrowserPanel - main card', () => {
+  it('connected: the browser, a status line, and Disconnect as the ONE button', async () => {
     renderWithProviders(<BrowserPanel />)
     const card = await screen.findByTestId('browser-status-card')
-    expect(within(card).getAllByText('Your Chrome').length).toBeGreaterThan(0)
-    expect(within(card).getByTestId('browser-connection-badge').textContent).toBe('Connected')
-    expect(within(card).getByTestId('browser-chip-user_chrome').getAttribute('aria-current')).toBe('true')
-    expect(within(card).getByTestId('browser-chip-kiro_chromium').getAttribute('aria-current')).toBeNull()
-    // Not Windows: the Edge rung is shown but dimmed.
-    expect(within(card).getByTestId('browser-chip-edge').className).toContain('opacity-60')
+    expect(card.getAttribute('data-state')).toBe('connected')
+    expect(within(card).getByText('Your Chrome')).toBeTruthy()
+    expect(within(card).getByTestId('browser-status-line').textContent).toBe('Connected · uses your logins')
+    const buttons = within(card).getAllByRole('button').filter(b => b.getAttribute('aria-label') !== 'More information')
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0].textContent).toContain('Disconnect')
+    fireEvent.click(buttons[0])
+    await waitFor(() => expect(mocked.disconnectBrowser).toHaveBeenCalledTimes(1))
   })
 
-  it('turns yellow while Chrome waits for Allow, and says so', async () => {
+  it('installing: a disabled spinner button and a progress bar, whoever started the job', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, chromium: null, install_job: { status: 'running', stage: 'chromium' } }))
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(card.getAttribute('data-state')).toBe('installing')
+    expect(within(card).getByText('Getting the browser ready')).toBeTruthy()
+    expect(within(card).getByTestId('browser-primary-action')).toBeDisabled()
+    expect(within(card).getByTestId('browser-install-progress').getAttribute('aria-valuetext')).toBe('chromium')
+    expect(within(card).getByTestId('browser-status-line').textContent).toBe('Installing. You can chat meanwhile.')
+  })
+
+  it('installing at startup says so: the gateway’s own job reads "automatically"', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, chromium: null, installing: true, install_job: { status: 'running', trigger: 'auto', stage: 'venv' } }))
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(card.getAttribute('data-state')).toBe('installing')
+    expect(within(card).getByTestId('browser-status-line').textContent).toBe('Installing automatically. You can chat meanwhile.')
+  })
+
+  it('waiting for Allow: yellow, and the button asks the gateway to attach again', async () => {
     mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'waiting_allow' }))
     renderWithProviders(<BrowserPanel />)
     const card = await screen.findByTestId('browser-status-card')
-    expect(card.getAttribute('data-connection')).toBe('waiting_allow')
     expect(card.className).toContain('border-warn')
-    expect(within(card).getByTestId('browser-connection-badge').textContent).toBe('Waiting for Allow in Chrome')
-    expect(within(card).getByText(/Click Allow there; this never times out/)).toBeTruthy()
-  })
-
-  it('shows the gateway detail verbatim on an error, and the Edge chip undimmed on Windows', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'error', detail: 'CDP handshake refused (ECONNRESET)', platform: 'win32' }))
-    renderWithProviders(<BrowserPanel />)
-    const card = await screen.findByTestId('browser-status-card')
-    // A connection failure is an ErrorNotice (role=alert, Ask-agent hand-off), not plain text.
-    const detail = within(card).getByTestId('browser-status-detail')
-    expect(detail.getAttribute('role')).toBe('alert')
-    expect(detail.textContent).toContain('CDP handshake refused (ECONNRESET)')
-    expect(within(detail).getByText('Ask the agent')).toBeTruthy()
-    expect(within(card).getByTestId('browser-chip-edge').className).not.toContain('opacity-60')
-  })
-
-  it('Test runs the connection test and reports its answer; Disconnect detaches', async () => {
-    renderWithProviders(<BrowserPanel />)
-    const card = await screen.findByTestId('browser-status-card')
-    fireEvent.click(within(card).getByTestId('browser-test'))
+    expect(within(card).getByText('Chrome is asking. Click Allow there.')).toBeTruthy()
+    fireEvent.click(within(card).getByTestId('browser-primary-action'))
     await waitFor(() => expect(mocked.testBrowser).toHaveBeenCalledTimes(1))
-    await screen.findByTestId('browser-test-result')
+  })
+
+  it('connection error: red, the gateway detail verbatim in an ErrorNotice, Retry re-attaches', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'error', detail: 'CDP handshake refused (ECONNRESET)' }))
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(card.className).toContain('border-danger')
+    expect(within(card).getByTestId('browser-status-line').textContent).toBe('Connection failed')
+    const notice = within(card).getByTestId('browser-status-error')
+    expect(notice).toHaveAttribute('role', 'alert')
+    expect(notice.textContent).toContain('CDP handshake refused (ECONNRESET)')
+    expect(within(notice).getByText('Ask the agent')).toBeTruthy()
+    const retry = within(card).getByTestId('browser-primary-action')
+    expect(retry.textContent).toContain('Retry')
+    fireEvent.click(retry)
+    await waitFor(() => expect(mocked.testBrowser).toHaveBeenCalledTimes(1))
+  })
+
+  it('install failed: red, the job’s own detail, Retry runs the install again', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, install_job: { status: 'failed', error_detail: 'downloading: timed out' } }))
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(card.getAttribute('data-state')).toBe('install_failed')
+    expect(within(card).getByText('Browser setup failed')).toBeTruthy()
+    expect(within(card).queryByTestId('browser-status-line')).toBeNull()
+    const notice = within(card).getByTestId('browser-status-error')
+    expect(notice).toHaveAttribute('role', 'alert')
+    expect(notice.textContent).toContain('downloading: timed out')
+    expect(within(notice).getByText('Ask the agent')).toBeTruthy()
+    fireEvent.click(within(card).getByTestId('browser-primary-action'))
+    await waitFor(() => expect(mocked.installBrowserHarness).toHaveBeenCalledWith({}))
+  })
+
+  it('an interrupted install on an uninstalled engine reads as failed, with its detail', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ installed: false, version: null, connection: 'disconnected', browser: null, install_job: { status: 'interrupted', error_detail: 'interrupted: the gateway stopped this install' } }))
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(card.getAttribute('data-state')).toBe('install_failed')
+    expect(within(card).getByTestId('browser-status-error').textContent).toContain('the gateway stopped this install')
+  })
+
+  it('a connect in flight is disabled and aria-busy', async () => {
     mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'disconnected', browser: null }))
-    fireEvent.click(within(card).getByTestId('browser-disconnect'))
-    await waitFor(() => expect(mocked.disconnectBrowser).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(screen.getByTestId('browser-status-card').getAttribute('data-connection')).toBe('disconnected'))
-    expect(screen.getByTestId('browser-disconnect')).toBeDisabled()
+    mocked.testBrowser.mockReturnValue(new Promise(() => {}))
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    const btn = within(card).getByTestId('browser-primary-action')
+    expect(btn).not.toHaveAttribute('aria-busy')
+    fireEvent.click(btn)
+    await waitFor(() => expect(btn).toHaveAttribute('aria-busy', 'true'))
+    expect(btn).toBeDisabled()
   })
 
-  it('renders the Engine rows with versions and the locked Privacy row', async () => {
+  it('the no-window switch does not anchor browser.choice: only the picker does', async () => {
     renderWithProviders(<BrowserPanel />)
     await screen.findByTestId('browser-status-card')
-    expect(screen.getByText('0.1.13')).toBeTruthy()
-    expect(screen.getByText('156')).toBeTruthy()
-    expect(screen.getByText('No usage data, no cloud browser')).toBeTruthy()
-    expect(screen.getByText('Locked')).toBeTruthy()
+    await openMore()
+    const anchors = document.querySelectorAll('[data-setting-key="browser.choice"]')
+    expect(anchors).toHaveLength(1)
+    expect(anchors[0].getAttribute('data-setting-label')).toBe('Which browser')
   })
 
-  it('renders no subtitle of its own: the Settings shell shows the page description once', async () => {
+  it('connection error with no status detail shows the attach’s own ok:false detail', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'error', detail: null }))
+    mocked.testBrowser.mockResolvedValue({ ok: false, connection: 'error', detail: 'port 9222 closed' })
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(within(card).queryByTestId('browser-status-error')).toBeNull()
+    fireEvent.click(within(card).getByTestId('browser-primary-action'))
+    const notice = await within(card).findByTestId('browser-status-error')
+    expect(notice.textContent).toContain('port 9222 closed')
+    expect(screen.queryByTestId('browser-test-result')).toBeNull()
+  })
+
+  it('a rejected save shows while More is closed', async () => {
+    mocked.patchConfig.mockRejectedValue(new Error('config write refused'))
     renderWithProviders(<BrowserPanel />)
     await screen.findByTestId('browser-status-card')
-    expect(screen.queryByText(/Which browser Kiro drives/)).toBeNull()
+    fireEvent.click(screen.getByRole('switch', { name: 'Show the live view in chat' }))
+    const notice = await screen.findByTestId('browser-save-error')
+    expect(notice.textContent).toContain('config write refused')
+  })
+
+  it('disconnected: Connect attaches, and a 200 ok:false is an ErrorNotice with the gateway detail', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'disconnected', browser: null }))
+    mocked.testBrowser.mockResolvedValue({ ok: false, connection: 'disconnected', detail: 'chrome refused the connection' })
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    fireEvent.click(within(card).getByTestId('browser-primary-action'))
+    await waitFor(() => expect(mocked.testBrowser).toHaveBeenCalledTimes(1))
+    const notice = await screen.findByTestId('browser-test-result')
+    expect(notice.getAttribute('role')).toBe('alert')
+    expect(notice.textContent).toContain('chrome refused the connection')
+  })
+
+  it('the explanation is an info tip on the title, not a line on the card', async () => {
+    renderWithProviders(<BrowserPanel />)
+    const card = await screen.findByTestId('browser-status-card')
+    expect(within(card).queryByText(/Kiro only works in tabs it opened itself/)).toBeNull()
+    const tip = within(card).getByRole('button', { name: 'More information' })
+    expect(tip.getAttribute('title')).toMatch(/Kiro only works in tabs it opened itself/)
+    fireEvent.focus(tip)
+    const bubble = await screen.findByRole('tooltip')
+    expect(tip.getAttribute('aria-describedby')).toBe(bubble.id)
+  })
+
+  it('the removed pieces stay removed: no step list, no fallback chips, no Test, no Mask switch', async () => {
+    renderWithProviders(<BrowserPanel />)
+    await screen.findByTestId('browser-status-card')
+    await openMore()
+    expect(screen.queryByTestId('browser-first-run')).toBeNull()
+    expect(screen.queryByTestId('browser-chip-user_chrome')).toBeNull()
+    expect(screen.queryByTestId('browser-test')).toBeNull()
+    expect(screen.queryByRole('switch', { name: /Mask password/ })).toBeNull()
+    expect(screen.getByTestId('browser-privacy-footer').textContent).toContain('Nothing is uploaded')
+  })
+})
+
+describe('BrowserPanel - controls and More', () => {
+  it('shows two controls up front and nothing of More until it opens', async () => {
+    renderWithProviders(<BrowserPanel />)
+    await screen.findByTestId('browser-status-card')
+    expect(document.querySelector('[data-setting-key="browser.choice"]')).not.toBeNull()
+    expect(screen.getByRole('switch', { name: 'Show the live view in chat' })).toBeTruthy()
+    const more = screen.getByRole('button', { name: 'More' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-setting-key="browser.live.quality"]')).toBeNull()
+    fireEvent.click(more)
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    for (const key of ['browser.live.quality', 'browser.live.max_fps', 'dashboard.browser_local_origins']) {
+      expect(document.querySelector(`[data-setting-key="${key}"]`), key).not.toBeNull()
+    }
+    expect(screen.getByTestId('browser-engine-versions').textContent).toBe('Harness 0.1.13 · Chromium 156')
+    expect(screen.getByRole('switch', { name: 'Run with no window' })).toBeTruthy()
+  })
+
+  it('every control writes ONE config path; no explanation renders inline', async () => {
+    renderWithProviders(<BrowserPanel />)
+    await screen.findByTestId('browser-status-card')
+    fireEvent.click(screen.getByRole('switch', { name: 'Show the live view in chat' }))
+    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.live.enabled', false))
+    await openMore()
+    fireEvent.click(screen.getByRole('switch', { name: 'Run with no window' }))
+    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.choice', 'headless'))
+    // Descriptions are tips (on `title` while closed), never body text.
+    for (const text of [/When Kiro uses the browser, the turn shows a live card/, /Auto adapts frame rate/, /60 is the most this machine streams/, /For previewing your own dev server only/]) {
+      expect(screen.queryByText(text)).toBeNull()
+    }
+    expect(screen.getAllByRole('button', { name: 'More information' }).length).toBeGreaterThanOrEqual(7)
+  })
+
+  it('the no-window switch is on for a headless config, and off writes Kiro’s Chromium', async () => {
+    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { choice: 'headless' } }))
+    renderWithProviders(<BrowserPanel />)
+    await screen.findByTestId('browser-status-card')
+    await openMore()
+    const sw = screen.getByRole('switch', { name: 'Run with no window' })
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(sw)
+    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.choice', 'kiro_chromium'))
   })
 
   it('Redownload asks the gateway to REPLACE the downloaded Chromium, not to reuse it', async () => {
-    // The ordinary install keeps a Chromium whose marker is present, so without the
-    // refresh flag the button meant to repair a damaged copy fetched nothing.
     renderWithProviders(<BrowserPanel />)
     await screen.findByTestId('browser-status-card')
+    await openMore()
     fireEvent.click(screen.getByTestId('browser-redownload'))
-    await waitFor(() => expect(mocked.installBrowserHarness).toHaveBeenCalledTimes(1))
-    expect(mocked.installBrowserHarness).toHaveBeenCalledWith({ components: ['chromium'], refresh: true })
+    await waitFor(() => expect(mocked.installBrowserHarness).toHaveBeenCalledWith({ components: ['chromium'], refresh: true }))
   })
 
-  it('a failed install JOB (after the 202) is an ErrorNotice in the Engine section', async () => {
+  it('a failed job on an installed engine is an ErrorNotice on the Engine row, not a red card', async () => {
     mocked.getBrowserStatus.mockResolvedValue(status({
       install_job: { status: 'failed', stage: 'downloading', error_detail: 'downloading: 403 from storage.googleapis.com' },
     }))
     renderWithProviders(<BrowserPanel />)
-    await screen.findByTestId('browser-status-card')
+    const card = await screen.findByTestId('browser-status-card')
+    expect(card.getAttribute('data-state')).toBe('connected')
+    await openMore()
     const notice = await screen.findByTestId('browser-engine-install-error')
     expect(notice).toHaveAttribute('role', 'alert')
     expect(notice.textContent).toContain('403 from storage.googleapis.com')
-  })
-})
-
-describe('BrowserPanel - first run failures', () => {
-  it('a Test that answers 200 ok:false surfaces the gateway detail as an ErrorNotice in step 2', async () => {
-    mocked.getBrowserStatus.mockResolvedValue(status({ connection: 'disconnected', browser: null }))
-    mocked.testBrowser.mockResolvedValue({ ok: false, connection: 'error', detail: 'chrome refused the connection' })
-    renderWithProviders(<BrowserPanel />)
-    await screen.findByTestId('browser-first-run')
-    fireEvent.click(screen.getByTestId('browser-switch-chrome'))
-    await waitFor(() => expect(mocked.testBrowser).toHaveBeenCalledTimes(1))
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('chrome refused the connection')
-  })
-})
-
-describe('BrowserPanel - live view, origins editor, advanced', () => {
-  beforeEach(() => {
-    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { first_run_dismissed: true } }))
-  })
-
-  it('every live-view and advanced control writes ONE config path', async () => {
-    renderWithProviders(<BrowserPanel />)
-    await screen.findByTestId('browser-status-card')
-    const liveToggle = screen.getByRole('switch', { name: 'Show the live view in chat' })
-    fireEvent.click(liveToggle)
-    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.live.enabled', false))
-    const mask = screen.getByRole('switch', { name: 'Mask password fields in the picture' })
-    fireEvent.click(mask)
-    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.live.mask_passwords', false))
-    // Every control carries its configKey, which is what SettingRef lands on.
-    for (const key of ['browser.live.enabled', 'browser.live.quality', 'browser.live.max_fps', 'browser.live.mask_passwords', 'browser.choice', 'dashboard.browser_local_origins']) {
-      expect(document.querySelector(`[data-setting-key="${key}"]`), key).not.toBeNull()
-    }
   })
 
   it('lists the origins as chips, adds a normalized entry, refuses a bad one, and removes', async () => {
     renderWithProviders(<BrowserPanel />)
     await screen.findByTestId('browser-status-card')
+    await openMore()
     expect(screen.getByText('localhost:5173')).toBeTruthy()
     const input = screen.getByPlaceholderText('localhost:5173') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'http://127.0.0.1:3000/' } })
@@ -340,8 +371,8 @@ describe('BrowserPanel - live view, origins editor, advanced', () => {
   it('a duplicate add writes nothing', async () => {
     renderWithProviders(<BrowserPanel />)
     await screen.findByTestId('browser-status-card')
-    const input = screen.getByPlaceholderText('localhost:5173')
-    fireEvent.change(input, { target: { value: 'LOCALHOST:5173' } })
+    await openMore()
+    fireEvent.change(screen.getByPlaceholderText('localhost:5173'), { target: { value: 'LOCALHOST:5173' } })
     fireEvent.click(screen.getByTestId('browser-origin-add'))
     expect(mocked.patchConfig).not.toHaveBeenCalled()
   })
@@ -359,17 +390,71 @@ describe('BrowserPanel - failures', () => {
     mocked.kirocrewConfig.mockRejectedValue(new Error('config unreadable'))
     renderWithProviders(<BrowserPanel />)
     await screen.findByText('config unreadable')
+    expect(screen.getByTestId('browser-status-card')).toBeTruthy()
     expect(screen.getByRole('switch', { name: 'Show the live view in chat' }).getAttribute('aria-disabled')).toBe('true')
   })
 
   it('re-renders its copy on a language switch without remounting', async () => {
-    mocked.kirocrewConfig.mockResolvedValue(config({ browser: { first_run_dismissed: true } }))
     const { rerender } = renderWithProviders(<BrowserPanel />)
     const card = await screen.findByTestId('browser-status-card')
     await act(async () => { await i18next.changeLanguage('zh-CN') })
     rerender(<BrowserPanel />)
     expect(screen.getAllByText('你的 Chrome').length).toBeGreaterThan(0)
-    // Same element: the panel re-rendered rather than remounting.
     expect(screen.getByTestId('browser-status-card')).toBe(card)
+  })
+})
+
+describe('BrowserPanel - sign-in for Kiro’s Chromium', () => {
+  const cred = (over: Record<string, unknown> = {}) => ({
+    provider: 'Acme SSO', imported: false, enabled: true, domains: ['example.com'], state: 'applied', reason: null, applied: 3, ...over,
+  })
+
+  it('with no provider there is no sign-in switch and no domains editor', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ provider: null, state: 'none' }) }))
+    renderWithProviders(<BrowserPanel />)
+    await screen.findByTestId('browser-status-card')
+    expect(screen.queryByRole('switch', { name: 'Start Kiro’s Chromium signed in' })).toBeNull()
+    await openMore()
+    expect(screen.queryByText('Sign-in sites')).toBeNull()
+  })
+
+  it('with a provider: the switch follows the effective setting, says where it is used, and a flip re-pulls', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred() }))
+    renderWithProviders(<BrowserPanel />)
+    const sw = await screen.findByRole('switch', { name: 'Start Kiro’s Chromium signed in' })
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText('In use for example.com')).toBeTruthy()
+    fireEvent.click(sw)
+    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.credentials.enabled', false))
+    await waitFor(() => expect(mocked.refreshBrowserCredentials).toHaveBeenCalledTimes(1))
+  })
+
+  it('a failed apply is an ErrorNotice with the reason code, and a failed re-pull is too', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred({ state: 'error', reason: 'provider_failed' }) }))
+    mocked.refreshBrowserCredentials.mockRejectedValue(new Error('refresh refused'))
+    renderWithProviders(<BrowserPanel />)
+    const notice = await screen.findByTestId('browser-credentials-error')
+    expect(notice).toHaveAttribute('role', 'alert')
+    expect(notice.textContent).toContain('provider_failed')
+    fireEvent.click(screen.getByRole('switch', { name: 'Start Kiro’s Chromium signed in' }))
+    expect((await screen.findByTestId('browser-credentials-refresh-error')).textContent).toContain('refresh refused')
+  })
+
+  it('domains under More: a domain is stored lowercase, an IP or a port is refused before any write', async () => {
+    mocked.getBrowserStatus.mockResolvedValue(status({ credentials: cred() }))
+    renderWithProviders(<BrowserPanel />)
+    await screen.findByTestId('browser-status-card')
+    await openMore()
+    expect(screen.getByText('Following Acme SSO’s defaults')).toBeTruthy()
+    const input = screen.getByPlaceholderText('example.com') as HTMLInputElement
+    for (const bad of ['10.0.0.1', 'example.com:443', '*.example.com', 'intranet']) {
+      fireEvent.change(input, { target: { value: bad } })
+      fireEvent.click(screen.getByTestId('browser-cred-domain-add'))
+      expect(screen.getByTestId('browser-cred-domain-invalid')).toBeTruthy()
+    }
+    expect(mocked.patchConfig).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: ' .Example.COM ' } })
+    fireEvent.click(screen.getByTestId('browser-cred-domain-add'))
+    await waitFor(() => expect(mocked.patchConfig).toHaveBeenCalledWith('browser.credentials.domains', ['example.com']))
   })
 })

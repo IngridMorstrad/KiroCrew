@@ -249,6 +249,18 @@ def test_the_first_op_opens_a_turn_and_later_ops_join_it() -> None:
     assert hub.get("k").turn_id != first, "a new turn after turn_ended"
 
 
+def test_an_op_after_a_reopen_opens_a_new_turn_not_the_finished_one() -> None:
+    """A reopened card reads ``live`` but its turn is over: the next op's steps
+    belong to a new card, not the finished turn's strip."""
+    hub = hub_mod.LiveHub()
+    mod._open_turn(hub, "k")
+    first = hub.get("k").turn_id
+    hub.turn_ended("k")
+    hub.get("k").state = hub_mod.STATE_LIVE  # what a reopen leaves behind
+    mod._open_turn(hub, "k")
+    assert hub.get("k").turn_id != first and hub.get("k").turn_over is False
+
+
 @pytest.mark.asyncio
 async def test_follow_current_tab_restarts_only_when_the_target_moves(
     monkeypatch: pytest.MonkeyPatch,

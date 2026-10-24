@@ -5,7 +5,7 @@ Settings -> Browser is the one writer of every key here, through the generic
 Pinned:
 
 * the shipped defaults, which are what the RFC promises a fresh install (auto
-  discovery, live view on at 60 fps with passwords masked, first-run steps shown);
+  discovery, live view on at 60 fps with passwords masked);
 * the loader NORMALIZES rather than rejects: a hand-edited ``config.json`` degrades
   to a value that cannot make things worse, with one warning per process;
 * the section round-trips through ``load()``/``to_dict()`` and is a known section
@@ -47,7 +47,8 @@ SETTINGS_CONTRACT_KEYS = (
     "browser.live.quality",
     "browser.live.max_fps",
     "browser.live.mask_passwords",
-    "browser.first_run_dismissed",
+    "browser.credentials.enabled",
+    "browser.credentials.domains",
     "dashboard.browser_local_origins",
 )
 
@@ -72,7 +73,6 @@ class TestDefaults:
     def test_a_fresh_config_matches_the_rfc(self):
         cfg = KiroCrewConfig().browser
         assert cfg.choice == "auto"
-        assert cfg.first_run_dismissed is False
         assert cfg.live == BrowserLiveConfig(
             enabled=True, quality="auto", max_fps=60, mask_passwords=True
         )
@@ -108,7 +108,6 @@ class TestNormalization:
         cfg = BrowserConfig.from_raw(
             {
                 "choice": "headless",
-                "first_run_dismissed": True,
                 "live": {
                     "enabled": False,
                     "quality": "low",
@@ -118,7 +117,6 @@ class TestNormalization:
             }
         )
         assert cfg.choice == "headless"
-        assert cfg.first_run_dismissed is True
         assert cfg.live == BrowserLiveConfig(
             enabled=False, quality="low", max_fps=15, mask_passwords=False
         )
@@ -150,10 +148,7 @@ class TestNormalization:
         assert warned is (raw not in ("30", " 15 ", None))
 
     def test_a_non_bool_flag_reads_as_its_default(self):
-        cfg = BrowserConfig.from_raw(
-            {"first_run_dismissed": "yes", "live": {"enabled": "no", "mask_passwords": 0}}
-        )
-        assert cfg.first_run_dismissed is False
+        cfg = BrowserConfig.from_raw({"live": {"enabled": "no", "mask_passwords": 0}})
         assert cfg.live.enabled is True
         assert cfg.live.mask_passwords is True
 
@@ -172,7 +167,6 @@ class TestRoundTrip:
                     "browser": {
                         "choice": "kiro_chromium",
                         "live": {"max_fps": 30, "quality": "medium"},
-                        "first_run_dismissed": True,
                     }
                 }
             ),
@@ -183,14 +177,27 @@ class TestRoundTrip:
         assert cfg.browser.live.max_fps == 30
         assert cfg.browser.live.quality == "medium"
         assert cfg.browser.live.enabled is True
-        assert cfg.browser.first_run_dismissed is True
         cfg.save()
         after = json.loads(cfg_home.read_text(encoding="utf-8"))
         assert after["browser"] == {
             "choice": "kiro_chromium",
             "live": {"enabled": True, "quality": "medium", "max_fps": 30, "mask_passwords": True},
-            "first_run_dismissed": True,
+            # Unset: ``None`` and ``[]`` both mean "follow the edition's default".
+            "credentials": {"enabled": None, "domains": []},
         }
+
+    def test_the_retired_first_run_flag_is_dropped_on_save(self, cfg_home):
+        # Pre-release builds wrote browser.first_run_dismissed for a step list
+        # that is gone; a config carrying it loads and loses it on the next save.
+        cfg_home.write_text(
+            json.dumps({"browser": {"choice": "auto", "first_run_dismissed": True}}),
+            encoding="utf-8",
+        )
+        cfg = KiroCrewConfig.load()
+        assert not hasattr(cfg.browser, "first_run_dismissed")
+        cfg.save()
+        after = json.loads(cfg_home.read_text(encoding="utf-8"))
+        assert "first_run_dismissed" not in after["browser"]
 
     def test_an_absent_section_loads_the_defaults(self, cfg_home):
         cfg_home.write_text(json.dumps({"dashboard": {}}), encoding="utf-8")
@@ -253,7 +260,8 @@ class TestPatchRoute:
             ("browser.live.quality", "low"),
             ("browser.live.max_fps", 30),
             ("browser.live.mask_passwords", False),
-            ("browser.first_run_dismissed", True),
+            ("browser.credentials.enabled", True),
+            ("browser.credentials.domains", ["example.com", "intranet.example.org"]),
             ("dashboard.browser_local_origins", ["localhost:5173", "127.0.0.1:3000"]),
         ],
     )
@@ -280,6 +288,12 @@ class TestPatchRoute:
             ("dashboard.browser_local_origins", ["example.com:80"]),
             ("dashboard.browser_local_origins", ["http://localhost:5173"]),
             ("dashboard.browser_local_origins", "localhost:5173"),
+            ("browser.credentials.enabled", "on"),
+            ("browser.credentials.domains", ["com"]),
+            ("browser.credentials.domains", ["*.example.com"]),
+            ("browser.credentials.domains", ["example.com:443"]),
+            ("browser.credentials.domains", ["Example.com"]),
+            ("browser.credentials.domains", "example.com"),
         ],
     )
     async def test_a_value_outside_the_contract_is_refused(self, cfg_home, path, value) -> None:
@@ -290,3 +304,22 @@ class TestPatchRoute:
         written = json.loads(cfg_home.read_text(encoding="utf-8"))
         assert "browser" not in written
         assert "browser_local_origins" not in written["dashboard"]
+
+
+class TestCredentials:
+    def test_the_write_pattern_is_the_seams_declared_domain_shape(self) -> None:
+        from kiro_crew.browser_harness import credentials as seam
+
+        assert SB.CREDENTIAL_DOMAIN_PATTERN == seam._DECLARED_DOMAIN.pattern
+
+    def test_unset_is_none_and_a_list_is_kept_lowercase_and_unique(self) -> None:
+        from kiro_crew.config.sections_browser import BrowserConfig
+
+        assert BrowserConfig.from_raw({}).credentials.enabled is None
+        cfg = BrowserConfig.from_raw(
+            {"credentials": {"enabled": True, "domains": [".Example.com", "example.com", 7]}}
+        )
+        assert cfg.credentials.enabled is True
+        assert cfg.credentials.domains == ["example.com"]
+        junk = BrowserConfig.from_raw({"credentials": {"enabled": "yes", "domains": "x"}})
+        assert junk.credentials.enabled is None and junk.credentials.domains == []

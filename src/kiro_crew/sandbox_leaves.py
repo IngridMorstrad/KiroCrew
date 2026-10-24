@@ -249,7 +249,9 @@ _CREW_HIDDEN_LEAVES: tuple[str, ...] = (
     "browser-engine",
     # Browser Harness's runtime directory (``browser_harness.supervisor.IPC_LEAF``):
     # the daemon's Unix socket (or, on Windows, the port file carrying the IPC
-    # token), its pid file, log and screenshot temp. Whoever can open the socket
+    # token), its pid file, log and screenshot temp, and the owner's browser
+    # cookie import (``cookie-import/``, which relies on this leaf staying
+    # HIDDEN). Whoever can open the socket
     # can issue raw CDP to the user's own Chrome -- every tab, every cookie -- so
     # no sandboxed process may see it; the gateway is the only client. Masked as
     # a whole DIRECTORY so the token and the socket are covered at every name,

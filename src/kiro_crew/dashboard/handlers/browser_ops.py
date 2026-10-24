@@ -27,7 +27,8 @@ Responses (always HTTP 200 once authorised, so the shim reads one shape):
 While the person is in control an op is not lost: the route answers at once with
 ``user_in_control`` and ``"hold": true``, and the ``browser`` tool in the shim
 parks itself (a ``DeferredTool``) polling ``POST /api/browser/handback`` until
-they hand the browser back (Esc, "Hand back", or the turn's end), bounded by
+they hand the browser back (Esc, "Hand back", the turn's end, or the idle
+bound on a takeover that outlived its turn, ``TAKEOVER_IDLE_S``), bounded by
 ``HOLD_TIMEOUT_S`` (10 minutes), then posts the op again, which runs. That is
 what lets the agent resume on its own after a sign-in the person did for it. The
 hold is sliced because the shim runs one worker thread and the ACP tool-stall
@@ -237,9 +238,14 @@ async def _supervisor(hub: LiveHub, key: str) -> Any:
 
 
 def _open_turn(hub: LiveHub, key: str) -> None:
-    """The first browser op of a turn opens the card's turn; later ops join it."""
+    """The first browser op of a turn opens the card's turn; later ops join it.
+
+    A session whose turn is over but still streams (the person reopened the
+    finished card, or held the browser past the turn's end) is NOT a turn to join:
+    the op opens a new one, and the running stream carries over to it.
+    """
     sess = hub.get(key)
-    if sess is None or not sess.turn_id or sess.state == STATE_DONE:
+    if sess is None or not sess.turn_id or sess.state == STATE_DONE or sess.turn_over:
         hub.turn_started(key, uuid.uuid4().hex)
 
 
@@ -392,6 +398,8 @@ async def api_browser_op(request: web.Request) -> web.Response:
             {"ok": False, "code": "browser_busy", "error": "another chat is using the browser"}
         )
     try:
+        if op in _NAVIGATING_OPS:
+            await _refresh_credentials(supervisor)
         # The per-session fence is shared with the person's Take over (LiveHub.claim):
         # a claim waits for this op to leave it (cancelling the op if it is still
         # running), so a takeover never lands inside an op, and the in_control check
@@ -408,6 +416,25 @@ async def api_browser_op(request: web.Request) -> web.Response:
     if result.get("ok"):
         return web.json_response({"ok": True, "result": result})
     return web.json_response(result)
+
+
+#: Ops that can load a new page. Before each, the gateway asks the edition's
+#: credential provider whether its source changed (``browser_harness/credentials.py``),
+#: so a sign-in the person just re-ran is in the browser before the page loads.
+_NAVIGATING_OPS = frozenset({"navigate", "tabs"})
+
+
+async def _refresh_credentials(supervisor: Any) -> None:
+    """Re-pull credentials whose source changed; never fails the op it precedes."""
+    refresh = getattr(supervisor, "refresh_credentials_if_source_changed", None)
+    if refresh is None:
+        return
+    try:
+        await refresh()
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the page still loads with what the browser holds
+        logger.warning("browser op: credential refresh failed", exc_info=True)
 
 
 #: ``_fenced_op`` outcomes that are not a result: the person claimed before the op

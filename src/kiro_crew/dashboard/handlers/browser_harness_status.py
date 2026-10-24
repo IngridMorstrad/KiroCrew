@@ -21,15 +21,23 @@ which is what keeps a stale "running" from surviving one. The installer runs in 
 worker thread and reports stages through a callback marshalled back with
 ``call_soon_threadsafe``; each update names its job id so a late callback from a
 finished job cannot move a newer one.
+
+The gateway also starts that job by itself, once, at startup
+(:func:`auto_setup_browser_harness`): the owner should not have to press Install. That
+is not an agent route around the owner gate: the argv, the lock and the prefix are the
+same constants Install uses, nothing a request or an agent supplies reaches them, and
+the job is reported with ``trigger: "auto"`` so Settings says so.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -74,12 +82,21 @@ class InstallJob:
     updated_at: float
     finished_at: float | None = None
     error: str | None = None
+    #: Who started it: ``settings`` (the owner pressed Install) or ``auto`` (the
+    #: gateway's startup auto-install, :func:`auto_setup_browser_harness`).
+    trigger: str = "settings"
 
     @classmethod
-    def start(cls, components: tuple[str, ...]) -> InstallJob:
+    def start(cls, components: tuple[str, ...], trigger: str = "settings") -> InstallJob:
         now = clock()
         return cls(
-            uuid.uuid4().hex, components, STATUS_RUNNING, harness_install.STAGE_PREPARING, now, now
+            uuid.uuid4().hex,
+            components,
+            STATUS_RUNNING,
+            harness_install.STAGE_PREPARING,
+            now,
+            now,
+            trigger=trigger,
         )
 
     @property
@@ -111,6 +128,7 @@ class InstallJob:
             "finished_at": _iso(self.finished_at) if self.finished_at is not None else None,
             "elapsed_s": round(max(0.0, end - self.started_at), 1),
             "error": self.error,
+            "trigger": self.trigger,
         }
 
 
@@ -155,7 +173,9 @@ def _deny_non_owner(request: web.Request, operation: str) -> web.Response | None
     return _owner_denial_response(request, "dashboard user required", "dashboard_user_required")
 
 
-def _audit(request: web.Request, operation: str, outcome: str, error: str = "") -> None:
+def _audit(
+    request: web.Request, operation: str, outcome: str, error: str = "", *, detail: str = ""
+) -> None:
     app_name = request.get("app", "")
     caller = f"app:{app_name}" if app_name else str(request.get("user") or "anonymous")
     try:
@@ -164,7 +184,7 @@ def _audit(request: web.Request, operation: str, outcome: str, error: str = "") 
             operation=operation,
             outcome=outcome,
             source="browser_api",
-            resources=request.path,
+            resources=f"{request.path} {detail}" if detail else request.path,
             error=error,
         )
     except Exception:  # noqa: BLE001 - an audit failure never breaks the request
@@ -288,9 +308,11 @@ def _requested_components(body: dict[str, Any]) -> tuple[str, ...] | None:
     return components
 
 
-def _start_install_job(state: Any, components: tuple[str, ...], *, refresh: bool = False) -> None:
+def _start_install_job(
+    state: Any, components: tuple[str, ...], *, refresh: bool = False, trigger: str = "settings"
+) -> None:
     loop = asyncio.get_running_loop()
-    job = InstallJob.start(components)
+    job = InstallJob.start(components, trigger)
     state._browser_harness_install_job = job
 
     def _on_stage(stage: str, _detail: str) -> None:
@@ -315,6 +337,127 @@ def _start_install_job(state: Any, components: tuple[str, ...], *, refresh: bool
     state._browser_harness_install_task = asyncio.create_task(_run())
 
 
+# ── startup auto-install ──
+
+#: Environment markers of a process that is not a person's gateway: a pytest run,
+#: a CI job, the E2E harness's ephemeral gateway, and a fake-agent test rig started
+#: outside both (``gateway --test-mode`` from ``scripts/gui-user-test/boot.sh``,
+#: ``testing/harness.py::harness_environment``, the install smoke scripts). Any one
+#: set (non-empty, not a false spelling) skips the startup auto-install, so no test
+#: or CI gateway ever spawns pip or downloads a browser on its own.
+#: ``KIROCREW_SKIP_MODEL_DOWNLOAD`` is deliberately NOT here: a real cloud microVM
+#: gateway sets it, and a headless remote host is exactly where the browser is needed.
+AUTO_SKIP_ENV: tuple[str, ...] = (
+    "PYTEST_CURRENT_TEST",
+    "CI",
+    "KIROCREW_E2E_EPHEMERAL",
+    "KIROCREW_FAKE_ACP_TEST_MODE",
+)
+_FALSE_SPELLINGS = frozenset({"", "0", "false", "no", "off"})
+
+AUTO_SKIPPED = "skipped"
+AUTO_ALREADY_ATTEMPTED = "already_attempted"
+AUTO_INSTALL_RUNNING = "install_running"
+AUTO_INSTALL_FAILED = "install_failed"
+AUTO_READY = "ready"
+AUTO_WARMED = "warmed"
+
+
+def _auto_skipped(environ: Mapping[str, str]) -> bool:
+    return any(environ.get(k, "").strip().lower() not in _FALSE_SPELLINGS for k in AUTO_SKIP_ENV)
+
+
+def _auto_components(sup: HarnessSupervisor) -> tuple[str, ...]:
+    """What the startup install needs: the Harness when absent or stale, and Kiro's
+    Chromium only when discovery would launch it and it is not on disk yet.
+
+    Discovery falls back to ``kiro_chromium`` exactly when there is no usable
+    Chrome/Edge (no display, the RemoteDebuggingAllowed policy off, a snap Chrome,
+    none found) or ``browser.choice`` pins ``kiro_chromium`` / ``headless``. A
+    machine whose agent drives the user's own Chrome never downloads ~150 MB it
+    will not run; Settings' Install button still installs both. Blocking (disk
+    reads, discovery probes): call it off the loop.
+    """
+    wanted: list[str] = []
+    if not harness_install.harness_current(sup.home):
+        wanted.append(harness_install.COMPONENT_HARNESS)
+    status = sup.status()
+    browser = status.get("browser") or {}
+    chromium = status.get("chromium") or {}
+    if browser.get("kind") == "kiro_chromium" and not chromium.get("present"):
+        wanted.append(harness_install.COMPONENT_CHROMIUM)
+    return tuple(wanted)
+
+
+def _warm_wanted(sup: HarnessSupervisor) -> bool:
+    """Warm only a browser that connects with nobody watching: headless Kiro Chromium.
+
+    The user's Chrome or Edge is never connected at startup, because connecting is
+    what raises Chrome's per-connection "Allow remote debugging?" sheet; a sheet
+    nobody asked for, at gateway start, is the surprise the first-run Test step
+    exists to avoid. A headed Kiro Chromium would open a window unasked. Both stay
+    lazy: the first ``browser`` tool call or Settings' Test connects them.
+    """
+    status = sup.status()
+    browser = status.get("browser") or {}
+    chromium = status.get("chromium") or {}
+    return bool(
+        status.get("installed")
+        and browser.get("kind") == "kiro_chromium"
+        and browser.get("headless")
+        and chromium.get("present")
+        and not sup.connected
+    )
+
+
+async def auto_setup_browser_harness(
+    state: Any,
+    *,
+    supervisor: HarnessSupervisor | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """At gateway start: install what the browser needs, then warm it, unasked.
+
+    ONE attempt per gateway process (a flag on *state*): a failure is not retried
+    in a loop; it stays visible as the failed ``install_job`` in Settings, whose
+    Install button is the retry. The install is the very job Settings starts
+    (:func:`_start_install_job`, ``trigger="auto"``), so the page shows it running
+    and a press of Install meanwhile gets the usual 409. Returns the outcome name
+    (for the log and tests); never raises.
+    """
+    env = os.environ if environ is None else environ
+    if _auto_skipped(env):
+        return AUTO_SKIPPED
+    if getattr(state, "_browser_harness_auto_attempted", False):
+        return AUTO_ALREADY_ATTEMPTED
+    state._browser_harness_auto_attempted = True
+    if _install_active(state):
+        return AUTO_INSTALL_RUNNING
+    sup = supervisor if supervisor is not None else get_supervisor(config_dir())
+    try:
+        components = await asyncio.to_thread(_auto_components, sup)
+        if components:
+            logger.info("browser harness: installing %s at startup", ", ".join(components))
+            _start_install_job(state, components, trigger="auto")
+            await asyncio.wait({state._browser_harness_install_task})
+            job = _job(state)
+            if job is None or job.status != STATUS_SUCCEEDED:
+                logger.info(
+                    "browser harness: startup install did not finish: %s",
+                    job.error if job is not None else "no job",
+                )
+                return AUTO_INSTALL_FAILED
+        if not await asyncio.to_thread(_warm_wanted, sup):
+            return AUTO_READY
+        await sup.test(TEST_WAIT_SECS)
+        return AUTO_WARMED
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - an optional subsystem never fails the gateway
+        logger.warning("browser harness: startup auto-setup failed", exc_info=True)
+        return AUTO_INSTALL_FAILED
+
+
 async def stop_browser_harness_install(state: Any) -> None:
     """Cancel a running install at gateway shutdown. Idempotent, never raises."""
     task = getattr(state, "_browser_harness_install_task", None)
@@ -328,6 +471,7 @@ async def stop_browser_harness_install(state: Any) -> None:
 __all__ = [
     "InstallJob",
     "TEST_WAIT_SECS",
+    "auto_setup_browser_harness",
     "api_browser_harness_disconnect",
     "api_browser_harness_install",
     "api_browser_harness_status",

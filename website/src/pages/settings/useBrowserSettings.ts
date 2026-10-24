@@ -2,7 +2,7 @@
  * Data behind Settings -> Browser: the gateway's browser status, the `browser.*`
  * config section and the Preview tab's origin list, plus the writes.
  *
- * One hook so the first-run steps and the status card read the same answers and
+ * One hook so the main card and the setting rows read the same answers and
  * invalidate the same keys. Reads are React Query; every config write is the
  * generic `PATCH /api/config/kirocrew` with ONE path, so a stale cache in this tab
  * can never clobber a key another client changed (the same reason the Chat panel
@@ -27,12 +27,15 @@ const IDLE_POLL_MS = 15_000
 export interface BrowserSettingsConfig {
   browser?: {
     choice?: string
-    first_run_dismissed?: boolean
     live?: {
       enabled?: boolean
       quality?: string
       max_fps?: number
       mask_passwords?: boolean
+    }
+    credentials?: {
+      enabled?: boolean | null
+      domains?: string[]
     }
   }
   dashboard?: {
@@ -43,19 +46,18 @@ export interface BrowserSettingsConfig {
 /** The shipped defaults of `config/sections_browser.py`, applied when a key is absent. */
 export const BROWSER_DEFAULTS = {
   choice: 'auto',
-  firstRunDismissed: false,
   live: { enabled: true, quality: 'auto', maxFps: 60, maskPasswords: true },
 } as const
 
-export const BROWSER_CHOICES = ['auto', 'user_chrome', 'kiro_chromium', 'headless'] as const
 export const LIVE_QUALITIES = ['auto', 'high', 'medium', 'low'] as const
 export const LIVE_MAX_FPS = [15, 30, 60] as const
 
 export interface BrowserSettingsView {
   choice: string
-  firstRunDismissed: boolean
   live: { enabled: boolean; quality: string; maxFps: number; maskPasswords: boolean }
   localOrigins: string[]
+  /** `browser.credentials.domains` as stored; `[]` follows the provider's default. */
+  credentialDomains: string[]
 }
 
 export function viewOf(cfg: BrowserSettingsConfig | undefined): BrowserSettingsView {
@@ -63,7 +65,6 @@ export function viewOf(cfg: BrowserSettingsConfig | undefined): BrowserSettingsV
   const live = b?.live
   return {
     choice: typeof b?.choice === 'string' ? b.choice : BROWSER_DEFAULTS.choice,
-    firstRunDismissed: b?.first_run_dismissed === true,
     live: {
       enabled: typeof live?.enabled === 'boolean' ? live.enabled : BROWSER_DEFAULTS.live.enabled,
       quality: typeof live?.quality === 'string' ? live.quality : BROWSER_DEFAULTS.live.quality,
@@ -73,6 +74,9 @@ export function viewOf(cfg: BrowserSettingsConfig | undefined): BrowserSettingsV
     },
     localOrigins: Array.isArray(cfg?.dashboard?.browser_local_origins)
       ? cfg!.dashboard!.browser_local_origins!.filter((o): o is string => typeof o === 'string')
+      : [],
+    credentialDomains: Array.isArray(b?.credentials?.domains)
+      ? b!.credentials!.domains!.filter((d): d is string => typeof d === 'string')
       : [],
   }
 }
@@ -107,6 +111,12 @@ export function useBrowserSettings() {
   const patch = useMutation({
     mutationFn: ({ path, value }: { path: string; value: unknown }) => api.patchConfig(path, value),
     onSettled: invalidateConfig,
+    // A sign-in setting takes effect in a running Kiro Chromium only on a re-pull.
+    onSuccess: (_d, { path }) => { if (path.startsWith('browser.credentials.')) refreshCredentials.mutate() },
+  })
+  const refreshCredentials = useMutation({
+    mutationFn: () => api.refreshBrowserCredentials(),
+    onSettled: invalidateStatus,
   })
   const install = useMutation({
     mutationFn: (req: BrowserInstallRequest = {}) => api.installBrowserHarness(req),
@@ -132,6 +142,7 @@ export function useBrowserSettings() {
     install,
     test,
     disconnect,
+    refreshCredentials,
   }
 }
 

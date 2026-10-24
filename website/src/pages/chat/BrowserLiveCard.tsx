@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { useInRouterContext, useNavigate } from 'react-router-dom'
 
 import type { ChatMessage } from '../../types'
-import { browserLiveStore, useBrowserLiveTurn, type BrowserLiveTurn } from '../../hooks/useBrowserLive'
+import { browserLiveStore, useBrowserLiveIsCurrent, useBrowserLiveTurn, type BrowserLiveTurn } from '../../hooks/useBrowserLive'
 import { useLanguageGeneration } from '../../i18n/useLanguageGeneration'
 import type { BrowserLiveCanvasHandle } from './BrowserLiveCardCanvas'
 import { BrowserLiveAllowView, BrowserLiveDoneRow, BrowserLiveLiveView, hostOf } from './BrowserLiveCardViews'
@@ -93,6 +93,7 @@ function BrowserLiveCard({ sessionKey, anchorKey, anchorTs, running, goTo }: Bro
   // The report names this card's turn: a finished card still on screen must not
   // keep a later turn's screencast running while that turn's card is scrolled off.
   const turnId = turn?.turnId ?? ''
+  const isCurrent = useBrowserLiveIsCurrent(sessionKey, turnId)
   useEffect(() => {
     const el = rootRef.current
     if (!el || !turnId) return
@@ -120,6 +121,15 @@ function BrowserLiveCard({ sessionKey, anchorKey, anchorTs, running, goTo }: Bro
   const claim = useCallback(() => { void browserLiveStore.claim(sessionKey) }, [sessionKey])
   const release = useCallback(() => { void browserLiveStore.release(sessionKey) }, [sessionKey])
   const openInBrowser = useCallback(() => browserLiveStore.openInBrowser(sessionKey), [sessionKey])
+  // "Open live" restarts the screencast on the tab this card showed; the server's
+  // event turns the same card live again (same turn id), so Take over and Hand
+  // back work exactly as during the turn. Close folds it back.
+  const openLive = useCallback(() => {
+    canvasRef.current?.stop()
+    setReplaying(false)
+    if (turnId) void browserLiveStore.reopen(sessionKey, turnId)
+  }, [sessionKey, turnId])
+  const closeLive = useCallback(() => browserLiveStore.closeLive(sessionKey), [sessionKey])
 
   const replay = useCallback(() => {
     const c = canvasRef.current
@@ -168,6 +178,7 @@ function BrowserLiveCard({ sessionKey, anchorKey, anchorTs, running, goTo }: Bro
             onRelease={release}
             onOpenInBrowser={openInBrowser}
             onToggleExpand={() => setExpanded(v => !v)}
+            onCloseLive={closeLive}
           />
         )}
         {view === 'done' && (
@@ -178,6 +189,8 @@ function BrowserLiveCard({ sessionKey, anchorKey, anchorTs, running, goTo }: Bro
             replaying={replaying}
             onReplay={replay}
             onOpenInBrowser={openInBrowser}
+            canOpenLive={turn.state === 'done' && turn.tab === 'open' && isCurrent}
+            onOpenLive={openLive}
           />
         )}
       </motion.div>

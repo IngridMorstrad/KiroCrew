@@ -467,6 +467,15 @@ def _register_mcp_routes(app: web.Application) -> None:
     app.router.add_post("/api/browser/install", handlers.api_browser_harness_install)
     app.router.add_post("/api/browser/test", handlers.api_browser_harness_test)
     app.router.add_post("/api/browser/disconnect", handlers.api_browser_harness_disconnect)
+    # What goes into Kiro's Chromium (handlers/browser_credentials.py): the owner's
+    # cookie import and a refresh of the edition's credential provider. Same owner
+    # gate, and restricted sessions are refused too.
+    app.router.add_get("/api/browser/cookies", handlers.api_browser_cookies_status)
+    app.router.add_post("/api/browser/cookies", handlers.api_browser_cookies_import)
+    app.router.add_delete("/api/browser/cookies", handlers.api_browser_cookies_clear)
+    app.router.add_post(
+        "/api/browser/credentials/refresh", handlers.api_browser_credentials_refresh
+    )
     # Computer use: the thin ``kirocrew-computer`` stdio shim's only call. Lives
     # HERE (rather than in the dashboard-only block, where the browser-called
     # config pair sits) so the headless ``--slack-only`` server exposes it too —

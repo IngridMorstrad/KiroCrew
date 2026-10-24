@@ -650,7 +650,8 @@ edited on Settings → Browser and applies without a restart.
 | `browser.live.quality` | `auto` adapts picture quality and frame rate to your link (picture first, frame rate second); `high`, `medium` or `low` pins the picture and leaves only the frame rate adaptive | `"auto"` |
 | `browser.live.max_fps` | Frame-rate ceiling of the live view: `15`, `30` or `60`. No frames are sent while the card is off screen | `60` |
 | `browser.live.mask_passwords` | Cover password boxes in the live picture. Passwords are only ever typed by you during a takeover and never pass through the agent | `true` |
-| `browser.first_run_dismissed` | Set once the three setup steps on Settings → Browser are completed or skipped; the page then shows the status card. Clear it to see the steps again | `false` |
+| `browser.credentials.enabled` | Start Kiro's own Chromium signed in to the sites your edition's sign-in provider serves. Unset follows the edition's default; with no provider it does nothing. Your own Chrome is never changed | unset |
+| `browser.credentials.domains` | The sites that sign-in may be used for (`example.com` covers its subdomains). Only a site both listed here and served by the provider is used. Empty follows the provider's default | `[]` |
 | `dashboard.browser_local_origins` | The loopback origins the side panel's Preview tab may open, each `host:port` with host `localhost`, `127.0.0.1` or `[::1]` (`localhost:5173` for a Vite dev server). The tab is for previewing your own dev server; the agent never drives it, and an outside URL is answered with "Open this in your Chrome, or ask Kiro". Empty keeps every address refused. Entries in any other shape are dropped | `[]` |
 
 ### Skills

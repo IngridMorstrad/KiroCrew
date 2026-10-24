@@ -174,6 +174,10 @@ _SECTION_KEYS_DELIBERATELY_DROPPED: dict = {
     # one driver now. Named once at load (warn_retired_section_keys) so an
     # operator who set them learns the setting is gone, then dropped on save.
     "dashboard": frozenset({"use_builtin_browser", "browser_view_port"}),
+    # RETIRED: the Settings -> Browser first-run step list it hid is gone (the
+    # gateway installs the engine on its own). Only pre-release builds wrote it,
+    # so it is dropped on save without a load-time warning.
+    "browser": frozenset({"first_run_dismissed"}),
 }
 
 #: The RETIRED subset of ``_SECTION_KEYS_DELIBERATELY_DROPPED`` worth ONE load-time

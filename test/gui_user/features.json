@@ -6238,11 +6238,11 @@
           "nova-sky"
         ],
         "feature_flags": [],
-        "notes": "Polls GET /api/browser/status (2 s while a job runs or Chrome waits for Allow, else 15 s); the first-run list shows until Try it / Done / Skip writes browser.first_run_dismissed. | On the CI runner the engine is absent, so the panel renders the not-installed first-run state; clicking Install would need PyPI + the Chromium CDN."
+        "notes": "Polls GET /api/browser/status (2 s while a job runs or Chrome waits for Allow, else 15 s); the main card's one button follows the state (installing, install failed, Allow in Chrome, error, Connect, Disconnect). | On the CI runner the engine is absent, so the main card shows not installed or install failed; clicking Install or Retry would need PyPI + the Chromium CDN."
       },
       "runnable": "nightly",
       "estimated_steps": 3,
-      "rationale": "Status, first-run steps and the live-view/local-preview controls are web-renderable with a stubbed status route; the install itself needs the network.",
+      "rationale": "The main card and the live-view/local-preview controls are web-renderable with a stubbed status route; the install itself needs the network.",
       "source": [
         "docs/feature-map/README.md",
         "docs/system-specs/modules/browser.md",

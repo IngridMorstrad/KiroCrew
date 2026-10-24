@@ -1,4 +1,4 @@
-"""The live browser card's routes: visibility, frame acks, takeover and open-in-browser.
+"""The live browser card's routes: visibility, frame acks, takeover, open-in-browser, reopen.
 
 Every route here is the CARD's leg of the Wire contract (RFC "Live browser in
 chat", CONTRACT "Wire contract"), so every one of them is the dashboard OWNER's and
@@ -22,7 +22,10 @@ Routes (all ``POST``, JSON body, registered in ``routes/browser_live.py``):
 ``/api/browser/live/ack`` ``{"session_key","seq","stream"?}``,
 ``/api/browser/input/claim`` and ``/release`` ``{"session_key"}``,
 ``/api/browser/input/event`` ``{"session_key","event":{...}}``,
-``/api/browser/live/open-in-browser`` ``{"session_key"}``.
+``/api/browser/live/open-in-browser`` ``{"session_key"}``,
+``/api/browser/live/reopen`` ``{"session_key","turn_id"}`` and
+``/api/browser/live/close`` ``{"session_key"}`` (the finished card's "Open live"
+and the reopened view's "Close").
 """
 
 from __future__ import annotations
@@ -34,7 +37,12 @@ from typing import Any
 
 from aiohttp import web
 
-from kiro_crew.browser_harness.live_hub import LiveHub, get_live_hub
+from kiro_crew.browser_harness.live_hub import (
+    REOPEN_LIVE_OFF,
+    REOPEN_TAB_GONE,
+    LiveHub,
+    get_live_hub,
+)
 from kiro_crew.browser_harness.takeover import InputEventError
 from kiro_crew.dashboard.handlers._shared import (
     read_bounded_json,
@@ -104,7 +112,7 @@ async def _run(request: web.Request, operation: str, action: Action) -> web.Resp
     refusal = await _owner_gate(request, operation)
     if refusal is not None:
         return refusal
-    body, err = await read_bounded_json(request, _MAX_BODY_BYTES)
+    body, err = await read_bounded_json(request, max_bytes=_MAX_BODY_BYTES)
     if err is not None or body is None:
         return err if err is not None else _error("invalid_json", "invalid JSON", 400)
     key = _owned_session_key(request, body)
@@ -196,6 +204,68 @@ async def api_browser_live_open_in_browser(request: web.Request) -> web.Response
     return await _run(request, "browser_live_open_in_browser", act)
 
 
+#: A hub ``turn_id`` is a uuid4 hex; bounded the same way as the session key.
+_TURN_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
+
+
+def _current_relay() -> Any:
+    """The running supervisor's relay, or ``None``. Never starts a browser.
+
+    "Open live" looks at a tab that is already open; a browser that is not
+    running has no such tab, so this reads ``supervisor.relay`` and nothing more.
+    """
+    try:
+        import importlib
+
+        from kiro_crew.browser_harness import ops as harness_ops
+        from kiro_crew.config.paths import config_dir
+
+        home = config_dir()
+        if not harness_ops.browsing_available(home):
+            return None
+        sup = importlib.import_module("kiro_crew.browser_harness.supervisor")
+        return getattr(sup.get_supervisor(home), "relay", None)
+    except Exception:  # noqa: BLE001 - no relay means "the tab is gone", never a 500
+        logger.debug("browser live: no current relay", exc_info=True)
+        return None
+
+
+async def api_browser_live_reopen(request: web.Request) -> web.Response:
+    """POST /api/browser/live/reopen: the finished card's "Open live".
+
+    Body ``{"session_key","turn_id"}``. ``turn_id`` must be the session's latest
+    card (``stale_turn`` otherwise: an older card's tab is the newer card's now).
+    Answers ``{"live": true}``, or 409 ``tab_gone`` (the tab is closed; the card
+    says so and keeps Replay) or ``live_off`` (``browser.live.enabled`` is false).
+    """
+
+    async def act(hub: LiveHub, key: str, body: dict[str, Any]) -> dict[str, Any] | web.Response:
+        turn_id = body.get("turn_id")
+        if not isinstance(turn_id, str) or not _TURN_ID_RE.fullmatch(turn_id):
+            return _error("invalid_turn", "turn_id must be the card's turn id", 400)
+        sess = hub.get(key)
+        if sess is None or sess.turn_id != turn_id:
+            return _error("stale_turn", "a newer browser card belongs to this chat", 409)
+        refresh_live_config(hub)
+        outcome = await hub.reopen(key, _current_relay())
+        if outcome == REOPEN_TAB_GONE:
+            return _error("tab_gone", "the tab this card showed is closed", 409)
+        if outcome == REOPEN_LIVE_OFF:
+            return _error("live_off", "the live view is turned off", 409)
+        return {"live": True}
+
+    return await _run(request, "browser_live_reopen", act)
+
+
+async def api_browser_live_close(request: web.Request) -> web.Response:
+    """POST /api/browser/live/close: fold a reopened view back to its done line."""
+
+    async def act(hub: LiveHub, key: str, body: dict[str, Any]) -> dict[str, Any] | web.Response:
+        return {"closed": await hub.close_view(key)}
+
+    return await _run(request, "browser_live_close", act)
+
+
 def refresh_live_config(hub: LiveHub) -> None:
     """Give the hub the ``browser.live.*`` settings as the gateway holds them now.
 
@@ -229,7 +299,9 @@ __all__ = [
     "api_browser_input_event",
     "api_browser_input_release",
     "api_browser_live_ack",
+    "api_browser_live_close",
     "api_browser_live_open_in_browser",
+    "api_browser_live_reopen",
     "api_browser_live_visibility",
     "bind_live_hub",
     "refresh_live_config",

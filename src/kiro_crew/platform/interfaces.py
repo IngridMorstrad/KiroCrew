@@ -1082,6 +1082,8 @@ BUILTIN_PROVISIONER_ID = "aws_ec2"
 # one import path: ``interfaces_runtime`` (runtime-service / frontend) and
 # ``interfaces_structural`` (install / structural, and the feature apps).
 from kiro_crew.platform.interfaces_runtime import (  # noqa: E402,F401 - re-exported
+    BrowserCredentialProvider,
+    BrowserCredentialTarget,
     DashboardContributor,
     FeedbackTrackerProvider,
     JailProvider,

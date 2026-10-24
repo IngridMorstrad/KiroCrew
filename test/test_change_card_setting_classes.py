@@ -75,6 +75,12 @@ def test_ordered_values_are_values_the_route_accepts():
         ("agent.acp_backend", "", "claude", "code_exec"),
         ("session.pool_agent", "", "builder", "code_exec"),
         ("telemetry.enabled", False, True, "normal"),
+        ("browser.choice", "kiro_chromium", "user_chrome", "widen"),
+        ("browser.choice", "auto", "headless", "tighten"),
+        ("browser.live.mask_passwords", True, False, "widen"),
+        ("browser.credentials.enabled", False, True, "widen"),
+        ("browser.credentials.enabled", True, False, "tighten"),
+        ("browser.live.max_fps", 60, 15, "normal"),
     ],
 )
 def test_newly_classified_paths_read_their_class_on_the_card(path, before, after, risk):

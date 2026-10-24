@@ -1,157 +1,248 @@
 /**
- * Settings -> Browser, the status card (design S1): the browser in use, its
- * connection state, the fallback order as chips, Test and Disconnect.
+ * Settings -> Browser, the main card: the browser, a status dot and line, and
+ * ONE button that follows the state (`primaryState`).
  *
- * The card turns yellow in exactly one state, `waiting_allow`: Chrome is showing
- * its prompt and the next move is the user's, in another window.
+ * Colour carries the state the user has to act on: yellow only while Chrome
+ * waits for Allow (the next move is theirs, in another window), red only on a
+ * failure. Prose that explains rather than reports sits in an info tip beside
+ * the title, never as a second line.
  */
-import { ArrowRight, Check, Globe, Loader2, Monitor, Play, Unplug } from 'lucide-react'
+import { AlertTriangle, Globe, Loader2, Monitor, Plug, RotateCw, Unplug } from 'lucide-react'
 
-import type { BrowserKind, BrowserStatusData, BrowserTestData } from '../../api/client'
+import type { BrowserKind, BrowserStatusData } from '../../api/client'
 import ErrorNotice from '../../components/ErrorNotice'
-import { Badge, Btn } from '../../components/ui'
+import InfoTip from '../../components/InfoTip'
+import { Btn } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
 import {
   BROWSER_KIND_LABEL_KEY,
   CONNECTION_LABEL_KEY,
-  CONNECTION_VARIANT,
-  FALLBACK_ORDER,
   isUserBrowser,
-  isWindowsHost,
+  type PrimaryState,
 } from './browserStatus'
 
-function KindIcon({ kind, size = 14 }: { kind: BrowserKind; size?: number }) {
+function KindIcon({ kind, size = 20 }: { kind: BrowserKind | null; size?: number }) {
   return kind === 'kiro_chromium'
-    ? <Monitor size={size} className="lucide-inline" aria-hidden />
-    : <Globe size={size} className="lucide-inline" aria-hidden />
+    ? <Monitor size={size} aria-hidden />
+    : <Globe size={size} aria-hidden />
 }
 
-function FallbackChip({ kind, active, dimmed, note }: { kind: BrowserKind; active: boolean; dimmed: boolean; note?: string }) {
-  const cls = active
-    ? 'border-accent text-accent bg-accent-subtle'
-    : dimmed
-      ? 'border-border text-muted opacity-60'
-      : 'border-border text-text'
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] ${cls}`}
-      aria-current={active ? 'true' : undefined}
-      data-testid={`browser-chip-${kind}`}
-    >
-      <KindIcon kind={kind} size={13} />
-      <span>{i18nT(BROWSER_KIND_LABEL_KEY[kind])}</span>
-      {note && <span className="text-muted">· {note}</span>}
-      {active && <Check size={12} className="lucide-inline text-ok-text" aria-hidden />}
-    </span>
-  )
+const DOT_CLASS: Record<PrimaryState, string> = {
+  installing: 'bg-accent',
+  install_failed: 'bg-danger',
+  not_installed: 'bg-muted',
+  waiting_allow: 'bg-warn',
+  error: 'bg-danger',
+  disconnected: 'bg-muted',
+  connected: 'bg-ok',
 }
 
 export interface BrowserStatusCardProps {
   status: BrowserStatusData
-  testing: boolean
-  testResult: BrowserTestData | null
-  testError: string | null
-  onTest: () => void
+  state: PrimaryState
+  /** A connect / Allow / Retry round trip is in flight. */
+  connecting: boolean
+  /** Why the last attach this page asked for did not come up (a 200 `ok: false`),
+   *  shown in the `error` state when the status read carries no detail. */
+  attachDetail?: string | null
   disconnecting: boolean
-  disconnectError: string | null
+  onInstall: () => void
+  onConnect: () => void
   onDisconnect: () => void
 }
 
 export function BrowserStatusCard({
-  status, testing, testResult, testError, onTest, disconnecting, disconnectError, onDisconnect,
+  status, state, connecting, attachDetail = null, disconnecting, onInstall, onConnect, onDisconnect,
 }: BrowserStatusCardProps) {
   const kind = status.browser?.kind ?? null
-  const connection = status.connection
-  const waiting = connection === 'waiting_allow'
-  const windows = isWindowsHost(status.platform)
-  const title = kind
-    ? i18nT(BROWSER_KIND_LABEL_KEY[kind])
-    : i18nT('pages.settings.browserPanel.no_browser_yet')
-  const desc = kind === null
-    ? i18nT('pages.settings.browserPanel.no_browser_desc')
+  const red = state === 'error' || state === 'install_failed'
+  const yellow = state === 'waiting_allow'
+  const kindTitle = kind ? i18nT(BROWSER_KIND_LABEL_KEY[kind]) : i18nT('pages.settings.browserPanel.no_browser_yet')
+
+  const title = state === 'installing'
+    ? i18nT('pages.settings.browserPanel.preparing_title')
+    : state === 'install_failed'
+      ? i18nT('pages.settings.browserPanel.setup_failed_title')
+      : state === 'not_installed'
+        ? i18nT('pages.settings.browserPanel.not_installed_title')
+        : kindTitle
+
+  // The status line. Server-authored detail (a stage name, a failure) is shown
+  // verbatim and never translated; the catalog line only when there is none.
+  const job = status.install_job
+  const kindShort = !kind
+    ? null
     : isUserBrowser(kind)
-      ? i18nT('pages.settings.browserPanel.user_browser_desc')
+      ? i18nT('pages.settings.browserPanel.kind_short_user')
       : status.browser?.headless
-        ? i18nT('pages.settings.browserPanel.kiro_chromium_headless_desc')
-        : i18nT('pages.settings.browserPanel.kiro_chromium_desc')
+        ? i18nT('pages.settings.browserPanel.kind_short_headless')
+        : i18nT('pages.settings.browserPanel.kind_short_kiro')
+  // No status line on a failed install: the title already says it, and the
+  // failure itself is the ErrorNotice below.
+  // Installing: say "automatically" only for the gateway's own startup job; a
+  // job this page asked for (or one it is asking for right now) is just installing.
+  const autoJob = job?.status === 'running' && job.trigger === 'auto'
+  const line = state === 'installing'
+    ? (autoJob
+      ? i18nT('pages.settings.browserPanel.preparing_desc')
+      : i18nT('pages.settings.browserPanel.preparing_desc_settings'))
+    : state === 'install_failed'
+      ? null
+      : state === 'not_installed'
+        ? i18nT('pages.settings.browserPanel.not_installed_desc')
+        : state === 'waiting_allow'
+          ? i18nT('pages.settings.browserPanel.waiting_allow_desc')
+          : state === 'error'
+            ? i18nT('pages.settings.browserPanel.connection_error')
+            : state === 'connected' && kindShort
+              ? `${i18nT(CONNECTION_LABEL_KEY.connected)} · ${kindShort}`
+              : i18nT(CONNECTION_LABEL_KEY[state === 'connected' ? 'connected' : 'disconnected'])
+  // A red state's failure, verbatim from the gateway, as an ErrorNotice with the
+  // Ask-agent hand-off (nothing on this card is an unsaved draft).
+  const failure = state === 'install_failed'
+    ? (job?.error_detail || i18nT('pages.settings.browserPanel.install_failed'))
+    : state === 'error'
+      ? (status.detail || attachDetail || null)
+      : null
+  // A hint the gateway gives while disconnected (what to click, what to turn on).
+  const serverHint = state === 'disconnected' || state === 'waiting_allow' ? status.detail : null
+
+  // What the browser IS, for the tip beside the title.
+  const tip = state === 'waiting_allow'
+    ? i18nT('pages.settings.browserPanel.waiting_allow_hint')
+    : state === 'installing' || state === 'install_failed' || state === 'not_installed'
+      ? i18nT('pages.settings.browserPanel.engine_hint')
+      : kind === null
+        ? i18nT('pages.settings.browserPanel.no_browser_desc')
+        : isUserBrowser(kind)
+          ? i18nT('pages.settings.browserPanel.user_browser_desc')
+          : status.browser?.headless
+            ? i18nT('pages.settings.browserPanel.kiro_chromium_headless_desc')
+            : i18nT('pages.settings.browserPanel.kiro_chromium_desc')
+
+  const frame = red
+    ? 'border-danger bg-danger-subtle'
+    : yellow
+      ? 'border-warn bg-warn-subtle'
+      : 'border-border bg-bg-elevated'
+  const iconFrame = red
+    ? 'bg-danger text-white'
+    : yellow
+      ? 'bg-warn text-white'
+      : 'bg-accent-subtle text-accent'
 
   return (
     <div
-      className={`rounded-xl border p-4 flex flex-col gap-3 ${waiting ? 'border-warn bg-warn-subtle' : 'border-border bg-bg-elevated'}`}
+      className={`rounded-xl border p-3 sm:p-4 flex flex-col gap-2 ${frame}`}
       data-testid="browser-status-card"
-      data-connection={connection}
+      data-state={state}
+      data-connection={status.connection}
     >
-      <div className="flex items-start gap-3">
-        <span className={`flex items-center justify-center w-11 h-11 rounded-xl shrink-0 ${waiting ? 'bg-warn text-white' : 'bg-accent-subtle text-accent'}`} aria-hidden>
-          {kind ? <KindIcon kind={kind} size={20} /> : <Globe size={20} />}
+      <div className="flex items-center gap-3">
+        <span className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${iconFrame}`} aria-hidden>
+          {state === 'installing'
+            ? <Loader2 size={20} className="animate-spin" />
+            : red ? <AlertTriangle size={20} /> : <KindIcon kind={kind} />}
         </span>
-        <div className="flex-1 min-w-0 flex flex-col gap-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[14px] font-semibold text-text">{title}</span>
-            <Badge variant={CONNECTION_VARIANT[connection]} data-testid="browser-connection-badge">
-              {i18nT(CONNECTION_LABEL_KEY[connection])}
-            </Badge>
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[14px] font-semibold text-text truncate">{title}</span>
+            <InfoTip text={tip} />
           </div>
-          <div className="text-[12px] text-muted">{desc}</div>
-          {/* Server-authored detail, verbatim and never translated. A failure is an
-              ErrorNotice with the Ask-agent hand-off; a hint (what to click, what
-              to turn on) while disconnected or waiting is ordinary status text. */}
-          {status.detail && connection === 'error' && (
-            <ErrorNotice variant="inline" message={status.detail} askAgent testId="browser-status-detail" />
+          {line !== null && (
+            <div className="flex items-start gap-1.5 text-[12px] text-muted min-w-0" data-testid="browser-status-line" aria-live="polite">
+              <span className={`mt-[5px] w-1.5 h-1.5 rounded-full shrink-0 ${DOT_CLASS[state]}`} aria-hidden />
+              <span className={`min-w-0 break-words ${red ? 'text-danger-text' : yellow ? 'text-warn-text' : ''}`}>{line}</span>
+            </div>
           )}
-          {status.detail && connection !== 'connected' && connection !== 'error' && (
-            <div className="text-[12px] text-text" data-testid="browser-status-detail">{status.detail}</div>
-          )}
-          {waiting && (
-            <div className="text-[12px] text-warn-text">{i18nT('pages.settings.browserPanel.waiting_allow_hint')}</div>
+          {serverHint && (
+            <div className="text-[12px] text-text" data-testid="browser-status-detail">{serverHint}</div>
           )}
         </div>
-        <div className="shrink-0 flex flex-col items-end gap-1.5">
-          <Btn onClick={onTest} disabled={testing || !status.installed} data-testid="browser-test">
-            {testing
-              ? <Loader2 size={13} className="lucide-inline animate-spin" aria-hidden />
-              : <Play size={13} className="lucide-inline" aria-hidden />}
-            {i18nT('pages.settings.browserPanel.test_connection')}
-          </Btn>
-          <Btn onClick={onDisconnect} disabled={disconnecting || connection === 'disconnected'} data-testid="browser-disconnect">
-            <Unplug size={13} className="lucide-inline" aria-hidden />
-            {i18nT('pages.settings.browserPanel.disconnect')}
-          </Btn>
+        <div className="shrink-0">
+          <PrimaryButton
+            state={state}
+            connecting={connecting}
+            disconnecting={disconnecting}
+            onInstall={onInstall}
+            onConnect={onConnect}
+            onDisconnect={onDisconnect}
+          />
         </div>
       </div>
-
-      {/* The discovery order, left to right; the lit chip is the browser in use. */}
-      <div className="flex items-center gap-1.5 flex-wrap" aria-label={i18nT('pages.settings.browserPanel.fallback_order')}>
-        {FALLBACK_ORDER.map((k, i) => (
-          <span key={k} className="inline-flex items-center gap-1.5">
-            {i > 0 && <ArrowRight size={12} className="text-muted shrink-0" aria-hidden />}
-            <FallbackChip
-              kind={k}
-              active={kind === k}
-              dimmed={k === 'edge' && !windows}
-              note={k === 'edge' ? i18nT('pages.settings.browserPanel.windows_only') : undefined}
-            />
-          </span>
-        ))}
-      </div>
-
-      {testResult && !testError && testResult.ok && (
-        <div className="text-[12px]" data-testid="browser-test-result" aria-live="polite">
-          <span className="text-ok-text">{i18nT('pages.settings.browserPanel.test_ok')}</span>
+      {failure && (
+        <ErrorNotice variant="inline" message={failure} askAgent testId="browser-status-error" />
+      )}
+      {state === 'installing' && (
+        <div
+          className="h-1 rounded-full bg-border overflow-hidden"
+          role="progressbar"
+          aria-label={i18nT('pages.settings.browserPanel.preparing_title')}
+          aria-valuetext={job?.stage ?? undefined}
+          data-testid="browser-install-progress"
+        >
+          <div className="h-full w-1/3 rounded-full bg-accent motion-safe:animate-pulse" />
         </div>
       )}
-      {/* An HTTP 200 whose body says the test failed is still a failure: same notice as a thrown one. */}
-      {testResult && !testError && !testResult.ok && (
-        <ErrorNotice
-          variant="inline"
-          message={testResult.detail || i18nT('pages.settings.browserPanel.test_failed')}
-          askAgent
-          testId="browser-test-result"
-        />
-      )}
-      {/* Hand-off on: nothing on this card is an unsaved draft. */}
-      {testError && <ErrorNotice variant="inline" message={testError} askAgent />}
-      {disconnectError && <ErrorNotice variant="inline" message={disconnectError} askAgent />}
     </div>
   )
+}
+
+function PrimaryButton({ state, connecting, disconnecting, onInstall, onConnect, onDisconnect }: {
+  state: PrimaryState
+  connecting: boolean
+  disconnecting: boolean
+  onInstall: () => void
+  onConnect: () => void
+  onDisconnect: () => void
+}) {
+  const spin = <Loader2 size={13} className="lucide-inline animate-spin" aria-hidden />
+  switch (state) {
+    case 'installing':
+      return (
+        <Btn disabled aria-busy data-testid="browser-primary-action">
+          {spin}{i18nT('pages.settings.browserPanel.installing')}
+        </Btn>
+      )
+    case 'install_failed':
+      return (
+        <Btn primary onClick={onInstall} data-testid="browser-primary-action">
+          <RotateCw size={13} className="lucide-inline" aria-hidden />{i18nT('pages.settings.browserPanel.retry')}
+        </Btn>
+      )
+    case 'not_installed':
+      return (
+        <Btn primary onClick={onInstall} data-testid="browser-primary-action">
+          {i18nT('pages.settings.browserPanel.install_engine')}
+        </Btn>
+      )
+    case 'waiting_allow':
+      // Asking the gateway to attach again is what brings Chrome's prompt back.
+      return (
+        <Btn primary onClick={onConnect} disabled={connecting} aria-busy={connecting || undefined} data-testid="browser-primary-action">
+          {connecting && spin}{i18nT('pages.settings.browserPanel.go_allow')}
+        </Btn>
+      )
+    case 'error':
+      return (
+        <Btn primary onClick={onConnect} disabled={connecting} aria-busy={connecting || undefined} data-testid="browser-primary-action">
+          {connecting ? spin : <RotateCw size={13} className="lucide-inline" aria-hidden />}
+          {i18nT('pages.settings.browserPanel.retry')}
+        </Btn>
+      )
+    case 'disconnected':
+      return (
+        <Btn onClick={onConnect} disabled={connecting} aria-busy={connecting || undefined} data-testid="browser-primary-action">
+          {connecting ? spin : <Plug size={13} className="lucide-inline" aria-hidden />}
+          {i18nT('pages.settings.browserPanel.connect')}
+        </Btn>
+      )
+    case 'connected':
+      return (
+        <Btn onClick={onDisconnect} disabled={disconnecting} aria-busy={disconnecting || undefined} data-testid="browser-primary-action">
+          {disconnecting ? spin : <Unplug size={13} className="lucide-inline" aria-hidden />}
+          {i18nT('pages.settings.browserPanel.disconnect')}
+        </Btn>
+      )
+  }
 }

@@ -4743,7 +4743,10 @@
           "max_fps": 60,
           "mask_passwords": true
         },
-        "first_run_dismissed": false
+        "credentials": {
+          "enabled": null,
+          "domains": []
+        }
       }
     },
     {
@@ -4850,18 +4853,64 @@
       "defaultValue": true
     },
     {
-      "path": "browser.first_run_dismissed",
+      "path": "browser.credentials",
+      "kind": "core",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Sign-in for Kiro's Chromium",
+      "help": "Whether the edition's sign-in is put into Kiro's own Chromium, and for which domains.",
+      "hasChildren": true,
+      "enumValues": null,
+      "defaultValue": {
+        "enabled": null,
+        "domains": []
+      }
+    },
+    {
+      "path": "browser.credentials.enabled",
       "kind": "core",
       "type": "boolean",
       "required": false,
       "deprecated": false,
       "sensitive": false,
       "tags": [],
-      "label": "First-run steps dismissed",
-      "help": "Set once the three setup steps on Settings -> Browser are completed or skipped, after which the page shows the status card instead. Written by the dashboard; clear it to see the steps again.",
+      "label": "Use your organisation's sign-in",
+      "help": "Let Kiro's own Chromium start signed in to the sites below, using the sign-in your edition of Kiro Crew provides. Unset follows the edition's default; with no edition provider it does nothing. Your own Chrome is never changed.",
       "hasChildren": false,
       "enumValues": null,
-      "defaultValue": false
+      "defaultValue": null,
+      "nullable": true
+    },
+    {
+      "path": "browser.credentials.domains",
+      "kind": "core",
+      "type": "array",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Sign-in domains",
+      "help": "The sites that sign-in may be used for, such as `example.com` (which covers its subdomains). Only a domain both listed here and served by the edition is used. Empty follows the edition's default.",
+      "hasChildren": true,
+      "enumValues": null,
+      "defaultValue": []
+    },
+    {
+      "path": "browser.credentials.domains.*",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "*",
+      "help": "",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": null
     },
     {
       "path": "decisions",

@@ -56,6 +56,8 @@ beforeEach(() => {
     release: vi.fn(async () => ({ ok: true })),
     input: vi.fn(async () => ({ ok: true })),
     open: vi.fn(async () => ({ ok: true })),
+    reopen: vi.fn(async () => ({ ok: true })),
+    close: vi.fn(async () => ({ ok: true })),
   }
   restore = browserLiveStore.__setWritesForTests(writes)
   observed = []
@@ -172,7 +174,7 @@ describe('BrowserLiveCard faces', () => {
     expect(screen.getByText(i18next.t('pages.chat.browserLiveCard.replay_steps', { count: 3 }))).toBeInTheDocument()
     expect(screen.getByText(i18next.t('pages.chat.browserLiveCard.open_in', { browser: 'Chrome' }))).toBeInTheDocument()
     // Two actions in the row, never three (max-two-buttons-per-row).
-    expect(screen.getByTestId('browser-live-done').querySelectorAll('button').length).toBe(2)
+    expect(screen.getByTestId('browser-live-done-actions').querySelectorAll('button').length).toBe(2)
     // No takeover affordance on a finished turn.
     expect(screen.queryByTestId('browser-live-take-over')).toBeNull()
   })
@@ -276,5 +278,80 @@ describe('ChatFooter while the person holds the browser', () => {
     expect(screen.getByRole('status')).toHaveAccessibleName(i18next.t('pages.chat.browserLiveCard.waiting_for_hand_back'))
     act(() => browserLiveStore.applyEvent(ev({ state: 'live' })))
     expect(screen.getByRole('status')).toHaveAccessibleName(i18next.t('pages.chat.chatFooter.thinking'))
+  })
+})
+
+describe('the finished card reopens live', () => {
+  it('done -> Open live (button or thumbnail) -> the same card is live and takes over', async () => {
+    act(() => {
+      browserLiveStore.applyEvent(ev({ browser: 'kiro_chromium', headless: true }))
+      browserLiveStore.applyFrame(frame(1))
+      browserLiveStore.applyEvent(ev({ state: 'done', browser: 'kiro_chromium', headless: true, turn_over: true, tab: 'open' }))
+    })
+    render(card(false))
+    const open = screen.getByTestId('browser-live-open-live')
+    expect(open).toHaveTextContent(i18next.t('pages.chat.browserLiveCard.open_live'))
+    expect(screen.getByTestId('browser-live-done-actions').querySelectorAll('button').length).toBe(2)
+    fireEvent.click(open)
+    expect(writes.reopen).toHaveBeenCalledWith(S, 't1')
+    fireEvent.click(screen.getByTestId('browser-live-done-thumb'))
+    expect(writes.reopen).toHaveBeenCalledTimes(2)
+    // The server's event turns the same card live.
+    act(() => browserLiveStore.applyEvent(ev({ state: 'live', browser: 'kiro_chromium', headless: true, turn_over: true, tab: 'open' })))
+    expect(screen.getByTestId('browser-live-card')).toHaveAttribute('data-state', 'live')
+    fireEvent.click(screen.getByTestId('browser-live-take-over'))
+    expect(writes.claim).toHaveBeenCalledWith(S)
+    expect(screen.getByTestId('browser-live-card')).toHaveAttribute('data-state', 'in_control')
+    await act(async () => { await Promise.resolve() })
+  })
+
+  it('user Chrome: Open live replaces Open in Chrome in the done row (two actions)', () => {
+    act(() => {
+      browserLiveStore.applyEvent(ev())
+      browserLiveStore.applyFrame(frame(1))
+      browserLiveStore.applyEvent(ev({ state: 'done', turn_over: true, tab: 'open' }))
+    })
+    render(card(false))
+    const row = screen.getByTestId('browser-live-done-actions')
+    expect(row.querySelectorAll('button').length).toBe(2)
+    expect(screen.getByTestId('browser-live-open-live')).toBeInTheDocument()
+    expect(screen.queryByText(i18next.t('pages.chat.browserLiveCard.open_in', { browser: 'Chrome' }))).toBeNull()
+  })
+
+  it('the reopened view offers Close (and only a reopened one does)', async () => {
+    act(() => browserLiveStore.applyEvent(ev({ turn_over: false })))
+    const { unmount } = render(card(true))
+    fireEvent.pointerDown(screen.getByLabelText(i18next.t('pages.chat.browserLiveCard.more_actions')), { button: 0, pointerType: 'mouse' })
+    expect(screen.queryByTestId('browser-live-close-live')).toBeNull()
+    unmount()
+    act(() => browserLiveStore.applyEvent(ev({ state: 'live', turn_over: true, tab: 'open' })))
+    render(card(true))
+    fireEvent.pointerDown(screen.getByLabelText(i18next.t('pages.chat.browserLiveCard.more_actions')), { button: 0, pointerType: 'mouse' })
+    const close = await screen.findByTestId('browser-live-close-live')
+    fireEvent.click(close)
+    expect(writes.close).toHaveBeenCalledWith(S)
+  })
+
+  it('a closed tab says so and keeps Replay, with no Open live', () => {
+    act(() => {
+      browserLiveStore.applyEvent(ev({ browser: 'kiro_chromium', headless: true }))
+      browserLiveStore.applyFrame(frame(1))
+      browserLiveStore.applyEvent(ev({ state: 'done', browser: 'kiro_chromium', headless: true, turn_over: true, tab: 'closed' }))
+    })
+    render(card(false))
+    expect(screen.queryByTestId('browser-live-open-live')).toBeNull()
+    expect(screen.getByText(new RegExp(i18next.t('pages.chat.browserLiveCard.tab_closed')))).toBeInTheDocument()
+    expect(screen.getByText(i18next.t('pages.chat.browserLiveCard.replay_steps', { count: 3 }))).toBeInTheDocument()
+  })
+
+  it('an older card does not offer Open live once a newer turn owns the session', () => {
+    act(() => {
+      browserLiveStore.applyEvent(ev())
+      browserLiveStore.applyEvent(ev({ state: 'done', turn_over: true, tab: 'open' }))
+    })
+    render(card(false))
+    expect(screen.getByTestId('browser-live-open-live')).toBeInTheDocument()
+    act(() => browserLiveStore.applyEvent(ev({ turn_id: 't2', state: 'live', turn_over: false })))
+    expect(screen.queryByTestId('browser-live-open-live')).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-import { REPLAY_RINGS_KEPT, UNSEEN_FRAMES_BEFORE_PAUSE, browserLiveStore, readBrowserLiveEvent } from '../hooks/useBrowserLive'
+import { REPLAY_RINGS_KEPT, TAKEOVER_HEARTBEAT_MS, UNSEEN_FRAMES_BEFORE_PAUSE, browserLiveStore, readBrowserLiveEvent } from '../hooks/useBrowserLive'
 import type { DecodedBrowserFrame } from '../hooks/useBrowserLive.frame'
 import { encodeBrowserFrame } from '../hooks/useBrowserLive.frame'
 
@@ -28,6 +28,8 @@ function stubWrites(claimOk = true) {
     release: vi.fn(async () => ({ ok: true })),
     input: vi.fn(async () => ({ ok: true })),
     open: vi.fn(async () => ({ ok: true })),
+    reopen: vi.fn(async (): Promise<unknown> => ({ ok: true })),
+    close: vi.fn(async () => ({ ok: true })),
   }
 }
 let restore: ReturnType<typeof browserLiveStore.__setWritesForTests>
@@ -256,6 +258,26 @@ describe('visibility: the OR of every card instance showing the current turn, an
 })
 
 describe('claim and release', () => {
+  it('while held and on screen, visibility is re-posted so a static page does not read as a closed card', async () => {
+    browserLiveStore.applyEvent(ev())
+    browserLiveStore.setVisible(S, 'card-1', true, 't1')
+    expect(await browserLiveStore.claim(S)).toBe(true)
+    writes.visibility.mockClear()
+    vi.advanceTimersByTime(TAKEOVER_HEARTBEAT_MS)
+    expect(writes.visibility.mock.calls).toEqual([[S, true]])
+    // Off screen: nothing is claimed on the person's behalf.
+    browserLiveStore.setVisible(S, 'card-1', false, 't1')
+    writes.visibility.mockClear()
+    vi.advanceTimersByTime(TAKEOVER_HEARTBEAT_MS)
+    expect(writes.visibility).not.toHaveBeenCalled()
+    // Handed back: the heartbeat stops.
+    browserLiveStore.setVisible(S, 'card-1', true, 't1')
+    expect(await browserLiveStore.release(S)).toBe(true)
+    writes.visibility.mockClear()
+    vi.advanceTimersByTime(TAKEOVER_HEARTBEAT_MS * 3)
+    expect(writes.visibility).not.toHaveBeenCalled()
+  })
+
   it('claim flips to in_control at once and posts the claim', async () => {
     browserLiveStore.applyEvent(ev())
     const p = browserLiveStore.claim(S)
@@ -391,5 +413,55 @@ describe('a hand back the gateway refuses', () => {
     await browserLiveStore.sendInput(S, { type: 'key', action: 'down', key: 'a', code: 'KeyA', text: 'a', modifiers: 0 })
     expect(browserLiveStore.current(S)!.state).toBe('in_control')
     expect(browserLiveStore.current(S)!.controlError).toBe('no_stream')
+  })
+})
+
+describe('reopen: the finished card goes live again', () => {
+  it('a live event after done on the same turn is the reopened view; its end time is kept', () => {
+    browserLiveStore.applyEvent(ev())
+    vi.advanceTimersByTime(5000)
+    browserLiveStore.applyEvent(ev({ state: 'done', turn_over: true, tab: 'open' }))
+    const ended = browserLiveStore.current(S)!.endedAt
+    expect(ended).toBe(Date.now())
+    vi.advanceTimersByTime(60_000)
+    browserLiveStore.applyEvent(ev({ state: 'live', turn_over: true, tab: 'open' }))
+    const t = browserLiveStore.current(S)!
+    expect(t.turnId).toBe('t1')
+    expect(t.state).toBe('live')
+    expect(t.turnOver).toBe(true)
+    expect(t.endedAt).toBe(ended)
+    // Frames reach the reopened view (an ended record drops them).
+    browserLiveStore.applyFrame(frame(1))
+    expect(browserLiveStore.current(S)!.hasFrame).toBe(true)
+  })
+
+  it('posts the turn id; tab_gone marks the tab closed instead of an error', async () => {
+    browserLiveStore.applyEvent(ev({ state: 'done', turn_over: true, tab: 'open' }))
+    expect(await browserLiveStore.reopen(S, 't1')).toBe(true)
+    expect(writes.reopen).toHaveBeenCalledWith(S, 't1')
+    writes.reopen.mockRejectedValueOnce(Object.assign(new Error('the tab this card showed is closed'), { status: 409, body: '{"code":"tab_gone","error":"x"}' }))
+    expect(await browserLiveStore.reopen(S, 't1')).toBe(false)
+    expect(browserLiveStore.current(S)!.tab).toBe('closed')
+    expect(browserLiveStore.current(S)!.controlError).toBe('')
+    writes.reopen.mockRejectedValueOnce(Object.assign(new Error('a newer browser card belongs to this chat'), { status: 409, body: '{"code":"stale_turn"}' }))
+    await browserLiveStore.reopen(S, 't1')
+    expect(browserLiveStore.current(S)!.controlError).toBe('a newer browser card belongs to this chat')
+  })
+
+  it('a running turn\'s card never binds a reopened record that belongs to an earlier card', () => {
+    browserLiveStore.applyEvent(ev())
+    expect(browserLiveStore.resolveTurn(S, 'call:1', true, null)!.turnId).toBe('t1')
+    browserLiveStore.applyEvent(ev({ state: 'done', turn_over: true, tab: 'open' }))
+    browserLiveStore.applyEvent(ev({ state: 'live', turn_over: true, tab: 'open' }))
+    expect(browserLiveStore.resolveTurn(S, 'call:2', true, null)).toBeNull()
+    // The next turn's own event is what that card binds to.
+    browserLiveStore.applyEvent(ev({ turn_id: 't2', state: 'live', turn_over: false }))
+    expect(browserLiveStore.resolveTurn(S, 'call:2', true, null)!.turnId).toBe('t2')
+    expect(browserLiveStore.isCurrentTurn(S, 't1')).toBe(false)
+  })
+
+  it('closeLive posts the close', () => {
+    browserLiveStore.closeLive(S)
+    expect(writes.close).toHaveBeenCalledWith(S)
   })
 })

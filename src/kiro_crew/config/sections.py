@@ -182,13 +182,17 @@ from kiro_crew.config.sections_agent_fields import (  # noqa: F401
 from kiro_crew.config.sections_browser import (  # noqa: F401
     BROWSER_CHOICE_AUTO,
     BROWSER_CHOICES,
+    CREDENTIAL_DOMAIN_PATTERN,
+    CREDENTIAL_DOMAINS_CAP,
     LIVE_MAX_FPS_CHOICES,
     LIVE_MAX_FPS_DEFAULT,
     LIVE_QUALITIES,
     LIVE_QUALITY_AUTO,
     BrowserConfig,
+    BrowserCredentialsConfig,
     BrowserLiveConfig,
     browser_choice_resolution,
+    coerce_credential_domains,
     live_max_fps_resolution,
     live_quality_resolution,
 )

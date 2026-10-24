@@ -1,32 +1,17 @@
 /**
  * Pure derivations behind Settings -> Browser.
  *
- * Each fact the page shows (which first-run step is next, what the status badge
- * says, which fallback chip is lit, whether an origin entry is well-formed) is one
- * function of the gateway's `GET /api/browser/status` answer plus the config, so
- * each rule is testable without rendering and the two views (the three steps and
- * the status card) cannot disagree about the same fact.
+ * Each fact the page shows (which state the main card is in, what its badge
+ * says, what the browser picker and the "no window" switch read and write) is
+ * one function of the gateway's `GET /api/browser/status` answer plus the
+ * config, so each rule is testable without rendering.
  */
 import type { BrowserConnection, BrowserKind, BrowserStatusData } from '../../api/client'
 
-/** Where one first-run step stands. */
-export type StepState = 'done' | 'active' | 'pending'
-
-export interface FirstRunProgress {
-  engine: StepState
-  connect: StepState
-  try: StepState
-  /** Steps done, 0-3; the chip beside the heading reads it. */
-  doneCount: number
-  /**
-   * The sub-rows of step 2, each a fact the status implies. `debuggingOn` is
-   * inferred: Chrome only shows its Allow prompt once remote debugging is
-   * enabled, so `waiting_allow` or a connected Chrome both prove it; nothing else
-   * can.
-   */
-  debuggingOn: boolean
-  allowed: boolean
-}
+/** Human text for a rejected call: the `ApiError` message is what the error
+ *  journal is keyed on, so `ErrorNotice` recovers the endpoint from it. */
+export const failText = (e: unknown, fallback: string): string =>
+  e instanceof Error && e.message ? e.message : fallback
 
 /** Whether the attached browser is the user's own (Chrome or Edge), with their logins. */
 export function isUserBrowser(kind: BrowserKind | null | undefined): boolean {
@@ -34,35 +19,41 @@ export function isUserBrowser(kind: BrowserKind | null | undefined): boolean {
 }
 
 /**
- * The three setup steps, from the gateway's answer.
+ * The one state the main card shows, and with it the one button it offers.
  *
- * Step 2 is "done" in two cases that look different but mean the same thing for
- * the user: their own browser is connected, or the gateway picked Kiro's Chromium
- * because there is no Chrome to connect (a server, a headless host). In the second
- * case there is nothing left for them to allow.
+ *   - `installing`     an install job runs (the gateway's own at startup, or one
+ *                      this tab asked for). Disabled spinner, indeterminate bar.
+ *   - `install_failed` nothing is installed and the last job failed or was
+ *                      interrupted. Red, Retry.
+ *   - `not_installed`  nothing is installed and no job ran (a gateway that does
+ *                      not install on its own). Install.
+ *   - `waiting_allow`  Chrome shows its Allow prompt. Yellow, "Allow in Chrome".
+ *   - `error`          the last attach failed. Red, Retry with the gateway's detail.
+ *   - `disconnected`   installed, no browser attached. Connect.
+ *   - `connected`      Disconnect.
+ *
+ * A failed job while the engine IS installed (a Redownload that did not finish)
+ * does not take over the card: the browser still works, so it is reported on the
+ * Engine row under More instead.
  */
-export function firstRunProgress(status: BrowserStatusData | undefined): FirstRunProgress {
-  const installed = !!status?.installed
-  const connected = status?.connection === 'connected'
-  const kind = status?.browser?.kind ?? null
-  const userBrowserConnected = connected && isUserBrowser(kind)
-  const kiroChromiumConnected = connected && kind === 'kiro_chromium'
-  const waiting = status?.connection === 'waiting_allow'
+export type PrimaryState =
+  | 'installing'
+  | 'install_failed'
+  | 'not_installed'
+  | 'waiting_allow'
+  | 'error'
+  | 'disconnected'
+  | 'connected'
 
-  const engine: StepState = installed ? 'done' : 'active'
-  const connect: StepState = !installed
-    ? 'pending'
-    : userBrowserConnected || kiroChromiumConnected ? 'done' : 'active'
-  const tryStep: StepState = engine === 'done' && connect === 'done' ? 'active' : 'pending'
-  const doneCount = (engine === 'done' ? 1 : 0) + (connect === 'done' ? 1 : 0)
-  return {
-    engine,
-    connect,
-    try: tryStep,
-    doneCount,
-    debuggingOn: waiting || userBrowserConnected,
-    allowed: userBrowserConnected,
+export function primaryState(status: BrowserStatusData, installPending = false): PrimaryState {
+  if (installPending || status.install_job?.status === 'running') return 'installing'
+  if (!status.installed) {
+    // An interrupted job (the gateway stopped mid-install) did not finish either;
+    // its `error_detail` says so and Retry is the move.
+    const ended = status.install_job?.status
+    return ended === 'failed' || ended === 'interrupted' ? 'install_failed' : 'not_installed'
   }
+  return status.connection
 }
 
 /** Badge tone per connection state. `waiting_allow` is the one yellow state. */
@@ -85,17 +76,74 @@ export const CONNECTION_LABEL_KEY: Record<BrowserConnection, string> = {
   error: 'pages.settings.browserPanel.connection_error',
 }
 
-/** Catalog KEY per browser kind, for the chips and the status card's title. */
+/** Catalog KEY per browser kind, for the main card's title. */
 export const BROWSER_KIND_LABEL_KEY: Record<BrowserKind, string> = {
   user_chrome: 'pages.settings.browserPanel.kind_user_chrome',
   edge: 'pages.settings.browserPanel.kind_edge',
   kiro_chromium: 'pages.settings.browserPanel.kind_kiro_chromium',
 }
 
-/** The discovery order the status card draws as chips, left to right. */
-export const FALLBACK_ORDER: readonly BrowserKind[] = ['user_chrome', 'edge', 'kiro_chromium']
+/* ── `browser.choice` as two controls ──
+ *
+ * The config key keeps its four values (`auto`, `user_chrome`, `kiro_chromium`,
+ * `headless`) and the CLI still writes any of them. The page splits it in two:
+ * the "Which browser" picker offers three, and "Run with no window" under More
+ * is the fourth. `headless` IS Kiro's Chromium without a window, so:
+ *
+ *   - the picker reads `headless` as `kiro_chromium`;
+ *   - picking `kiro_chromium` while `headless` writes nothing (it is already
+ *     Kiro's Chromium); picking anything else writes that value, which turns
+ *     the switch off;
+ *   - the switch on writes `headless`; off writes `kiro_chromium` -- the same
+ *     browser, now with a window. It never guesses the user's earlier pick.
+ */
+export const PICKER_CHOICES = ['auto', 'user_chrome', 'kiro_chromium'] as const
+export type PickerChoice = (typeof PICKER_CHOICES)[number]
 
-/** Whether the gateway host runs Windows, where the Edge rung is reachable at all. */
-export function isWindowsHost(platform: string | undefined): boolean {
-  return typeof platform === 'string' && platform.toLowerCase().startsWith('win')
+/** What the picker shows for a stored `browser.choice`. Unknown values read as `auto`, the default. */
+export function pickerValueOf(choice: string): PickerChoice {
+  if (choice === 'headless') return 'kiro_chromium'
+  return (PICKER_CHOICES as readonly string[]).includes(choice) ? (choice as PickerChoice) : 'auto'
+}
+
+/** The value to write when the picker changes, or null when nothing changes. */
+export function choiceFromPicker(current: string, picked: string): string | null {
+  return pickerValueOf(current) === picked ? null : picked
+}
+
+/** Whether the "Run with no window" switch is on. */
+export function isHeadlessChoice(choice: string): boolean {
+  return choice === 'headless'
+}
+
+/** The value to write when the "Run with no window" switch flips. */
+export function choiceFromHeadless(on: boolean): string {
+  return on ? 'headless' : 'kiro_chromium'
+}
+
+/* ── sign-in for Kiro's Chromium (`browser.credentials`) ── */
+
+/** The gateway's `CREDENTIAL_DOMAIN_PATTERN`: two or more lowercase DNS labels. */
+const CREDENTIAL_DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/
+
+/**
+ * One sign-in domain as the gateway stores it, or `null`. Trims, lowercases and
+ * drops one leading dot (`.example.com` reads as `example.com`, which covers its
+ * subdomains); refuses a port, a path, a wildcard, a single label and an IP
+ * literal, the same as the credential seam.
+ */
+export function normalizeCredentialDomain(raw: string): string | null {
+  const host = raw.trim().toLowerCase().replace(/^\./, '')
+  if (host.length > 253 || !CREDENTIAL_DOMAIN_RE.test(host)) return null
+  if (/^[0-9.]+$/.test(host)) return null
+  return host
+}
+
+/** Catalog KEY of the sign-in row's status line per credentials state. */
+export const CREDENTIAL_LINE_KEY: Record<string, string> = {
+  applied: 'pages.settings.browserPanel.credentials_applied',
+  pending: 'pages.settings.browserPanel.credentials_pending',
+  disabled: 'pages.settings.browserPanel.credentials_disabled',
+  skipped: 'pages.settings.browserPanel.credentials_skipped',
+  needs_refresh: 'pages.settings.browserPanel.credentials_needs_refresh',
 }

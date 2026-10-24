@@ -33,54 +33,62 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "configKey": "auto_update"
   },
   {
-    "id": "browser.mask-password-fields-in-the-picture",
-    "label": "Mask password fields in the picture",
-    "labelKey": "pages.settings.browserPanel.mask_passwords_label",
-    "description": "Passwords are typed only by you, during a takeover. They never pass through Kiro and never appear in a frame.",
-    "tab": "browser",
-    "type": "toggle",
-    "occurrence": 1,
-    "configKey": "browser.live.mask_passwords"
-  },
-  {
     "id": "browser.max-frame-rate",
     "label": "Max frame rate",
     "labelKey": "pages.settings.browserPanel.max_fps_label",
-    "description": "60 is the most this machine streams. Nothing is sent while the card is off screen.",
+    "hint": "60 is the most this machine streams. Nothing is sent while the card is off screen.",
     "tab": "browser",
     "type": "select",
     "occurrence": 1,
     "configKey": "browser.live.max_fps"
   },
   {
-    "id": "browser.pick-a-browser-by-hand",
-    "label": "Pick a browser by hand",
-    "labelKey": "pages.settings.browserPanel.choice_label",
-    "description": "Automatic tries your Chrome, then Edge on Windows, then Kiro’s Chromium. A hand pick skips that order.",
-    "tab": "browser",
-    "type": "select",
-    "occurrence": 1,
-    "configKey": "browser.choice"
-  },
-  {
     "id": "browser.quality",
     "label": "Quality",
     "labelKey": "pages.settings.browserPanel.quality_label",
-    "description": "Auto adapts frame rate and picture to your link: a slow link lowers the picture first, then the frame rate.",
+    "hint": "Auto adapts frame rate and picture to your link: a slow link lowers the picture first, then the frame rate.",
     "tab": "browser",
     "type": "select",
     "occurrence": 1,
     "configKey": "browser.live.quality"
   },
   {
+    "id": "browser.run-with-no-window",
+    "label": "Run with no window",
+    "labelKey": "pages.settings.browserPanel.headless_label",
+    "hint": "Kiro’s Chromium runs with no window, for a machine with no display. Turning this off keeps Kiro’s Chromium, with a window.",
+    "tab": "browser",
+    "type": "toggle",
+    "occurrence": 1
+  },
+  {
     "id": "browser.show-the-live-view-in-chat",
     "label": "Show the live view in chat",
     "labelKey": "pages.settings.browserPanel.live_enabled_label",
-    "description": "When Kiro uses the browser, the turn shows a live card. Click the picture to take over.",
+    "hint": "When Kiro uses the browser, the turn shows a live card. Click the picture to take over.",
     "tab": "browser",
     "type": "toggle",
     "occurrence": 1,
     "configKey": "browser.live.enabled"
+  },
+  {
+    "id": "browser.start-kiro-s-chromium-signed-in",
+    "label": "Start Kiro’s Chromium signed in",
+    "labelKey": "pages.settings.browserPanel.credentials_label",
+    "tab": "browser",
+    "type": "toggle",
+    "occurrence": 1,
+    "configKey": "browser.credentials.enabled"
+  },
+  {
+    "id": "browser.which-browser",
+    "label": "Which browser",
+    "labelKey": "pages.settings.browserPanel.choice_label",
+    "hint": "Automatic tries your Chrome, then Edge on Windows, then Kiro’s Chromium. A hand pick skips that order.",
+    "tab": "browser",
+    "type": "select",
+    "occurrence": 1,
+    "configKey": "browser.choice"
   },
   {
     "id": "channels.allowed-emails-webex",

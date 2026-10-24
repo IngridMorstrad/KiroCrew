@@ -29,6 +29,7 @@ from kiro_crew.platform.defaults import (
     DefaultAgentRuntime,
     DefaultAppRegistryPolicy,
     DefaultAppsLoader,
+    DefaultBrowserCredentialProvider,
     DefaultCapabilityManager,
     DefaultCredentialPolicy,
     DefaultDashboardContributor,
@@ -226,6 +227,7 @@ def build_default_context(
         mobile_connect=DefaultMobileConnectProvider(),
         remote_provisioners=DefaultRemoteProvisionerProvider(),
         feedback=DefaultFeedbackTrackerProvider(),
+        browser_credentials=DefaultBrowserCredentialProvider(),
         feature_apps=(),
         governance=governance,
     )

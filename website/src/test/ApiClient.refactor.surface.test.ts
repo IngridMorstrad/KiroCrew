@@ -179,7 +179,7 @@ const API_KEY_ORDER = [
   'postArtifactComment', 'replyArtifactComment', 'markCommentReview', 'resolveComment',
   'reopenComment', 'deleteArtifactComment', 'editArtifactComment',
   'getComputerUseConfig', 'saveComputerUseConfig',
-  'getBrowserStatus', 'installBrowserHarness', 'testBrowser', 'disconnectBrowser',
+  'getBrowserStatus', 'installBrowserHarness', 'testBrowser', 'disconnectBrowser', 'refreshBrowserCredentials',
   'getDecisionsConsent', 'getDecisionsProvider', 'getDecisionsLocalRuntime', 'saveDecisionsConsent', 'saveDecisionsScope',
   'saveDecisionsHistoryBudget', 'sendDecisionsFeedback', 'saveDecisionsProvider', 'removeDecisionsLocalModel', 'getSlackConfig', 'getSlackManifest', 'saveSlackConfig',
   'getDiscordConfig', 'saveDiscordConfig', 'getTelegramConfig', 'saveTelegramConfig',
@@ -195,7 +195,7 @@ const API_KEY_ORDER = [
   'researchDelete', 'invokeFileMenuItem', 'artifactTeardown', 'publishProviders',
   'publishArtifactToCoreProvider', 'publishToProvider', 'deploySites', 'tipsNext', 'tipsStatus',
   'tipsFeedback', 'browserLiveVisibility', 'browserLiveAck', 'browserInputClaim', 'browserInputRelease',
-  'browserInputEvent', 'browserLiveOpenInBrowser',
+  'browserInputEvent', 'browserLiveOpenInBrowser', 'browserLiveReopen', 'browserLiveClose',
 ]
 
 const NESTED_KEY_ORDER: Record<string, string[]> = {

@@ -36,6 +36,12 @@ def _register_browser_harness_lifecycle(app: web.Application, state: DashboardSt
     stale one keeps pointing at a dead relay. The engine install
     job (``stop_browser_harness_install``) is stopped alongside.
 
+    After that stop, the same background task runs the startup auto-install
+    (``auto_setup_browser_harness``): one attempt per gateway, the Settings install
+    job installing what is missing or stale, then a warm connect only where nothing
+    would prompt the user. Nothing here is awaited by the startup hook itself, so
+    neither the bind nor the loop waits on pip or a download.
+
     Registered BEFORE ``runner.setup()`` freezes the app's signal lists.
     """
     from kiro_crew.browser_harness.supervisor import get_supervisor
@@ -47,11 +53,23 @@ def _register_browser_harness_lifecycle(app: web.Application, state: DashboardSt
         except Exception:  # noqa: BLE001 - a stop that fails must not block the restart
             logger.debug("browser harness stop failed", exc_info=True)
 
+    async def _reclaim_then_auto_setup() -> None:
+        await _stop_supervisor()
+        try:
+            from kiro_crew.dashboard.handlers.browser_harness_status import (
+                auto_setup_browser_harness,
+            )
+
+            outcome = await auto_setup_browser_harness(state)
+            logger.debug("browser harness startup auto-setup: %s", outcome)
+        except Exception:  # noqa: BLE001 - an optional subsystem never fails the gateway
+            logger.debug("browser harness startup auto-setup failed", exc_info=True)
+
     async def _harness_startup(app_: web.Application) -> None:
         state._browser_harness_unregister = register_pre_exec_stop(
             "Browser Harness", _stop_supervisor
         )
-        task = asyncio.create_task(_stop_supervisor())
+        task = asyncio.create_task(_reclaim_then_auto_setup())
         state._background_tasks.add(task)
         task.add_done_callback(state._background_tasks.discard)
 

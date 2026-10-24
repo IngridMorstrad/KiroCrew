@@ -24,6 +24,31 @@ The agent acts only on tabs it opened; it never touches the ones you have open.
 Kiro's own Chromium keeps its own profile (so a login you did during a takeover
 stays signed in next time), and the agent cannot read that profile's files.
 
+## Signed in before the first page
+
+Kiro's own Chromium can start already signed in, so a headless or remote browser
+reaches a site behind your sign-in without a takeover. Two sources fill it, both
+applied by the gateway before the agent's first step and again whenever the
+browser restarts:
+
+- **Cookies you import.** Export cookies from a browser where you are signed in
+  (a `cookies.txt` file, a cookie-extension JSON export, or a Playwright
+  storage state) and send them to `POST /api/browser/cookies` as
+  `{"content": "<the export>"}`. `DELETE /api/browser/cookies` removes them
+  from the file and from the running browser.
+- **Your organisation's edition**, if it provides sign-in for its own sites and
+  `browser.credentials.enabled` is on, for the domains in
+  `browser.credentials.domains` (an edition may turn both on by default). When you
+  sign in again with your organisation's tool, the next page the agent opens picks
+  up the new session. These cookies last only until the browser closes.
+
+Your own Chrome is never filled this way: it already has your logins, and the
+gateway does not write into your profile. The agent never sees a cookie value:
+not in a tool result, a page outline, a log or the audit record, and the stored
+import is hidden from its sandbox. Imported cookies reach every agent browsing on
+this gateway, including the members and temporary sessions it serves, so import
+only sessions you are willing to share with them.
+
 ## What the agent can do to a page
 
 Navigate to a URL, go back, read the page as a structured outline of its

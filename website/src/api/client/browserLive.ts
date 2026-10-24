@@ -38,6 +38,13 @@ export function createBrowserLiveEndpoints({ post, j }: ClientTransport) {
       /** Focus the real browser window, for what the frame cannot carry (autofill, file pickers). */
       browserLiveOpenInBrowser: (sessionKey: string) =>
         post('/api/browser/live/open-in-browser', { session_key: sessionKey }).then(j) as Promise<BrowserLiveOk>,
+      /** The finished card's "Open live": stream turn `turnId`'s tab again. 409 `tab_gone`
+       *  when that tab is closed, `stale_turn` when a newer card owns the session. */
+      browserLiveReopen: (sessionKey: string, turnId: string) =>
+        post('/api/browser/live/reopen', { session_key: sessionKey, turn_id: turnId }).then(j) as Promise<BrowserLiveOk>,
+      /** Fold a reopened view back to its done line. */
+      browserLiveClose: (sessionKey: string) =>
+        post('/api/browser/live/close', { session_key: sessionKey }).then(j) as Promise<BrowserLiveOk>,
     },
   }
 }

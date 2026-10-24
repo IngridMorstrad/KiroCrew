@@ -183,13 +183,82 @@ class BrowserLiveConfig:
         )
 
 
+#: Most ``browser.credentials.domains`` entries kept; an allowlist is a handful of
+#: company domains, and the rest of a longer list is dropped with one warning.
+CREDENTIAL_DOMAINS_CAP = 64
+#: One ``browser.credentials.domains`` entry as the Settings write accepts it: two
+#: or more lowercase DNS labels, no port, wildcard or leading dot. The same shape
+#: as the seam's ``_DECLARED_DOMAIN`` (``browser_harness.credentials``), which
+#: also refuses an all-digit IP literal; a test pins the two together.
+CREDENTIAL_DOMAIN_PATTERN = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}"
+
+
+def coerce_credential_domains(raw: object) -> list[str]:
+    """``browser.credentials.domains`` as lowercase host names; ``[]`` when unset.
+
+    An empty list is meaningful: it lets the edition's provider supply the
+    default. Anything that is not a list is unset too. Entries
+    keep only what can name a host (a leading dot is dropped); the precise check,
+    which refuses a single label, an IP or a wildcard, is the seam's own
+    (``browser_harness.credentials.normalize_declared_domains``).
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        host = item.strip().lower().lstrip(".")
+        if host and host not in out:
+            out.append(host)
+    if len(out) > CREDENTIAL_DOMAINS_CAP:
+        _warn_once("browser.credentials.domains", f"{len(out)} entries", "the first 64", ())
+        out = out[:CREDENTIAL_DOMAINS_CAP]
+    return out
+
+
+@dataclass
+class BrowserCredentialsConfig:
+    """``browser.credentials``: whether an edition's sign-in reaches Kiro's Chromium."""
+
+    enabled: bool | None = field(
+        default=None,
+        metadata=_meta(
+            "Use your organisation's sign-in",
+            "Let Kiro's own Chromium start signed in to the sites below, using the "
+            "sign-in your edition of Kiro Crew provides. Unset follows the edition's "
+            "default; with no edition provider it does nothing. Your own Chrome is "
+            "never changed.",
+        ),
+    )
+    domains: list[str] = field(
+        default_factory=list,
+        metadata=_meta(
+            "Sign-in domains",
+            "The sites that sign-in may be used for, such as `example.com` (which "
+            "covers its subdomains). Only a domain both listed here and served by "
+            "the edition is used. Empty follows the edition's default.",
+        ),
+    )
+
+    @classmethod
+    def from_raw(cls, section: object) -> "BrowserCredentialsConfig":
+        if not isinstance(section, dict):
+            return cls()
+        enabled = section.get("enabled")
+        return cls(
+            enabled=enabled if isinstance(enabled, bool) else None,
+            domains=coerce_credential_domains(section.get("domains")),
+        )
+
+
 @dataclass
 class BrowserConfig:
     """``browser``: the browser the agent drives, and the live view in chat.
 
     Every field is hot-applied: the supervisor reads ``choice`` when it next
-    launches or attaches a browser, the screencast reads ``live`` when it next
-    starts a stream, and Settings reads ``first_run_dismissed`` on every render.
+    launches or attaches a browser, and the screencast reads ``live`` when it
+    next starts a stream.
     """
 
     choice: str = field(
@@ -208,13 +277,12 @@ class BrowserConfig:
         default_factory=BrowserLiveConfig,
         metadata=_meta("Live view", "The live view of the agent's browser in chat."),
     )
-    first_run_dismissed: bool = field(
-        default=False,
+    credentials: BrowserCredentialsConfig = field(
+        default_factory=BrowserCredentialsConfig,
         metadata=_meta(
-            "First-run steps dismissed",
-            "Set once the three setup steps on Settings -> Browser are completed or "
-            "skipped, after which the page shows the status card instead. Written by "
-            "the dashboard; clear it to see the steps again.",
+            "Sign-in for Kiro's Chromium",
+            "Whether the edition's sign-in is put into Kiro's own Chromium, and for "
+            "which domains.",
         ),
     )
 
@@ -235,5 +303,5 @@ class BrowserConfig:
         return cls(
             choice=_validated_choice(reader.get("choice")),
             live=BrowserLiveConfig.from_raw(section.get("live")),
-            first_run_dismissed=reader.read("first_run_dismissed", _safe_bool),
+            credentials=BrowserCredentialsConfig.from_raw(section.get("credentials")),
         )
