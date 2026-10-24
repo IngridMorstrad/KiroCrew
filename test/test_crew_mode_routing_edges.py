@@ -243,6 +243,57 @@ async def test_F1_a_directly_trusted_session_still_passes_its_trust_on(state):
     assert creator_trust_carries(worker) is True
 
 
+@pytest.mark.asyncio
+async def test_G1_card_trust_never_stores_auto_so_subagents_keep_asking(state):
+    from kiro_crew.dashboard.chat_turn.tool_approval import (
+        _persistable_session_policy,
+        _slot_is_trusted,
+    )
+    from kiro_crew.dashboard.chat_utils_slots import effective_session_key
+
+    worker, _fut, _mid = _crew(state)
+    key = effective_session_key(worker)
+    state.sessions.set_approval_policy.reset_mock()
+    async with TestClient(_server(state, _owner)) as client:
+        resp = await client.post(
+            "/api/chat/slots/root/crew-workers/w/approve",
+            json={"action": "trust", "request_id": "rid-1"},
+        )
+        assert resp.status == 200, await resp.text()
+    assert worker._trust is True and worker._trust_card_scoped is True
+    # The stored policy is what spawn_run's parent_trusted and every subagent's
+    # own approval policy read: it must never be "auto" for a card trust.
+    calls = [c.args for c in state.sessions.set_approval_policy.call_args_list]
+    assert (key, "auto") not in calls
+    assert (key, "") in calls
+    # The per-turn rewrite (turn_admission) writes the same "" value.
+    assert _persistable_session_policy(worker, False) == ""
+    # The worker's own tools still auto-approve, per event.
+    assert _slot_is_trusted(worker)
+    # Yolo stays process-wide.
+    assert _persistable_session_policy(worker, True) == "auto"
+
+
+@pytest.mark.asyncio
+async def test_G1_direct_trust_still_stores_auto_for_inheritance(state):
+    from kiro_crew.dashboard.chat_turn.tool_approval import _persistable_session_policy
+    from kiro_crew.dashboard.chat_utils_slots import effective_session_key
+
+    worker, _fut, _mid = _crew(state)
+    state.sessions.set_approval_policy.reset_mock()
+    async with TestClient(_server(state, _owner)) as client:
+        resp = await client.post(
+            "/api/chat/slots/w/approve", json={"action": "trust", "request_id": "rid-1"}
+        )
+        assert resp.status == 200, await resp.text()
+    calls = [c.args for c in state.sessions.set_approval_policy.call_args_list]
+    assert (effective_session_key(worker), "auto") in calls
+    assert _persistable_session_policy(worker, False) == "auto"
+    root = state._slots["root"]
+    root._trust = True
+    assert _persistable_session_policy(root, False) == "auto"
+
+
 def _coordinator(state, approval_id: str = "spawn:abc", instance: str = "a1b2c3"):
     fut = asyncio.get_running_loop().create_future()
     state._approval_futures[approval_id] = fut

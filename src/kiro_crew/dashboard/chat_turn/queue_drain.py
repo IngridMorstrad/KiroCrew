@@ -404,22 +404,54 @@ def subagents_hold_user_messages(state: DashboardState, session_key: str) -> boo
     return any(not (isinstance(a, dict) and a.get("stalled")) for a in agents)
 
 
-def _record_queued_crew_steers(state: DashboardState, consumed: list[dict]) -> None:
+#: Prefix on the ledger text of a steer queued before a restart (edge review R3 G6).
+RESTORED_STEER_NOTE = "[queued before a restart] "
+
+
+def _record_queued_crew_steers(
+    state: DashboardState, consumed: list[dict], slot: Any = None
+) -> None:
     """Record the person's queued steers into a Crew Mode worker as they are delivered.
 
     A send the person typed into a busy worker is queued with ``(root, worker)``
-    on its entry (``chat_send.api_chat``). The ``steer`` event is written HERE,
-    when the drain hands the entry to the worker, from the entry's text as it is
-    now (an edit while queued is what the worker gets), so a cancelled entry
+    on its entry (``chat_send.mark_crew_steer``). The ``steer`` event is written
+    HERE, when the drain hands the entry to the worker, from the entry's text as it
+    is now (an edit while queued is what the worker gets), so a cancelled entry
     records nothing. Off the drain's path: a tracked task, and a fault never
     blocks the turn.
-    """
-    from kiro_crew.dashboard.chat_api.chat_send import CREW_STEER_QUEUE_KEY
 
+    A restart drops the tuple; the entry's ``meta`` flag survives. A RESTORED
+    entry with the flag is recorded only when *slot* is still a live Crew Mode
+    worker (its root is re-derived from the live slots, never read off the
+    file), with :data:`RESTORED_STEER_NOTE` saying its provenance is unverified.
+    """
+    from kiro_crew.dashboard.chat_handlers import CREW_STEER_META_KEY, CREW_STEER_QUEUE_KEY
+
+    restored_root = None
     for item in consumed:
         marker = item.pop(CREW_STEER_QUEUE_KEY, None)
+        note = ""
         if not (isinstance(marker, tuple) and len(marker) == 2):
-            continue
+            meta = item.get("meta")
+            if not (
+                item.get(RESTORED_QUEUE_KEY)
+                and isinstance(meta, dict)
+                and meta.get(CREW_STEER_META_KEY) is True
+                and slot is not None
+            ):
+                continue
+            if restored_root is None:
+                try:
+                    from kiro_crew import crew_mode
+
+                    stamps = crew_mode.live_stamps(getattr(state, "_slots", {}) or {})
+                    restored_root = stamps.get(slot.key, ("", False))[0]
+                except Exception:
+                    logger.debug("crew steer: could not stamp a restored entry", exc_info=True)
+                    restored_root = ""
+            if not restored_root:
+                continue
+            marker, note = (restored_root, slot.key), RESTORED_STEER_NOTE
         root, worker = marker
         text = item.get("content")
         if not isinstance(text, str) or not text:
@@ -428,7 +460,7 @@ def _record_queued_crew_steers(state: DashboardState, consumed: list[dict]) -> N
             from kiro_crew.dashboard.handlers import crew_workers
 
             task = asyncio.get_running_loop().create_task(
-                crew_workers.person_steer(state, root, worker, text)
+                crew_workers.person_steer(state, root, worker, note + text)
             )
             tasks = getattr(state, "_background_tasks", None)
             if isinstance(tasks, set):
@@ -631,7 +663,7 @@ async def _start_next_queued_turn(
         )
     if next_msg is None:
         return False
-    _record_queued_crew_steers(state, consumed)
+    _record_queued_crew_steers(state, consumed, slot)
 
     # A successor turn is now certain to dispatch (every no-successor path above
     # already returned False), so the predecessor turn's assistant bubble must be

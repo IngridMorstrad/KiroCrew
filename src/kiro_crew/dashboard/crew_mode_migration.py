@@ -381,6 +381,36 @@ def _closed_roots(log: Any) -> list[str]:
     return found
 
 
+async def learn_closed_roots(state: Any) -> bool:
+    """Load the closed Crew Mode roots from saved metadata. True when a live slot moved.
+
+    Run by the start-up restore inside its coalesced push, so the first slot frame
+    already hides the workers of a root whose tab was closed (edge review R3 G5),
+    and again by :func:`on_start`. True when a root this call learned is the
+    creator of a live slot: that slot's row is now a worker, so the caller owes a
+    slot frame.
+    """
+    from kiro_crew import crew_mode
+
+    log = getattr(state, "conversation_log", None)
+    if log is None:
+        return False
+    try:
+        found = await asyncio.to_thread(_closed_roots, log)
+    except Exception:
+        logger.debug("crew mode: closed roots not loaded", exc_info=True)
+        return False
+    new = set(found) - crew_mode.known_roots()
+    crew_mode.note_roots(found)
+    if not new:
+        return False
+    return any(
+        str(getattr(slot, field, "") or "") in new
+        for slot in list(getattr(state, "_slots", {}).values())
+        for field in ("_created_by", "_saved_created_by")
+    )
+
+
 async def on_start(state: Any) -> None:
     """The start pass: convert conductor sessions, learn closed roots, then reconcile."""
     from kiro_crew import crew_mode
@@ -401,11 +431,8 @@ async def on_start(state: Any) -> None:
                 )
             except Exception:
                 logger.debug("crew mode: could not persist the stamp for %s", key, exc_info=True)
-        try:
-            crew_mode.note_roots(await asyncio.to_thread(_closed_roots, log))
-        except Exception:
-            logger.debug("crew mode: closed roots not loaded", exc_info=True)
-    if stamped:
+    moved = await learn_closed_roots(state)
+    if stamped or moved:
         try:
             state.push_slots_update()
         except Exception:

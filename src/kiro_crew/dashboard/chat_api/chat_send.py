@@ -219,6 +219,27 @@ _CREW_PERSON_STEER = "kirocrew_crew_person_steer"
 #: Crew Mode worker; the drain records the steer when it delivers that entry.
 CREW_STEER_QUEUE_KEY = "_crew_person_steer"
 
+#: Entry ``meta`` flag that survives a restart on a marked queue entry (edge review
+#: R3 G6). A bare ``True``: no root, worker or text is written beyond the entry
+#: itself. A restored entry carrying it is recorded at delivery only when its slot
+#: is still a live Crew Mode worker, with a note that it was queued before a
+#: restart (its provenance comes off a writable file, so it is not vouched for).
+CREW_STEER_META_KEY = "crewSteer"
+
+
+def mark_crew_steer(entry: dict[str, Any], root: str, worker: str) -> None:
+    """Mark queue *entry* as the person's steer into *worker* of Crew Mode *root*.
+
+    The process-local tuple is what this process records from; the ``meta`` flag
+    is the durable half, so a restart still records the steer when it is delivered.
+    """
+    entry[CREW_STEER_QUEUE_KEY] = (root, worker)
+    meta = entry.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+        entry["meta"] = meta
+    meta[CREW_STEER_META_KEY] = True
+
 
 def _person_crew_worker_root(request: web.Request, state: Any, slot: Any, app: str) -> str:
     """The Crew Mode root *slot* works for when the dashboard owner typed into it, else ``""``.
@@ -277,7 +298,7 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
             None,
         )
         if entry is not None:
-            entry[CREW_STEER_QUEUE_KEY] = (root, worker)
+            mark_crew_steer(entry, root, worker)
             receipt.update(ledger_event=None, ledger_error=None, ledger_pending=True)
             return web.json_response(receipt)
     try:

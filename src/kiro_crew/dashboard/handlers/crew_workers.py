@@ -10,7 +10,12 @@ uses, so the worker's transcript shows it as the person's own message.
 Both are the side panel's, so both take the gate the root session's own dashboard
 read takes: app tokens are answered 404 and the caller must be the dashboard owner.
 Neither can reach a session outside the named root's own tree: the worker must be
-stamped with that root, and the root must be a live Crew Mode root.
+stamped with that root. The list also answers a CLOSED known root
+(``crew_mode.known_roots``) from saved data, so a reload under a closed conductor
+still reads; steer and the approval card need a live Crew Mode root.
+
+A queued steer is recorded when the drain delivers it, on either route
+(``chat_send.mark_crew_steer``); a delivered one at once.
 """
 
 from __future__ import annotations
@@ -723,6 +728,21 @@ async def api_crew_worker_steer(request: web.Request) -> web.Response:
     if is_relay_archive(slot):
         return _bad(RELAY_ARCHIVE_CODE, RELAY_ARCHIVE_ERROR, status=409)
     delivered = await _deliver_as_person(state, slot, message)
+    queue_id = delivered.pop("queue_id", "")
+    if queue_id and not delivered.get("started"):
+        # Queued, not delivered: like the worker's own composer (``chat_send.api_chat``)
+        # the steer is recorded when the drain hands the entry to the worker, with
+        # its text as edited then, and never when the person cancels it first.
+        from kiro_crew.dashboard.chat_handlers import mark_crew_steer
+
+        entry = next(
+            (e for e in (getattr(slot, "_queue", None) or []) if e.get("id") == queue_id),
+            None,
+        )
+        if entry is not None:
+            mark_crew_steer(entry, root, worker)
+            delivered.update(ledger_event=None, ledger_error=None, ledger_pending=True)
+            return web.json_response(delivered)
     # The steer is also the person's word on the worker's item: one ``steer`` event
     # on the ledger that holds it, which the conductor reads before it decides and
     # never overrules. The same transaction the worker's own composer runs.
@@ -852,7 +872,9 @@ async def _deliver_as_person(state: Any, slot: Any, message: str) -> dict[str, A
             return {"ok": True, "steered": True, "queued": False, "started": False}
         if outcome == STEER_REQUEUED:
             return {"ok": True, "steered": False, "queued": True, "started": False}
-    queue_for_next_turn(state, slot, message, directive_user_origin=True, steer_intent=True)
+    queue_id = queue_for_next_turn(
+        state, slot, message, directive_user_origin=True, steer_intent=True
+    )
     started = False
     if not slot.running:
         # The composer's own default: with the worker's sub-agents still running the
@@ -863,4 +885,11 @@ async def _deliver_as_person(state: Any, slot: Any, message: str) -> dict[str, A
         state.push_slots_update()
     except Exception:  # pragma: no cover - sidebar refresh is best-effort
         logger.debug("crew steer: push_slots_update failed", exc_info=True)
-    return {"ok": True, "steered": False, "queued": not started, "started": started}
+    return {
+        "ok": True,
+        "steered": False,
+        "queued": not started,
+        "started": started,
+        # Internal: the route marks this entry so the drain records the steer.
+        "queue_id": str(queue_id or ""),
+    }

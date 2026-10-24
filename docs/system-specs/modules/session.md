@@ -436,9 +436,11 @@ template installed later is picked up without a config edit. The recorded name
 advances only when every live root is on the target. A configured name that is not an agent template that resolves, or that
 names a crewmate, moves nothing: it is logged as an error, named in one notice, and
 `crew_mode.crew_mode_agent()` keeps answering the conductor last applied, so new
-Crew Mode chats still turn on. A migration move counts no `turned_on`. Its start pass
-stamps existing conductor roots and learns closed roots from saved metadata
-(`crew_mode.note_roots`), so a worker whose root's tab is closed stays out of the
+Crew Mode chats still turn on. A migration move counts no `turned_on`. The start-up
+restore learns closed roots from saved metadata (`crew_mode_migration.learn_closed_roots`,
+`crew_mode.note_roots`) inside its one coalesced slot push, so the first slot frame
+already hides their workers; its start pass stamps existing conductor roots, learns
+them again, and pushes a slot frame when a newly learned root holds a live slot. So a worker whose root's tab is closed stays out of the
 session list and History (`history_reads._without_crew_workers`) by the persisted
 lineage. Session search (`GET /api/sessions/search` and the federated local search)
 applies the same rule over a wider ranked window, so hidden workers do not shorten
@@ -647,16 +649,25 @@ it; a card decision with neither pin is `400 approval_target_required`). Trust i
 that route's `trust` for the worker's own slot, in memory and gone on a restart,
 and it covers THAT worker only: the slot is marked `_trust_card_scoped`, so a
 session it creates later is born asking (`session_create.creator_trust_carries`),
-while a session the person trusted directly still passes its trust on as before.
-The card is the only place a worker's approval is decided: the worker's own
-composer draws no approval band (`slotApprovalChrome` off) and says "Waiting for
-approval in <conductor>" with a link that opens it (`CrewWorkerComposerGate`); a
-decision posted from the worker's own pane is not refused server-side. The worker's
-own approval note, chime, banner and badge are not raised (`approvals.ts`); the
-conductor's row shows one "Approval needed" count instead. The permission row in
-the worker's own transcript stays. Split View's pane picker and the Session
-Dashboards page list no worker (`crewModeView`), so neither offers a second
-approval surface.
+and the trust is never stored as the session's approval policy
+(`tool_approval._persistable_session_policy` answers `""` for it), so its
+`spawn_run` is not auto-approved (`parent_trusted`) and each subagent is born
+asking and reaches the card too. A session the person trusted directly still
+passes its trust on as before.
+The card is the only place a worker's approval is decided, on every surface; one
+helper (`lib/crewMode.ts` `crewApprovalDecidableHere`) answers it for each: the
+worker's own composer in the main pane and in a Split View pane draws no approval
+band (`slotApprovalChrome` off) and says "Waiting for approval in <conductor>" with
+a link that opens it (`CrewWorkerComposerGate`); the conductor side panel's
+Approvals and attention tab lists a worker's request as information with an "Open
+the approval card" link and no Approve or Reject; a Split View pane showing the
+conductor keeps its approval cards. A decision posted from the worker's own pane
+is not refused server-side. The worker's own approval note, chime, banner and
+badge are not raised (`approvals.ts`); the conductor's row shows one "Approval
+needed" count instead, and All Dashboards shows the conductor as waiting on a tool
+decision (in Needs you, with an Open session link) while any of its workers waits.
+The permission row in the worker's own transcript stays. Split View's pane picker
+and the Session Dashboards page list no worker (`crewModeView`).
 
 A root session whose page is `goal-board` or `work-kanban` gets one more
 `[DASHBOARD]` line (`BOARD_IN_PANEL_LINE`): the page is the task board, so the
@@ -691,7 +702,12 @@ worker's own composer (`POST /api/chat` on a worker, `chat_send.api_chat`), runs
 one transaction (`crew_workers.person_steer`) at delivery: a send that was only
 queued is recorded when the drain hands it to the worker, with its text as edited
 then, and a queued send cancelled first records nothing (the receipt says
-`ledger_pending`). One redacted
+`ledger_pending`); both routes mark the entry (`chat_send.mark_crew_steer`). The
+mark's durable half is a bare `crewSteer` flag in the entry's `meta` (server-set
+only, a reserved row meta key), so an entry restored after a restart is still
+recorded when it is delivered, only while its slot is a live worker, with its root
+re-derived from the live slots and the text prefixed "[queued before a restart]".
+One redacted
 `steer` event on the ledger that holds the worker's item (its own binding when that
 board is the root or a session in the root's tree, so a sub-conductor's ledger
 included; else the root's), into the worker's live crew-log unit, else the board's,
@@ -699,7 +715,8 @@ else the board's newest recorded work unit, so it lands when the root has no liv
 session. The reply carries `ledger_event` (the item id) or `ledger_error`
 (`no_item`, `crew_log_off`, `crew_log_unit_unknown`, `not_recorded`), and a
 delivered steer with a `ledger_error` gets one muted line under the worker's
-composer ("Delivered to <worker>, but not recorded on the ledger (<reason>)"). Both paths
+composer ("Delivered to <worker>, but not recorded on the ledger: <reason>", the
+reason a localized sentence per code with a generic one for an unknown code). Both paths
 refuse a message over 50,000 characters (`message_too_long`) before anything is
 queued, and the composer keeps the draft and says so. A `steer` newer than a
 worker's `question` report answers it on the board (`_is_outstanding`). Both routes take the root dashboard read's gate

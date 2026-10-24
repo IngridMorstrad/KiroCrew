@@ -102,6 +102,7 @@ from kiro_crew.dashboard.chat_api.app_admission import (  # noqa: F401
 )
 from kiro_crew.dashboard.chat_api.chat_send import (  # noqa: F401
     _CREW_PERSON_STEER,
+    CREW_STEER_META_KEY,
     CREW_STEER_QUEUE_KEY,
     _api_chat_send,
     _person_crew_worker_root,
@@ -111,6 +112,7 @@ from kiro_crew.dashboard.chat_api.chat_send import (  # noqa: F401
     _sweep_stale_permissions,
     api_chat,
     decided_message_handling,
+    mark_crew_steer,
     steer_is_auto,
     write_sse_or_abort,
 )
@@ -591,7 +593,11 @@ _SESSION_RELOAD_NOTICE = (
 #: could displace human sessions. Stripped here so the gateway re-applies it below
 #: only for a genuine human send. ``TURN_ACTOR_META_KEY`` is the gateway's record
 #: that an app sent the row, which the title counter reads (``chat_title``).
-RESERVED_ROW_META_KEYS = frozenset({"decisions_strip", HUMAN_TURN_META_KEY, TURN_ACTOR_META_KEY})
+#: ``CREW_STEER_META_KEY`` is server-set only (``chat_send.mark_crew_steer``): a
+#: client-sent flag would let a restored entry record a steer the person never typed.
+RESERVED_ROW_META_KEYS = frozenset(
+    {"decisions_strip", HUMAN_TURN_META_KEY, TURN_ACTOR_META_KEY, CREW_STEER_META_KEY}
+)
 
 #: The ``steer`` value that means "let Jev choose between the two paths" rather
 #: than naming one. A STRING beside the boolean the two manual modes send, so the

@@ -56,6 +56,16 @@ async def _restore_dashboard_sessions(state: DashboardState, cfg: KiroCrewConfig
         # re-mint a colliding low index (which scrambles the tab -> session map).
         state.reseed_slot_counter()
 
+        # Closed Crew Mode roots, before the one broadcast below: until they are
+        # known, a restored worker of a closed root would list as a person's
+        # session (edge review R3 G5). The migration's start pass reloads them too.
+        from kiro_crew.dashboard import crew_mode_migration
+
+        try:
+            await crew_mode_migration.learn_closed_roots(state)
+        except Exception:
+            logger.debug("crew mode: closed roots not loaded at restore", exc_info=True)
+
     if state._dynamic_cards is not None:
         state._dynamic_cards.seed_open_sessions()
 

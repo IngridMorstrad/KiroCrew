@@ -936,7 +936,12 @@ async def api_chat_slot_approve(request: web.Request) -> web.Response:
             # A conductor card's "Trust this worker" trusts THAT worker only; a
             # trust pressed in the slot's own pane keeps the usual inheritance.
             owner._trust_card_scoped = bool(delegated)
-            state.sessions.set_approval_policy(effective_session_key(owner), "auto")
+            # The card's trust is never stored as the session policy: that value
+            # is what spawn_run's parent_trusted and each subagent's own policy
+            # read, so storing it would pass the trust to the worker's children.
+            state.sessions.set_approval_policy(
+                effective_session_key(owner), "" if delegated else "auto"
+            )
             action = "approved"
     # Trust-reads: auto-approve read-only bash commands for this slot
     # Defer setting _trust_reads until after the approval future is consumed

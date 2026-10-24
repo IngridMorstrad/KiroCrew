@@ -133,6 +133,9 @@ def _suspend_override_derived_trust(state: "DashboardState") -> Callable[[], Non
             slot = state._slots.get(slot_key)
             if slot is None or slot._trust or slot._trust_reads:
                 continue
+            if getattr(slot, "_trust_card_scoped", False):
+                # A Crew Mode card trust is never a stored "auto" (G1).
+                continue
             try:
                 if state.sessions.get_approval_policy(key) != "":
                     continue

@@ -235,6 +235,52 @@ async def test_the_start_pass_stamps_old_conductor_sessions_and_learns_closed_ro
     assert "old-worker" not in crew_mode.known_roots()
 
 
+class _RootLog:
+    def list_sessions(self) -> list[dict]:
+        return [{"key": "dashboard_closed-root", "agent": "kirocrew-conductor"}]
+
+    def get_metadata(self, key: str) -> dict:
+        return {"agent": "kirocrew-conductor"}
+
+    def update_metadata(self, key: str, fields: dict) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_G5_a_live_worker_of_a_closed_root_is_hidden_from_the_first_frame(_switch):
+    """Edge review R3 G5: the restore learns closed roots before its one broadcast,
+    so the first slot frame already stamps the worker; the start pass pushes a
+    frame when it learned a root that holds a live slot."""
+    worker = _slot("w", "kirocrew-worker", _created_by="closed-root")
+    state = _State(worker)
+    state.conversation_log = _RootLog()
+    assert "closed-root" not in crew_mode.known_roots()
+    # The restore path: learned before the first frame, and it says a slot moved.
+    assert await _switch.mig.learn_closed_roots(state) is True
+    assert "closed-root" in crew_mode.known_roots()
+    stamps = crew_mode.live_stamps(state._slots)
+    assert stamps["w"][0] == "closed-root"
+    # Already known: nothing new, no frame owed.
+    assert await _switch.mig.learn_closed_roots(state) is False
+
+
+@pytest.mark.asyncio
+async def test_G5_the_start_pass_pushes_a_frame_when_it_learns_a_holding_root(_switch):
+    worker = _slot("w", "kirocrew-worker", _created_by="closed-root")
+    state = _State(worker)
+    state.conversation_log = _RootLog()
+    await _switch.mig.on_start(state)
+    assert state.pushes >= 1
+
+
+def test_G5_the_restore_learns_closed_roots_inside_its_coalesced_push():
+    from kiro_crew.dashboard.server_runtime import session_restore
+
+    source = open(session_restore.__file__, encoding="utf-8").read()
+    block = source.split("with state.suspend_slots_push():", 1)[1].split("\n    if ", 1)[0]
+    assert "crew_mode_migration.learn_closed_roots(state)" in block
+
+
 def test_a_history_stem_is_its_slot_key():
     from kiro_crew.dashboard.crew_mode_migration import history_slot_key
 

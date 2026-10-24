@@ -233,8 +233,16 @@ def _persistable_session_policy(slot: Any, yolo_active: bool) -> str:
     A scope-trusted worker is not left stalling: its own tool approvals never
     consult this value. They go through :func:`_slot_is_trusted` per event, which
     re-checks the scope each time.
+
+    A Crew Mode card trust ("Trust this worker", ``slot._trust_card_scoped``) is
+    not cached either. It covers THAT worker only: its own tools still
+    auto-approve through :func:`_slot_is_trusted`, but the subagents it spawns and
+    the sessions it creates must keep asking, so their requests reach the
+    conductor's card. A stored ``"auto"`` would hand them the trust.
     """
-    if yolo_active or getattr(slot, "_trust", False):
+    if yolo_active:
+        return "auto"
+    if getattr(slot, "_trust", False) and not getattr(slot, "_trust_card_scoped", False):
         return "auto"
     return ""
 
