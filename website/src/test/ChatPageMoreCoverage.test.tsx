@@ -62,7 +62,7 @@ vi.mock('../components/CliPanel', async (importOriginal) => {
 })
 import { ThemeProvider } from '../hooks/useTheme'
 import { store as appStore } from '../store'
-import { appendMessage, setVoicePlaying, switchSlot } from '../store/chatSlice'
+import { appendMessage, replaceMessages, setSlotRunning, setVoicePlaying, switchSlot } from '../store/chatSlice'
 import { sseDisconnected } from '../store/dashboardSlice'
 import type { RootState } from '../store'
 import type { ChatMessage } from '../types'
@@ -297,6 +297,7 @@ afterAll(() => {
 })
 
 import ChatPage from '../pages/ChatPage'
+import { keptVersion } from '../pages/chat/page/turnActions'
 import { readSideChatDraft } from '../chat-core/composer/sideChatDrafts'
 import { ApiError } from '../api/apiError'
 
@@ -719,17 +720,18 @@ describe('ChatPage row callbacks — quote and ask', () => {
 })
 
 describe('ChatPage row callbacks — regenerate and speak', () => {
-  it('truncates back to the last user row and asks the server to regenerate', async () => {
+  it('asks the server to regenerate and keeps the previous reply on screen', async () => {
     apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
     const { store } = await renderTurn()
     expect(assistantProps!.onRegenerate).toBeTypeOf('function')
     await act(async () => { assistantProps!.onRegenerate!() })
     await waitFor(() => expect(apiMocks.regenerateSlot).toHaveBeenCalledWith('chat-1'))
-    expect(store.getState().chat.messages).toHaveLength(1)
-    expect(store.getState().chat.messages[0].role).toBe('user')
+    // The server replaces it only once the new turn produced a reply.
+    expect(store.getState().chat.messages).toHaveLength(2)
+    expect(store.getState().chat.messages[1].role).toBe('assistant')
   })
 
-  it('restores the transcript when the regenerate request fails', async () => {
+  it('keeps the transcript when the regenerate request fails', async () => {
     apiSpy('regenerateSlot').mockRejectedValue(new Error('runner busy'))
     const { store } = await renderTurn()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -740,6 +742,139 @@ describe('ChatPage row callbacks — regenerate and speak', () => {
       warn.mockRestore()
     }
     expect(store.getState().chat.messages[1].role).toBe('assistant')
+  })
+
+  it('marks the previous reply while the regenerate is pending', async () => {
+    apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
+    renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      msg('assistant', 'two files changed', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }),
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    expect(screen.queryByTestId('regenerate-previous-reply')).toBeNull()
+    await act(async () => { assistantProps!.onRegenerate!() })
+    const marked = await screen.findByTestId('regenerate-previous-reply')
+    expect(marked.textContent).toContain("Previous reply. It's kept either way: as an earlier version if a new reply arrives, or as the answer if none does.")
+  })
+
+  it('drops the previous-reply mark as soon as a turn that streamed nothing ends', async () => {
+    apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
+    const { store } = renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      msg('assistant', 'two files changed', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }),
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    await act(async () => { assistantProps!.onRegenerate!() })
+    await screen.findByTestId('regenerate-previous-reply')
+    act(() => { store.dispatch(setSlotRunning(true)) })
+    expect(screen.getByTestId('regenerate-previous-reply')).toBeTruthy()
+    // The turn ends with no reply: the old one is the answer again, unmarked,
+    // now rather than at the 30s pending-press safety timeout.
+    act(() => { store.dispatch(setSlotRunning(false)) })
+    await waitFor(() => expect(screen.queryByTestId('regenerate-previous-reply')).toBeNull())
+    expect(screen.getByText('two files changed')).toBeTruthy()
+  })
+
+  it('labels the reply streaming in below the previous one as the new reply', async () => {
+    apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
+    const { store } = renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      msg('assistant', 'two files changed', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }),
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    await act(async () => { assistantProps!.onRegenerate!() })
+    await screen.findByTestId('regenerate-previous-reply')
+    expect(screen.queryByTestId('regenerate-new-reply')).toBeNull()
+    act(() => {
+      store.dispatch(setSlotRunning(true))
+      store.dispatch(appendMessage(msg('assistant', 'three files changed', { ts: '2026-08-12T07:01:00Z', meta: { mid: 'a2' } })))
+    })
+    const label = await screen.findByTestId('regenerate-new-reply')
+    expect(label.textContent).toBe('New reply')
+  })
+
+  it('says where the previous reply went once the swap lands', async () => {
+    apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
+    const { store } = renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      msg('assistant', 'two files changed', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }),
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    await act(async () => { assistantProps!.onRegenerate!() })
+    act(() => { store.dispatch(setSlotRunning(true)) })
+    act(() => { store.dispatch(setSlotRunning(false)) })
+    expect(screen.queryByTestId('regenerate-swap-notice')).toBeNull()
+    // The turn-end refetch: one reply carrying both versions.
+    act(() => {
+      store.dispatch(replaceMessages([
+        msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+        { ...msg('assistant', 'three files changed', { ts: '2026-08-12T07:01:00Z', meta: { mid: 'a2' } }), variants: [{ content: 'two files changed' }, { content: 'three files changed' }], variant_idx: 1 },
+      ]))
+    })
+    const notice = await screen.findByTestId('regenerate-swap-notice')
+    expect(notice.textContent).toBe('Previous reply kept as version 1 of 2. Use the version arrows to see it.')
+    expect(notice.getAttribute('role')).toBe('status')
+  })
+
+  it('names the version the user was reading, not the one before the new reply', async () => {
+    apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
+    const A = { content: 'A answer' }, B = { content: 'B answer' }, C = { content: 'C answer' }
+    const { store } = renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      // Version 1 of 2 is on screen.
+      { ...msg('assistant', 'A answer', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }), variants: [A, B], variant_idx: 0 },
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    await act(async () => { assistantProps!.onRegenerate!() })
+    act(() => { store.dispatch(setSlotRunning(true)) })
+    act(() => { store.dispatch(setSlotRunning(false)) })
+    act(() => {
+      store.dispatch(replaceMessages([
+        msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+        { ...msg('assistant', 'C answer', { ts: '2026-08-12T07:01:00Z', meta: { mid: 'a2' } }), variants: [A, B, C], variant_idx: 2 },
+      ]))
+    })
+    const notice = await screen.findByTestId('regenerate-swap-notice')
+    expect(notice.textContent).toBe('Previous reply kept as version 1 of 3. Use the version arrows to see it.')
+  })
+
+  it('says where the previous reply went when the version list is already at its cap', async () => {
+    apiSpy('regenerateSlot').mockResolvedValue({ ok: true })
+    const A = { content: 'A answer' }, B = { content: 'B answer' }, C = { content: 'C answer' }, D = { content: 'D answer' }
+    const { store } = renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      { ...msg('assistant', 'C answer', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }), variants: [A, B, C], variant_idx: 2 },
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    await act(async () => { assistantProps!.onRegenerate!() })
+    act(() => { store.dispatch(setSlotRunning(true)) })
+    act(() => { store.dispatch(setSlotRunning(false)) })
+    // The server trims the oldest version, so the list is as long as before.
+    act(() => {
+      store.dispatch(replaceMessages([
+        msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+        { ...msg('assistant', 'D answer', { ts: '2026-08-12T07:01:00Z', meta: { mid: 'a2' } }), variants: [B, C, D], variant_idx: 2 },
+      ]))
+    })
+    const notice = await screen.findByTestId('regenerate-swap-notice')
+    expect(notice.textContent).toBe('Previous reply kept as version 2 of 3. Use the version arrows to see it.')
+  })
+
+  it('drops the previous-reply mark when the regenerate request fails', async () => {
+    apiSpy('regenerateSlot').mockRejectedValue(new Error('runner busy'))
+    renderChatPage([
+      msg('user', 'what changed?', { ts: '2026-08-12T07:00:00Z', meta: { mid: 'u1' } }),
+      msg('assistant', 'two files changed', { ts: '2026-08-12T07:00:05Z', meta: { mid: 'a1' } }),
+    ])
+    await waitFor(() => expect(assistantProps).not.toBeNull())
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await act(async () => { assistantProps!.onRegenerate!() })
+      await waitFor(() => expect(apiMocks.regenerateSlot).toHaveBeenCalled())
+      await waitFor(() => expect(screen.queryByTestId('regenerate-previous-reply')).toBeNull())
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('synthesizes speech for the row content when nothing is playing', async () => {
@@ -1834,5 +1969,20 @@ describe('ChatPage screen capture failures', () => {
     await waitFor(() => expect(inputProps?.onScreenshot).toBeTypeOf('function'))
     await act(async () => { inputProps!.onScreenshot!() })
     expect(screen.queryByText(/unknown error/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('keptVersion', () => {
+  const v = (...c: string[]) => c.map(content => ({ content }))
+  it('is the version that was shown, at the position it was shown', () => {
+    expect(keptVersion(v('A', 'B', 'C'), { mid: 'a1', content: 'A', shownIdx: 0 })).toBe(1)
+    expect(keptVersion(v('A', 'B', 'C'), { mid: 'a1', content: 'B', shownIdx: 1 })).toBe(2)
+  })
+  it('finds the shown text when no index was recorded, never the new reply', () => {
+    expect(keptVersion(v('old', 'new'), { mid: 'a1', content: 'old', shownIdx: null })).toBe(1)
+    expect(keptVersion(v('x', 'x'), { mid: 'a1', content: 'x', shownIdx: null })).toBe(1)
+  })
+  it('falls back to the version before the new reply when the text is not found', () => {
+    expect(keptVersion(v('A', 'B', 'C'), { mid: 'a1', content: 'gone', shownIdx: 0 })).toBe(2)
   })
 })

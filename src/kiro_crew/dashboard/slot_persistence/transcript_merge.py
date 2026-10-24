@@ -327,8 +327,17 @@ def _frozen_prefix_and_foreign_appends(
     collect_foreign: bool = True,
     bound_prefix: Callable[[list[str]], list[str]] | None = None,
     archive_dedup: Callable[[list[str]], object] | None = None,
+    retired_entries: list[dict] | None = None,
 ) -> tuple[str, list[str], list[str]]:
     """Return ``(frozen_prefix, foreign_lines, dedup_dropped)`` for a save.
+
+    ``retired_entries`` are the serialized rows a rewrite removes on purpose
+    (a Regenerate's previous reply). They take part in the identity scan as
+    extra candidates, so their disk copies are matched and dropped, but they
+    are never emitted. Every other window-region line the window does not
+    carry is still a foreign append and is kept. Without them a rewrite skips
+    the scan (``collect_foreign=False``), since a truncated tail and a foreign
+    append cannot be told apart.
 
     ``frozen_prefix`` is the bytes of the first *disk_older* on-disk message
     lines — the turns OLDER than the in-memory window. They keep their count and
@@ -475,6 +484,10 @@ def _frozen_prefix_and_foreign_appends(
     # genuine window line was mis-classified as a foreign append and DUPLICATED on
     # disk. The bounded multiset below matches them one-for-one regardless of
     # ``ts`` collisions.
+    # Retired rows are matched like window rows; a disk line they absorb is
+    # dropped exactly as a window row's own persisted copy is.
+    if retired_entries:
+        window_entries = [*window_entries, *retired_entries]
     mid_idx: dict[str, "deque[int]"] = {}
     exact_idx: dict[tuple[object, object, object], "deque[int]"] = {}
     ts_idx: dict[object, "deque[int]"] = {}
@@ -712,11 +725,16 @@ def compose_payload(
     meta_str: str,
     *,
     rewrite: bool,
+    retired_rows: list[dict] | None = None,
 ) -> tuple[str, str, list[str]]:
     """The file a full save writes: ``(payload, frozen_prefix, foreign_lines)``.
 
     Called under the transcript lock. Archives the ambiguous dedup drops and, for a
     rewrite, the dropped window tail before the caller's atomic replace.
+
+    ``retired_rows`` names the rows a rewrite removes. With it, the rewrite keeps
+    the foreign-append scan, so a row another writer appended after the caller's
+    snapshot survives the rewrite instead of being dropped with the retired rows.
     """
     from kiro_crew.dashboard import chat_persistence as cp  # circular import: facade imports owners
 
@@ -759,12 +777,18 @@ def compose_payload(
     # A rewrite archives every old line its payload does not repeat, so a bound
     # applied on that save would archive the rewritten rows a second time; the
     # next ordinary save applies it instead.
+    retired_entries = (
+        [e for m in retired_rows if (e := build_entry(m, attachments=attachments)) is not None]
+        if retired_rows is not None
+        else None
+    )
     frozen_prefix, foreign_lines, _dedup_archived = _frozen_prefix_and_foreign_appends(
         slot,
         path,
         disk_older,
         window_entries,
-        collect_foreign=not rewrite,
+        collect_foreign=not rewrite or retired_entries is not None,
+        retired_entries=retired_entries,
         bound_prefix=(
             None if rewrite else _file_change_prefix_bound(state, history_key, window_entries)
         ),
