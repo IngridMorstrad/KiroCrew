@@ -619,11 +619,10 @@ class TestEffortDropReason:
         assert "deepseek-3.2" in reason
 
     def test_explicit_auto_beats_a_capable_role_pin(self):
-        """Regression (round-4 GPT finding): an explicit ``model="auto"`` is a
-        truthy override — ``_run_inner`` forwards it verbatim and the factory
-        collapses it to unpinned. The old verdict normalized it away and
-        reported the role pin as applied — an inverted receipt. The receipt is
-        the unpinned one, never the pin's."""
+        """An explicit ``model="auto"`` is a truthy override: ``_run_inner``
+        forwards it verbatim and the factory collapses it to unpinned. A verdict
+        that normalized it away would report the role pin as applied, an
+        inverted receipt. The receipt is the unpinned one, never the pin's."""
         from kiro_crew.subagent import effort_applied_note, effort_pending_note
 
         role_models = {"subagent": "sonnet-test-model"}

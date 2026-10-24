@@ -1045,6 +1045,7 @@ class _ExplodingStream(_CapturingStream):
     """A stream whose every ``write`` fails, modelling a client already gone."""
 
     async def write(self, data):
+        self.frames.append(bytes(data))
         raise RuntimeError("broken pipe")
 
 
@@ -1067,6 +1068,13 @@ async def test_a_streamed_turn_whose_error_frame_also_fails_does_not_raise(monke
     )
     out = await mod.api_crew_turn(_turn_request({"message": "hi", "thread": "t"}))
     assert isinstance(out, _ExplodingStream)
+    assert len(calls) == 1
+    # The relayed frame failed, then the error frame was attempted and failed too;
+    # the [DONE] frame after it is never reached.
+    assert out.frames == [
+        b"data: x\n\n",
+        b'data: {"error": {"code": "crew_unreachable"}}\n\n',
+    ]
 
 
 def _wire_resume(monkeypatch, *, state, raises=None, on_resume=None, on_lookup=None):

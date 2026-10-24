@@ -185,7 +185,7 @@ class TestResolveSessionEffort:
 
         src = inspect.getsource(loader.KiroCrewConfig.create_provider_factory)
         assert "resolve_session_effort" in src
-        # The background-agent pair lives in ONE place now.
+        # The background-agent pair is named in ONE place, outside the factory.
         assert '"kirocrew-lite"' not in src
 
 
@@ -370,13 +370,12 @@ class TestWarmPoolBypassesACrewPin:
 class TestConcurrentRefreshesInstallInOrder:
     """Two overlapping refreshes must leave the NEWEST config installed.
 
-    Lives with this feature's tests because this PR is what made the window
-    reachable: taking the config load off the event loop (so a crew save does not
-    stall the gateway) introduced an await point between READING the config and
+    The config load runs off the event loop (so a crew save does not stall the
+    gateway), which puts an await point between READING the config and
     INSTALLING it. Two refreshes could then complete their loads out of order and
-    let the older one install last, pinning every new session to stale defaults
-    until the next restart -- silently, and specifically for the effort settings
-    this PR added. Holding the pool-fill lock across load AND install closes it.
+    let the older one install last, pinning every new session to stale effort
+    defaults until the next restart. Holding the pool-fill lock across load AND
+    install closes it.
     """
 
     @pytest.mark.asyncio
@@ -609,8 +608,8 @@ class TestSavingAPinRefreshesSessionDefaults:
 
     The chain reads two fields -- the pin, and the bound ``kiro_agent`` the role
     default keys on -- so the trigger is a change to `_effort_inputs`, not a list
-    of conditions per handler. Three review rounds found the per-condition version
-    incomplete one case at a time; these tests pin the invariant instead.
+    of conditions per handler, which is easy to leave one case short; these tests
+    pin the invariant instead.
     """
 
     def _app(self, refreshed: list[str]) -> web.Application:
