@@ -401,8 +401,9 @@ def test_a_record_less_conductor_refusal_reaches_the_model_with_its_own_remedy()
 
     refusal = {
         "error": (
-            "this chat has no memory record, so its crewmate's worker cannot be "
-            "opened from it; open a new chat with the crewmate"
+            "this chat's crewmate could not be confirmed (it was removed, renamed, "
+            "or the chat belongs to another crewmate), so no worker can be opened "
+            "from it; open the crewmate's chat again from the crew page"
         ),
         "code": "conductor_record_missing",
     }
@@ -419,4 +420,4 @@ def test_a_record_less_conductor_refusal_reaches_the_model_with_its_own_remedy()
     out, _ = _call("session_create", {"title": "w"}, {"POST /api/session-control/create": decoded})
 
     assert out.startswith("Error: could not create a session:")
-    assert "open a new chat with the crewmate" in out
+    assert "open the crewmate's chat again from the crew page" in out

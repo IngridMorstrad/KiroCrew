@@ -627,9 +627,18 @@ crewmate's backend"), so its pins are judged there; the profile's explicit
 `worker_model` is validated for that harness (`PUT /api/agents/{name}`) and
 crosses freely. A conductor's hand-off whose worker backend cannot carry the
 worker's kit is refused `worker_kit_harness_unsupported` before anything is
-allocated. A conductor slot with no execution record (one from before records,
-named only by its slot agent) is refused `conductor_record_missing` the same way:
-its worker would carry no crewmate and run on the shared store. Either pin is dropped when the child's namespace advertises a list it is
+allocated. A crewmate conductor thread with no execution record (one from
+before records) has its record written on the spot
+(`session_create._backfill_conductor_record`), from the gateway's own state
+only: the slot is a persistent DM thread, its bound agent is a crewmate on the
+conductor, and its key encodes that crewmate's `member_id`. The record is the one
+the thread's first turn writes (`resolve_member_execution`), published only if
+the session still has none, so the hand-off then opens the worker on the
+crewmate's identity and store and a second hand-off reuses it. The `agent` the
+model passes never picks the crewmate. A thread that cannot be confirmed (no
+such crewmate, a key naming another member, a plain chat, a non-persistent
+chat) is refused `conductor_record_missing` before anything is allocated.
+Either pin is dropped when the child's namespace advertises a list it is
 not on while another harness claims it; `"auto"` always passes. When the
 mate's own model is dropped, the mate's own effort that rode along for
 it is dropped too; an explicit `worker_reasoning_effort` stays. A caller whose record is a

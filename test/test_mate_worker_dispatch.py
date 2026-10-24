@@ -162,32 +162,106 @@ def test_the_conductor_hands_off_to_its_worker(crewmate, named, kind):
     assert actual.template_id == MATE_WORKER_AGENT
 
 
-def test_a_conductor_slot_with_no_record_opens_no_worker(crewmate, tmp_path):
-    """A slot from before records names its crewmate by slot agent only; the
-    worker it would open has no crewmate and runs on the shared store."""
+def _forget_record(slot) -> str:
+    """Leave *slot* as a thread from before execution records: no record at all."""
     from kiro_crew.execution_context import clear_session_execution, read_session_execution
     from kiro_crew.history import ConversationLog
 
-    state, caller, _execution = crewmate
-    # On the default workspace, so no workspace check refuses it first.
-    path = tmp_path / "config.json"
-    config = json.loads(path.read_text(encoding="utf-8"))
-    config["agents"]["pixel"].pop("workspace", None)
-    path.write_text(json.dumps(config), encoding="utf-8")
-    loader._invalidate_config_cache()
-    caller.workspace = "default"
-    before = set(state._slots)
-    key = slot_history_key(caller)
+    key = slot_history_key(slot)
     clear_session_execution(key)
-    ConversationLog()._path(key).unlink()  # the transcript that holds the record
-    caller.memory_store = ""
+    path = ConversationLog()._path(key)
+    if path.exists():
+        path.unlink()  # the transcript that holds the record
+    slot.memory_store = ""
     assert read_session_execution(key) is None
+    return key
+
+
+def test_a_record_less_conductor_thread_is_backfilled_and_opens_its_worker(crewmate):
+    from kiro_crew.execution_context import read_session_execution
+
+    state, caller, execution = crewmate
+    key = _forget_record(caller)
+
+    worker = state.get_slot(_create(state, caller)["target"])
+
+    backfilled = read_session_execution(key)
+    assert (backfilled.member_id, backfilled.store) == ("pixel", execution.store)
+    assert backfilled.template_id == MATE_CONDUCTOR_AGENT
+    child = read_session_execution(slot_history_key(worker), required=True)
+    assert (child.member_id, child.store, child.template_id) == (
+        "pixel",
+        execution.store,
+        MATE_WORKER_AGENT,
+    )
+    assert worker.workspace == "member-pixel"
+
+
+def test_a_second_hand_off_reuses_the_backfilled_record(crewmate, monkeypatch):
+    from kiro_crew.dashboard.session_control_parts import session_create as create_mod
+    from kiro_crew.execution_context import read_session_execution
+
+    state, caller, _execution = crewmate
+    key = _forget_record(caller)
+    calls: list[str] = []
+    real = create_mod._backfill_conductor_record
+
+    def counted(slot, history_key):
+        calls.append(history_key)
+        return real(slot, history_key)
+
+    monkeypatch.setattr(create_mod, "_backfill_conductor_record", counted)
+    _create(state, caller)
+    first = read_session_execution(key)
+    _create(state, caller)
+
+    assert calls == [key]
+    assert read_session_execution(key) == first
+
+
+@pytest.mark.parametrize(
+    "slot_key, mode", [(DM_SLOT_KEY_PREFIX + "ada", "member"), ("chat-7-700", "")]
+)
+def test_a_record_less_thread_whose_crewmate_cannot_be_confirmed_stays_refused(
+    crewmate, slot_key, mode
+):
+    """A DM key that names another member, or a plain chat bound to the crewmate."""
+    from kiro_crew.execution_context import read_session_execution
+
+    state, caller, _execution = crewmate
+    other = (
+        state.get_or_create_slot(slot_key, mode=mode)
+        if mode
+        else state.get_or_create_slot(slot_key)
+    )
+    other.agent = caller.agent
+    other.workspace = caller.workspace
+    key = _forget_record(other)
+    before = set(state._slots)
 
     with pytest.raises(sc.SessionControlError) as refused:
-        _create(state, caller)
+        _create(state, other)
 
     assert refused.value.code == "conductor_record_missing"
+    assert "open the crewmate's chat again" in str(refused.value)
     assert set(state._slots) == before  # nothing was allocated
+    assert read_session_execution(key) is None  # and nothing was written
+
+
+def test_the_model_cannot_pick_which_crewmate_is_backfilled(crewmate):
+    """The backfill reads the slot's own crewmate; a name the model passes only
+    selects, and naming a peer keeps that peer's own (refused) resolution."""
+    from kiro_crew.execution_context import read_session_execution
+
+    state, caller, _execution = crewmate
+    key = _forget_record(caller)
+
+    with pytest.raises(sc.SessionControlError):
+        _create(state, caller, agent="ada")
+    assert read_session_execution(key) is None
+
+    _create(state, caller, agent="ada", agent_kind="template")
+    assert read_session_execution(key).member_id == "pixel"
 
 
 def test_the_conductor_naming_another_crewmate_stays_refused(crewmate):

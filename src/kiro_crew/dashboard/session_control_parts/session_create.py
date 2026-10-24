@@ -343,15 +343,28 @@ async def create_session(
         _hands_off_to_own_worker, caller_slot, caller_execution, agent.strip(), agent_kind
     )
     if own_worker and caller_execution is None:
-        # A conductor slot with no execution record (one from before records)
-        # names its crewmate by slot agent only. The worker's identity and store
-        # come from the record, so without one the child would be the worker on
-        # the shared store with no crewmate, which no turn of it can run.
-        raise SessionControlError(
-            "this chat has no memory record, so its crewmate's worker cannot be "
-            "opened from it; open a new chat with the crewmate",
-            code="conductor_record_missing",
+        # A crewmate's conductor thread from before execution records. The
+        # worker's identity and store come from the caller's record, so the
+        # record is written now, from the gateway's own data only (the slot's
+        # bound crewmate and its DM key; never `agent`, which the model passed),
+        # the way the thread's first turn would have written it.
+        caller_execution = await asyncio.to_thread(
+            _backfill_conductor_record, caller_slot, caller_memory_identity[0]
         )
+        if caller_execution is None:
+            raise SessionControlError(
+                "this chat's crewmate could not be confirmed (it was removed, renamed, "
+                "or the chat belongs to another crewmate), so no worker can be opened "
+                "from it; open the crewmate's chat again from the crew page",
+                code="conductor_record_missing",
+            )
+        caller_slot.memory_store = caller_execution.store.legacy_name
+        caller_memory_identity = (
+            slot_history_key(caller_slot),
+            caller_slot.agent,
+            caller_slot.memory_store,
+        )
+        caller_vouched = read_vouched_session_execution(caller_memory_identity[0])
     if own_worker:
         agent, agent_kind = MATE_WORKER_AGENT, "template"
     agent_name = sanitize_outbound(agent.strip() or (getattr(caller_slot, "agent", "") or ""))
@@ -1527,6 +1540,50 @@ def _dispatching_crewmate(
         return record
     agent_name = getattr(caller_slot, "agent", "") or ""
     return cfg.agents.get(agent_name) if agent_name else None
+
+
+def _backfill_conductor_record(caller_slot: Any, history_key: str) -> ExecutionContext | None:
+    """Write a record-less crewmate conductor thread's execution record, or ``None``.
+
+    The crewmate is read from the gateway's own state alone: the slot's bound
+    agent names a ``config.agents`` row on the conductor, the slot is a DM
+    thread, and its key encodes that row's ``member_id`` (the check the
+    thread's first turn makes, ``turn_context._dm_member_binding_changed``).
+    The record is the one that turn would write (``resolve_member_execution``),
+    published only if the session still has none. Anything else -- no such
+    crewmate, an ambiguous or removed one, a thread whose key names another
+    member, a non-persistent chat, a record written meanwhile -- answers
+    ``None``. Not vouched: the own-store admission re-vouches a member DM key
+    against config itself (``revouch_at_verified_admission``). Blocking.
+    """
+    from kiro_crew import members as members_mod
+    from kiro_crew.dashboard.chat_turn.turn_context import _dm_member_binding_changed
+    from kiro_crew.execution_context import bind_session_execution, resolve_member_execution
+    from kiro_crew.mate_worker import MATE_CONDUCTOR_AGENT
+
+    try:
+        if getattr(caller_slot, "mode", "") != members_mod.DM_SLOT_MODE:
+            return None
+        if (getattr(caller_slot, "memory_mode", "persistent") or "persistent") != "persistent":
+            return None
+        alias = getattr(caller_slot, "agent", "") or ""
+        cfg = KiroCrewConfig.load()
+        record = cfg.agents.get(alias) if alias else None
+        if record is None or member_template_id(record) != MATE_CONDUCTOR_AGENT:
+            return None
+        execution = resolve_member_execution(cfg, alias, validate_memory_files=False)
+        member_id = execution.member_id or ""
+        slug = members_mod.slug_from_dm_slot_key(caller_slot.key) or ""
+        if not member_id or not slug or _dm_member_binding_changed(member_id, caller_slot.key):
+            return None
+        bind_session_execution(history_key, execution, expected=None, vouch=False)
+        written = read_session_execution(history_key)
+    except Exception:  # noqa: BLE001 - unconfirmed is "no crewmate": the caller refuses
+        logger.warning(
+            "crewmate conductor record not backfilled for %s", history_key, exc_info=True
+        )
+        return None
+    return written if written == execution else None
 
 
 def _conducts_for_a_worker(caller_slot: Any, caller_execution: ExecutionContext | None) -> bool:
