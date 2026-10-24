@@ -6,7 +6,7 @@
  * ChatPage row chain (see `quote-message.tsx` for the shared `RowBox`
  * pattern), with local state standing in for `useChatReactions`.
  *
- * Query string: ?theme=dark|light&scene=idle|active|hover|error|menu
+ * Query string: ?theme=dark|light&scene=idle|active|hover|error|error-limit|error-remove|load-failed|menu-open
  *   `idle`   — the row at rest with no reaction: no chips, and the add `+`
  *              trigger collapsed to zero paint, so the message pays no height.
  *   `active` — 👍 placed on the assistant reply (a chip, visible at rest as the
@@ -16,6 +16,11 @@
  *              forces the CSS reveal, see message-reactions.html).
  *   `error`  — the inline failure notice under the assistant reply, naming the
  *              emoji, with the add control kept visible so retry is live.
+ *   `error-limit` — the per-chat reaction-limit notice under the reply.
+ *   `error-remove` — the remove-failure notice under the reply; the 👍 it
+ *              tried to remove is still placed, as after the hook's rollback.
+ *   `load-failed` — the chat-level "Could not load reactions" notice, drawn
+ *              above the transcript rows with the props ChatPage.tsx uses.
  *   `menu-open` — the add menu open: the fixed set, with "Remove …" + a check
  *              on the placed one.
  */
@@ -30,6 +35,8 @@ import { store } from '../src/store'
 import UserMessage from '../src/pages/chat/UserMessage'
 import AssistantMessage from '../src/pages/chat/AssistantMessage'
 import MarkdownRenderer from '../src/components/MarkdownRenderer'
+import ErrorNotice from '../src/components/ErrorNotice'
+import { i18nT } from '../src/i18n/t'
 import '../src/index.css'
 
 const params = new URLSearchParams(location.search)
@@ -72,21 +79,36 @@ function Scene() {
     new Set(scene === 'active' || scene === 'error' ? ['✅', '⭐'] : []),
   )
   const [assistantReactions, setAssistantReactions] = useState<Set<string>>(
-    new Set(scene === 'active' || scene === 'menu-open' ? ['👍'] : []),
+    // A failed remove rolls back, so the 👍 it tried to take off is still placed.
+    new Set(scene === 'active' || scene === 'menu-open' || scene === 'error-remove' ? ['👍'] : []),
   )
   const toggle = (set: Set<string>, setter: (s: Set<string>) => void, emoji: string) => {
     const next = new Set(set)
     if (next.has(emoji)) next.delete(emoji); else next.add(emoji)
     setter(next)
   }
-  // `error` scene: a failed-reaction notice on the assistant reply, so the
-  // inline ErrorNotice ("Could not add the reaction. Click the emoji to retry.")
-  // is captured with the controls kept visible.
-  const assistantError = scene === 'error'
-    ? { slot: 'chat-1', mid: 'cap-assistant', emoji: '👍', kind: 'react' as const }
+  // The three per-message failure notices under the assistant reply: a failed
+  // add (`error`), the per-chat limit (`error-limit`) and a failed remove
+  // (`error-remove`), each with the `+` control kept visible.
+  const errorKind = scene === 'error' ? 'react' as const
+    : scene === 'error-limit' ? 'limit' as const
+      : scene === 'error-remove' ? 'unreact' as const
+        : null
+  const assistantError = errorKind
+    ? { slot: 'chat-1', mid: 'cap-assistant', emoji: '👍', kind: errorKind }
     : null
   return (
     <div className="bg-bg text-text flex flex-col" style={{ height: '100vh' }} data-capture-root data-scene={scene}>
+      {/* `load-failed`: the chat-level notice ChatPage.tsx draws directly above
+          ChatTranscriptView when the reactions GET has failed — the same
+          component, variant, message key and className as that call site. */}
+      {scene === 'load-failed' && (
+        <ErrorNotice
+          variant="inline"
+          message={i18nT('pages.chat.messageReactionBar.reactions_load_failed')}
+          className="mx-4 mt-1"
+        />
+      )}
       <div className="flex-1 overflow-y-auto py-4">
         <RowBox user>
           <UserMessage

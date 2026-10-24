@@ -12,14 +12,23 @@ import { useChatReactions, type ReactionError } from '../../../hooks/useChatReac
  *
  * The wrapper also forwards the hook's `error`/`clearError`: a failed reaction
  * must not disappear silently (`errors-use-error-notice`). The error is scoped
- * to the message it happened on so the matching row's bar renders the notice.
+ * to the slot and message it happened on, so only that row's bar renders the
+ * notice.
  */
 export function useTranscriptReactions(activeSlot: string | null) {
   const { reactions, loading: reactionsLoading, loadFailed, reactionsFor, toggleReaction, error, clearError } =
     useChatReactions(activeSlot ?? undefined)
 
+  /** Fire-and-forget toggle for the row components, whose `onToggleReaction`
+   *  prop is typed `(emoji) => void` and never awaits. `toggleReaction`
+   *  rejects on failure; that rejection is consumed here because the hook has
+   *  already set `error`, which the row renders as its inline notice. Passing
+   *  the promise through would leave every failed toggle as an unhandled
+   *  rejection. */
   const handleToggleReactionForMessage = useCallback(
-    (mid: string, emoji: string): Promise<void> => toggleReaction(mid, emoji),
+    (mid: string, emoji: string): void => {
+      toggleReaction(mid, emoji).catch(() => {})
+    },
     [toggleReaction],
   )
 

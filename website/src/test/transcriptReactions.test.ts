@@ -40,11 +40,32 @@ describe('useTranscriptReactions', () => {
     expect(useChatReactions).toHaveBeenLastCalledWith(undefined)
   })
 
-  it('forwards a per-message toggle to toggleReaction', async () => {
+  it('forwards a per-message toggle to toggleReaction', () => {
     hookState.toggleReaction.mockResolvedValue(undefined)
     const { result } = renderHook(() => useTranscriptReactions('slot-a'))
-    await result.current.handleToggleReactionForMessage('m1', '👍')
+    result.current.handleToggleReactionForMessage('m1', '👍')
     expect(hookState.toggleReaction).toHaveBeenCalledWith('m1', '👍')
+  })
+
+  it('consumes a failed toggle so it never surfaces as an unhandled rejection', async () => {
+    // The row components call this through a `(emoji) => void` prop and never
+    // await it. A rejection that escaped here would be unhandled in the
+    // browser; the hook's `error` state is what the user sees instead.
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      hookState.toggleReaction.mockRejectedValue(new Error('zzz-toggle-failed'))
+      const { result } = renderHook(() => useTranscriptReactions('slot-a'))
+      expect(result.current.handleToggleReactionForMessage('m1', '👍')).toBeUndefined()
+      // Give Node two macrotask turns to report an unhandled rejection.
+      await new Promise(r => setTimeout(r, 0))
+      await new Promise(r => setTimeout(r, 0))
+      expect(hookState.toggleReaction).toHaveBeenCalledWith('m1', '👍')
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 
   it('surfaces an error only when both the slot and the mid match', () => {

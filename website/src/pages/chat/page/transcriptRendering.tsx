@@ -118,7 +118,7 @@ interface TranscriptRenderingOptions {
   handleJumpToQuote: (q: MessageQuote) => void
   handleTogglePinForMessage: (mid: string, messageTs: string, role: 'user' | 'assistant', content: string) => void
   reactionsFor: (mid: string) => ReadonlySet<string>
-  handleToggleReactionForMessage: (mid: string, emoji: string) => Promise<void>
+  handleToggleReactionForMessage: (mid: string, emoji: string) => void
   reactionErrorFor: (mid: string) => ReactionError | null
   clearReactionError: () => void
 }

@@ -86,7 +86,7 @@ try {
   )
 
   for (const theme of ['dark', 'light']) {
-    for (const scene of ['idle', 'active', 'hover', 'error', 'menu-open']) {
+    for (const scene of ['idle', 'active', 'hover', 'error', 'error-limit', 'error-remove', 'load-failed', 'menu-open']) {
       const name = `${scene}-${theme}`
       const page = await browser.newPage({ viewport: { width: 820, height: 420 }, deviceScaleFactor: 2 })
       page.on('pageerror', e => pageErrors.push(String(e)))
@@ -134,13 +134,37 @@ try {
         const addShown = await shownCount(addTrigger)
         if (addShown !== 1) fail(`${name}: hover should reveal the add trigger, painted ${addShown}`)
       }
-      if (scene === 'error') {
-        // The inline failure notice names the emoji, and the add control stays
-        // visible so the retry path is live.
-        const notice = assistantBar.getByText('Could not add 👍. Open + and choose it again.')
-        if ((await notice.count()) !== 1) fail(`${name}: expected the emoji-named error notice, found ${await notice.count()}`)
+      if (scene === 'error' || scene === 'error-limit' || scene === 'error-remove') {
+        // Every per-message failure keeps the `+` control visible at rest, so
+        // the retry path is reachable without hovering.
         const addShown = await shownCount(addTrigger)
         if (addShown !== 1) fail(`${name}: error row should keep the add control visible, painted ${addShown}`)
+      }
+      if (scene === 'error') {
+        // The add-failure notice names the emoji.
+        const notice = assistantBar.getByText('Could not add 👍. Open + and choose it again.')
+        if ((await notice.count()) !== 1) fail(`${name}: expected the emoji-named error notice, found ${await notice.count()}`)
+      }
+      if (scene === 'error-limit') {
+        // The per-chat limit notice, with its next step, under the reply.
+        const notice = assistantBar.getByText('This chat has reached its reaction limit. Remove a reaction to add another.')
+        if ((await notice.count()) !== 1) fail(`${name}: expected the reaction-limit notice, found ${await notice.count()}`)
+      }
+      if (scene === 'error-remove') {
+        // The remove-failure notice; the 👍 it could not remove is still placed.
+        const notice = assistantBar.getByText('Could not remove the reaction. Try again.')
+        if ((await notice.count()) !== 1) fail(`${name}: expected the remove-failure notice, found ${await notice.count()}`)
+        const emoji = await chips.nth(0).getAttribute('data-emoji')
+        if (emoji !== '👍') fail(`${name}: the 👍 the remove failed on should still be placed, got ${emoji}`)
+      }
+      if (scene === 'load-failed') {
+        // The chat-level notice sits above the transcript rows, outside every
+        // message's reaction bar.
+        const notice = page.getByText('Could not load reactions for this chat. Retrying automatically.')
+        if ((await notice.count()) !== 1) fail(`${name}: expected the chat-level load-failed notice, found ${await notice.count()}`)
+        if ((await bars.nth(0).getByText('Could not load reactions for this chat. Retrying automatically.').count()) !== 0) {
+          fail(`${name}: the load-failed notice must be chat-level, not inside a message's bar`)
+        }
       }
       if (scene === 'menu-open') {
         // The add menu open: every emoji as a row, with a check on placed ones.
