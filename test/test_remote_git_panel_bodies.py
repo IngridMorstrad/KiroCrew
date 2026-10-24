@@ -86,13 +86,13 @@ def test_a_huge_history_or_status_read_is_streamed_to_the_cap(tmp_path, monkeypa
 
     root, git = _plain_git_repo(tmp_path)
     huge = "s" * (2 * wt.MAX_READ_BYTES)
-    (root / "a.txt").write_text("a\n", encoding="utf-8")
+    (root / "a.txt").write_text("a\n", encoding="utf-8", newline="\n")
     git(root, "add", ".")
     # One commit subject, or one untracked file list, larger than the read cap.
-    (tmp_path / "message").write_text(huge, encoding="utf-8")
+    (tmp_path / "message").write_text(huge, encoding="utf-8", newline="\n")
     git(root, "commit", "-q", "-F", str(tmp_path / "message"))
     for i in range(2 * wt.MAX_READ_BYTES // 200):
-        (root / f"untracked-{i:05d}-{'n' * 180}").write_text("", encoding="utf-8")
+        (root / f"untracked-{i:05d}-{'n' * 180}").write_text("", encoding="utf-8", newline="\n")
     real_popen = subprocess.Popen
     buffered = []
 
@@ -253,7 +253,7 @@ def test_a_truncated_reply_carrying_bodies_builds_no_hunks():
 
 def _committed_file(tmp_path, name="tracked.sh", body="echo hi\n"):
     root, git = _plain_git_repo(tmp_path)
-    (root / name).write_text(body, encoding="utf-8")
+    (root / name).write_text(body, encoding="utf-8", newline="\n")
     git(root, "add", ".")
     git(root, "commit", "-q", "-m", "seed")
     return root, git
@@ -524,7 +524,7 @@ def test_an_over_cap_file_holding_a_pem_sends_no_key_line(tmp_path, side):
     pem = "\n".join("    " + line for line in [PEM_BEGIN_RSA, *key_lines, PEM_END_RSA])
     content = prefix + "  key: |\n" + pem + "\n" + ordinary * (wt.MAX_READ_BYTES // len(ordinary))
     path = root / "config.yaml"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
     if side == "old":
         git(root, "add", "config.yaml")
         git(root, "commit", "-q", "-m", "seed")
@@ -556,7 +556,7 @@ def test_an_indented_pem_with_no_footer_in_a_complete_file_shows_no_key_line(
         "    " + line + "\n" for line in [PEM_BEGIN_RSA, *key_lines]
     )
     path = root / "config.yaml"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
     if side == "old":
         git(root, "add", "config.yaml")
         git(root, "commit", "-q", "-m", "seed")
@@ -586,7 +586,7 @@ def test_a_complete_pem_uses_whole_body_redaction(tmp_path):
     key_lines = [blob[i : i + 32] for i in range(0, len(blob), 32)]
     pem = "\n".join([PEM_BEGIN_RSA, *key_lines, PEM_END_RSA])
     ordinary = "ordinary-" + "x" * 110 + "\n"
-    (root / "f").write_text(pem + "\n" + ordinary * 20, encoding="utf-8")
+    (root / "f").write_text(pem + "\n" + ordinary * 20, encoding="utf-8", newline="\n")
     bodies = wt.browse(wt.Workspace(str(root)), {"op": "git_bodies", "path": "f"})
     assert bodies["truncated"] is False and PEM_END_RSA in bodies["new"]
     clean = redact_via_context(bodies["new"])

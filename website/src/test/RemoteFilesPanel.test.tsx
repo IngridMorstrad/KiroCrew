@@ -29,19 +29,26 @@ import { api } from '../api/client'
 import { ApiError } from '../api/apiError'
 import { copyToClipboard } from '../utils/clipboard'
 import { __resetNavSeamForTests, consumeChatHandoff, installSoftNavigate, setGatewayConnected } from '../utils/errorReport'
+import { Provider } from 'react-redux'
+import { createTestStore } from './helpers'
 import '../i18n'
 
 vi.mock('../utils/clipboard', () => ({ copyToClipboard: vi.fn() }))
 
 const clients: QueryClient[] = []
+let testStore = createTestStore()
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   clients.push(qc)
-  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider> })
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <Provider store={testStore}><QueryClientProvider client={qc}>{children}</QueryClientProvider></Provider>
+    ),
+  })
 }
 
-afterEach(() => { clients.splice(0).forEach(client => client.clear()) })
+afterEach(() => { clients.splice(0).forEach(client => client.clear()); testStore = createTestStore() })
 
 const ROOT = { root: '/workspace/w', truncated: false }
 const CODER = 'Coder MicroVM'
@@ -860,10 +867,14 @@ describe('RemoteGitPanel', () => {
       expect(ask).toBeVisible()
       expect(ask.textContent).toMatch(/^Draft\b/)
       await u.click(ask)
-      expect(consumeChatHandoff()).toBe(
-        'Show me the full diff of data/big file.csv against the last commit in the workspace Coder MicroVM. It was too large for the Git panel to show.',
-      )
-      expect(navigate).toHaveBeenCalledWith('/chat')
+      // Staged in THIS chat's composer (the one bound to the workspace), not
+      // handed to a fresh chat whose agent could not reach it.
+      expect(testStore.getState().chat.mainComposerAppend).toEqual({
+        slot: 'chat-1',
+        text: 'Show me the full diff of data/big file.csv against the last commit in the workspace Coder MicroVM. It was too large for the Git panel to show.',
+      })
+      expect(consumeChatHandoff()).toBeNull()
+      expect(navigate).not.toHaveBeenCalled()
     } finally {
       __resetNavSeamForTests()
     }
@@ -1042,8 +1053,9 @@ describe('RemoteGitPanel', () => {
       expect(ask).toHaveAttribute('title', DRAFT_TITLE)
       expect(ask.textContent).toMatch(/^Draft\b/)
       await u.click(ask)
-      expect(consumeChatHandoff()).toBe(prompt)
-      expect(navigate).toHaveBeenCalledWith('/chat')
+      expect(testStore.getState().chat.mainComposerAppend).toEqual({ slot: 'chat-1', text: prompt })
+      expect(consumeChatHandoff()).toBeNull()
+      expect(navigate).not.toHaveBeenCalled()
       unmount()
       setGatewayConnected(false)
       wrap(<RemoteGitPanel slot="chat-2" name="Coder MicroVM" />)
