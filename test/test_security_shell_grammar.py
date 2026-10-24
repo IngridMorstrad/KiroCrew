@@ -271,6 +271,13 @@ class TestParameterExpansionHoldsItsOwnParens:
         assert security.is_denied(f"T=$({body}; printf {self.VERB}); {self.NAME} $T") is not None
         assert security.is_denied(f"kill $({body}; pgrep -f {self.NAME})") is not None
 
+    @pytest.mark.parametrize("suffix", [": <<E\nE\n", ": <<'E'\nE\n", ": `"])
+    def test_an_unreadable_suffix_cannot_shorten_the_body(self, suffix: str) -> None:
+        """Where the walk gives up AFTER ``${v:-)}``, the short span cannot come back."""
+        verb = f"T=$(: ${{v:-)}}; printf {self.VERB}; {suffix}); {self.NAME} $T"
+        assert security.is_denied(verb) is not None
+        assert security.is_denied(f"kill $(: ${{v:-)}}; pgrep -f {self.NAME}; {suffix})") is not None
+
     @pytest.mark.parametrize(
         "command",
         [

@@ -504,13 +504,14 @@ def _url_payload_command(n: int) -> str:
 #: ``paths_lists``: the crewmate agent folder, write-denied to the agent file tools
 #: like ``~/.kiro/agents``. Data, not rule logic: the matcher is unchanged.
 #:
-#: Raised by 158, from 32,526, for the ``${...}`` frame in ``_matching_close_paren``:
+#: Raised by 175, from 32,526, for the ``${...}`` frame in ``_matching_close_paren``:
 #: ``_close_paren_walk``, ``_opens_expansion``, ``_opens_heredoc`` and ``_expansion_step`` let the
 #: substitution walk step over a parameter expansion, so the ``)`` in
 #: ``$(: ${v:-)}; ...)`` does not end the body, and fall back to the paren-only
 #: span where an expansion cannot be read (the longer span where a lenient walk
-#: disagrees, and a ``<<`` in ``((...))`` is a shift). Span logic only; no deny rule added.
-_PACKAGE_LINE_BUDGET = 32_684
+#: disagrees, the whole remainder where it gave up past the paren-only closer, and a
+#: ``<<`` in ``((...))`` is a shift). Span logic only; no deny rule added.
+_PACKAGE_LINE_BUDGET = 32_701
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

@@ -863,25 +863,36 @@ def _matching_close_paren(text: str, open_end: int) -> "tuple[int, bool]":
     either or closes at the same ``)``; otherwise the LONGER of the two spans is
     returned unproven, so a harmless ``$[`` in front of ``${v:-)}`` cannot
     shorten the body back to the bypass (scan more, never less).  A ``<<``
-    inside ``((...))`` arithmetic is a shift, not a here-document.
+    inside ``((...))`` arithmetic is a shift, not a here-document.  Nor may the
+    paren-only span end before the point where the walk gave up: a here-document
+    AFTER ``${v:-)}`` would otherwise bring the short span back, so that reading
+    is unproven and runs to the end of the text.
     """
     span = _close_paren_walk(text, open_end, True)
     if span is not None and span[1]:
         return span
     paren = _close_paren_walk(text, open_end, False) or (len(text), False)
-    lenient = _close_paren_walk(text, open_end, True, lenient=True)
+    reach: "list[int]" = []
+    lenient = _close_paren_walk(text, open_end, True, lenient=True, reach=reach)
+    if lenient is None and reach and paren[0] <= reach[0]:
+        return (len(text), False)
     if lenient is None or lenient == paren:
         return paren
     return (max(paren[0], lenient[0]), False)
 
 
 def _close_paren_walk(
-    text: str, open_end: int, expansions: bool, lenient: bool = False
+    text: str,
+    open_end: int,
+    expansions: bool,
+    lenient: bool = False,
+    reach: "list[int] | None" = None,
 ) -> "tuple[int, bool] | None":
     """The walk behind :func:`_matching_close_paren`; None means "fall back".
 
     With *expansions* off this is the paren-only walk, which never returns None.
-    With *lenient* on, a ``$[`` inside an expansion is plain text.
+    With *lenient* on, a ``$[`` inside an expansion is plain text.  On a give-up
+    the offset reached is appended to *reach*.
     """
     # One frame per open span, innermost last: ``(`` for a paren body, ``{`` for a
     # ``${...}`` expansion.  A stack rather than recursion, so deep nesting that
@@ -919,7 +930,7 @@ def _close_paren_walk(
                 )
                 if nested and opener == "[":
                     if not lenient:
-                        return None
+                        return _gave_up(reach, off)
                     nested = False
                 if nested:
                     frames.append("s")
@@ -932,7 +943,7 @@ def _close_paren_walk(
                 if jump is None:
                     continue
                 if jump < 0:
-                    return None
+                    return _gave_up(reach, off)
                 pos = jump
                 state, ansi = 0, False
                 jumped = True
@@ -944,16 +955,16 @@ def _close_paren_walk(
             # it before the arithmetic closes, where it may really be one.
             if expansions and ch == "<" and _opens_heredoc(text, off):
                 if frames[-1] != "a":
-                    return None
+                    return _gave_up(reach, off)
                 shift = True
             if shift and ch == "\n" and "a" in frames:
-                return None
+                return _gave_up(reach, off)
             # A backtick body is opaque to the walk around it: a ``${`` or ``)``
             # inside one belongs to the inner command.
             if expansions and ch == "`":
                 close = _backtick_closer(text, off + 1)
                 if close < 0:
-                    return None
+                    return _gave_up(reach, off)
                 pos = close + 1
                 state, ansi = 0, False
                 jumped = True
@@ -991,6 +1002,12 @@ def _close_paren_walk(
         if not jumped:
             break
     return (len(text), False)
+
+
+def _gave_up(reach: "list[int] | None", off: int) -> None:
+    """Record where the walk gave up (see :func:`_close_paren_walk`)."""
+    if reach is not None:
+        reach.append(off)
 
 
 def _opens_heredoc(text: str, index: int) -> bool:
