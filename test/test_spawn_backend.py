@@ -186,9 +186,7 @@ class TestSpawnEndpoint:
         "name, reaches",
         [
             pytest.param("claude", "claude", id="test_a_selectable_backend_reaches_spawn"),
-            pytest.param(
-                "kiro", "", id="test_kiro_is_spelled_by_name_and_reaches_spawn_as_its_id"
-            ),
+            pytest.param("kiro", "", id="test_kiro_is_spelled_by_name_and_reaches_spawn_as_its_id"),
             # The fixture's install probe cannot decide for codex; that must not block.
             pytest.param("codex", "codex", id="test_a_probe_that_could_not_decide_does_not_block"),
         ],

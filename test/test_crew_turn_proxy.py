@@ -595,9 +595,7 @@ class TestTheTurnHandlerRefusesBeforeItForwards:
     @pytest.mark.parametrize(
         "body",
         [
-            pytest.param(
-                ["not", "a", "dict"], id="test_a_body_that_is_not_an_object_is_refused"
-            ),
+            pytest.param(["not", "a", "dict"], id="test_a_body_that_is_not_an_object_is_refused"),
             pytest.param({"message": "   ", "thread": "t"}, id="test_an_empty_message_is_refused"),
             pytest.param({"message": "hi", "thread": "  "}, id="test_an_empty_thread_is_refused"),
             pytest.param(
