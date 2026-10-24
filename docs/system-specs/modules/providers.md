@@ -457,7 +457,8 @@ before it publishes the tab (`retention.resume_check` for Coder, `reopen_session
 for a sprite or boxd machine, which identity-checks the live VM first and leaves a
 same-name replacement alone). A cancellation that fails refuses the resume with
 `reopen_retention_failed` (503, retryable), and a resume refused after the
-cancellation archives the still-closed session again. `prepare` runs the check
+cancellation archives the still-closed session again; a refused revive of a
+session that was never closed archives nothing. `prepare` runs the check
 again and restarts the same workspace. `retention.run_sweeper` (every minute, first pass
 30 s after boot) runs `sweep_due`: a due row is flipped to `deleting` under the
 registry lock (`begin_deletion`, the critical section `cancel_deletion` also
@@ -471,6 +472,8 @@ default), `_shutdown_and_exit` runs `retention.stop_for_shutdown` under
 `SHUTDOWN_STOP_SECS` (8 s, inside the 10 s graceful budget so the hard-exit
 cleanup and audit flush still run before SIGKILL), never raising: it stops every running
 registry-owned workspace except stop-destroys-compute ones and stamps nothing.
+That covers rows whose profile was since removed, so the settings card shows the
+stored switch as it is and keeps an "on" switch usable with no profile left.
 Without one, the worker's orphan timeout (above the link lease, so a restart
 reconnects first) and the Coder deadline, which only the gateway extends, stop
 the guest. Retention deletion needs a running gateway; a stopped workspace keeps

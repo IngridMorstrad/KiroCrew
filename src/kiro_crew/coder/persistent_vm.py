@@ -423,7 +423,9 @@ class PersistentVmEnvironments:
         return row, record
 
     # -- prepare ----------------------------------------------------------------------
-    async def prepare(self, session_key: str, profile_id: str) -> "PreparedRemoteSession":
+    async def prepare(
+        self, session_key: str, profile_id: str, *, progress_key: str | None = None
+    ) -> "PreparedRemoteSession":
         from kiro_crew.coder.retention import session_lifecycle
 
         lifecycle = session_lifecycle(session_key)
@@ -431,9 +433,11 @@ class PersistentVmEnvironments:
         # already running so its stamp is never written after this clears it.
         lifecycle.generation += 1
         async with lifecycle.lock:
-            return await self._prepare(session_key, profile_id)
+            return await self._prepare(session_key, profile_id, progress_key or session_key)
 
-    async def _prepare(self, session_key: str, profile_id: str) -> "PreparedRemoteSession":
+    async def _prepare(
+        self, session_key: str, profile_id: str, progress_key: str
+    ) -> "PreparedRemoteSession":
         from kiro_crew.coder.session_launch import PreparedRemoteSession
 
         profile = self.profile(profile_id)
@@ -458,7 +462,7 @@ class PersistentVmEnvironments:
                     await asyncio.to_thread(self.registry.set_deletion, session_key, "")
         created = row is None
         if row is None:
-            row = await self._create(session_key, profile)
+            row = await self._create(session_key, profile, progress_key)
         shell = await self.shell(profile, row)
         try:
             if workdir:
@@ -500,8 +504,10 @@ class PersistentVmEnvironments:
         """The folder a session runs in: the profile's, else the recorded login home."""
         return str(profile.get("workdir") or "") or row.home
 
-    async def _create(self, session_key: str, profile: dict[str, Any]) -> SessionResource:
-        report_start_stage(session_key, "provisioning")
+    async def _create(
+        self, session_key: str, profile: dict[str, Any], progress_key: str
+    ) -> SessionResource:
+        report_start_stage(progress_key, "provisioning")
         row = SessionResource(
             session_key,
             str(profile["id"]),
