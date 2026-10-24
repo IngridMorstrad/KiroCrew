@@ -315,7 +315,7 @@ async def _drain_parked_queues(state: DashboardState, slot_keys: list[str]) -> N
                     or slot._stop_state != "idle"
                 ):
                     continue
-                if not _parked_queue_drain_admitted():
+                if not _memory_preparation_pending(state) and not _parked_queue_drain_admitted():
                     return
                 started = await _start_next_queued_turn(state, slot)
             if started:
@@ -549,6 +549,17 @@ async def _start_next_queued_turn(
     # text -- and dropped when the ledger revokes it.
     if await _drop_revoked_replays(state, slot):
         return False
+
+    from kiro_crew.shared_crew.admission_entry import queued_work_ids
+    from kiro_crew.shared_crew.admission_gate import installed_service
+
+    service = installed_service()
+    if service is not None:
+        for item in list(slot._queue):
+            work_ids = queued_work_ids([item])
+            if work_ids and await service._cancelled_parked(work_ids) is not None:
+                slot.queue_remove_by_id(item["id"])
+                state.broadcast_ws("queue_pop", {"slot": slot.key, "queue_id": item["id"]})
 
     try:
         merge = KiroCrewConfig.load().dashboard.merge_queued_messages
@@ -888,7 +899,7 @@ async def _start_next_queued_turn(
     # A merged row's text is every entry's, so the row keeps an address only
     # when every consumed entry carries that same address; otherwise the union's
     # last writer would be quoted another sender's words.
-    for _address_key in (CHANNEL_RECIPIENT_META_KEY, SEND_ORIGIN_META_KEY):
+    for _address_key in (CHANNEL_RECIPIENT_META_KEY, SEND_ORIGIN_META_KEY, "author"):
         _addresses = [
             (
                 (item.get("meta") or {}).get(_address_key)
@@ -1118,11 +1129,18 @@ async def _start_next_queued_turn(
                 if isinstance(_loop_id, str) and _loop_id:
                     _run_kwargs["_directive_loop_id"] = _loop_id
                 break
-    task = spawn_guarded_turn(
-        state,
-        slot,
-        _run_chat(state, slot, next_msg, **_run_kwargs),
-    )
+    # Shared Crew: the drained turn is charged to the person who queued it, read
+    # from the server-stamped author on the entries. Entries restored from disk
+    # or written by different people name no one, so the turn falls to the
+    # bounded Unknown or automation budget (shared_crew.turn_gate).
+    from kiro_crew.shared_crew.turn_gate import initiated_by, queued_initiator, queued_work
+
+    with initiated_by(queued_initiator(consumed)), queued_work(consumed):
+        task = spawn_guarded_turn(
+            state,
+            slot,
+            _run_chat(state, slot, next_msg, **_run_kwargs),
+        )
     slot.task = task
     if _settleable:
         # Open the retention clock on the result files this row promises — but

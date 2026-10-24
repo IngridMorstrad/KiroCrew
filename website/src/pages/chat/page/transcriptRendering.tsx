@@ -41,6 +41,23 @@ import type { RefusedPressAction } from './turnActions'
  *  shared so the per-row context does not allocate. */
 const NO_AUTO_DENIED = new Set<string>()
 
+/** The row that may carry the Shared Crew "Queued" line: the newest user row,
+ *  and only while the session has no queue-stack rows (a busy session's queued
+ *  sends are those rows, not this bubble). -1 for none. Once per array. */
+const queuedSendRowCache = new WeakMap<readonly ChatMessage[], number>()
+function queuedSendRow(messages: readonly ChatMessage[]): number {
+  const cached = queuedSendRowCache.get(messages)
+  if (cached !== undefined) return cached
+  let found = -1
+  if (!messages.some(m => m.role === 'queued')) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { found = i; break }
+    }
+  }
+  queuedSendRowCache.set(messages, found)
+  return found
+}
+
 interface TranscriptRenderingOptions {
   embedded?: boolean
   mode?: string
@@ -253,6 +270,7 @@ export function useTranscriptRendering({
               renderContent={renderUserContentCb}
               canEdit={!slotRunning && !regenerating && !!activeSlot && !activeSlotRemoteBound}
               slotRunning={slotRunning}
+              showQueuedSend={queuedSendRow(ctx.messages) === i}
               messageIndex={i}
               messageTs={m.ts || ''}
               onEditResend={handleEditResend}

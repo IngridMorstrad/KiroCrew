@@ -472,6 +472,16 @@ def cgroup_scope_argv(argv: list[str]) -> list[str]:
     # applies to already-running members, so the spawn need not wait for it.
     _reconcile_slice_memory_high_off_thread()
     max_procs, max_mem_mb, cpu_weight, max_cpu_percent = _cgroup_limits_from_config()
+    # Under Shared Crew the scope joins its principal's slice, a child of the
+    # instance slice, so every ceiling above it keeps applying. The lookup is in
+    # memory; any failure takes the instance slice rather than costing the
+    # spawn its ceiling.
+    try:
+        from kiro_crew.shared_crew.containment import scope_parent_slice
+
+        parent_slice = scope_parent_slice() or _agents_slice_name()
+    except Exception:
+        parent_slice = _agents_slice_name()
     props = [
         "-p",
         f"TasksMax={max_procs}",
@@ -491,7 +501,7 @@ def cgroup_scope_argv(argv: list[str]) -> list[str]:
         "--user",
         "--scope",
         "-q",
-        f"--slice={_agents_slice_name()}",
+        f"--slice={parent_slice}",
         *props,
         "--",
         *argv,

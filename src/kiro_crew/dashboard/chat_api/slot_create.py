@@ -139,6 +139,13 @@ async def api_chat_slot_create(request: web.Request) -> web.Response:
     # Refused before anything is read or written, so a stale client cannot stamp
     # a remote executor onto a new local slot. The answer is the same for every
     # caller and every state, so it discloses nothing.
+    # Shared Crew: session creation is cheap but bounded per person, across tabs.
+    from kiro_crew.shared_crew import admission_gate
+
+    _service = await admission_gate.current_service()
+    _rate = _service.check_session_create(admission_gate.actor_budget(request))
+    if _rate is not None:
+        return _rate.refusal_response()
     if body.get("instance_id") or body.get("adopt_remote_slot"):
         return web.json_response(
             {
@@ -562,6 +569,23 @@ async def api_chat_slot_create(request: web.Request) -> web.Response:
             # Same attribution as the send auto-create: a cron-opened slot
             # carries its creator and never reads as a person's own tab.
             slot._created_by = cron_creator
+        if is_new_slot:
+            # Shared Crew creator: the actor the auth middleware published,
+            # write-once. Function-local: this module runs on the facade globals.
+            from kiro_crew.shared_crew.attribution import stamp_creator
+            from kiro_crew.shared_crew.audit import schedule_action_audit
+            from kiro_crew.shared_crew.contracts import ActionOutcome, ActionType
+            from kiro_crew.shared_crew.identity import actor_of
+
+            _sc_actor = actor_of(request)
+            stamp_creator(slot, _sc_actor)
+            schedule_action_audit(
+                ActionType.SESSION_CREATE,
+                session_key=slot.key,
+                initiator=_sc_actor,
+                outcome=ActionOutcome.APPLIED,
+                target=slot.key,
+            )
         if is_new_slot and cfg is not None:
             if is_owner_dashboard_request(request):
                 # Take the slot lock before the newborn's first await: a later

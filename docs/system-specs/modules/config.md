@@ -1477,6 +1477,19 @@ from another tab or channel cannot publish its pre-import copy over the restored
 file. It then sets `ui_prefs_restored`, only when the archive carried a vetted
 `ui-prefs.json`.
 
+## Shared Crew admission (`dashboard.shared_crew`)
+
+`config/sections_shared_crew.py` owns the section. Every integer is clamped to
+`SHARED_CREW_BOUNDS` and a wrong-typed value reads as its default, so an edit can
+narrow or widen a limit but never remove one. `effective_limits` resolves `0` (auto)
+values against the session start gate's automatic width and caps per-person limits at
+the Crew's; `GET /api/shared-crew/capacity` returns the resolved values as
+`effective`. The gate re-reads the section off-loop at most every 5 seconds.
+`hard_limits` on with `admission_enabled` off is not a pass-through: nothing would
+apply the limits, so the gateway refuses every runtime start (`admission_disabled`)
+until one of the two changes. Defaults and meanings: [shared-crew.md](shared-crew.md)
+section 4, Defaults and API.
+
 ## Unknown keys are preserved on round-trip
 
 `save()` re-emits the whole dataclass, so anything the running build does not

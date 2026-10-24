@@ -468,6 +468,7 @@ if TYPE_CHECKING:
         SubagentManager,
         TaskRunner,
     )
+    from kiro_crew.dashboard.tailnet_direct import DirectGate  # noqa: F401
 
 # aiohttp's static file handler uses its own ``mimetypes.MimeTypes()`` instance
 # (``aiohttp.web_fileresponse.CONTENT_TYPES``) which does NOT load the system
@@ -877,6 +878,10 @@ async def start_dashboard(
     # slices in the table's original sequence -- see that package's docstring.
     register_all(app)
 
+    from kiro_crew.shared_crew import enterprise_gates
+
+    start_shared_crew_maintenance = enterprise_gates.install_lifecycle(app)
+
     # Register built-in apps (idempotent — surfaces baked-in features in App Store).
     # Runs on the executor: escalation cleanup can traverse/delete legacy app
     # dirs, which must not block the event loop during startup.
@@ -1016,6 +1021,23 @@ async def start_dashboard(
         _ts_cfg = _cfg.dashboard.tailscale
         _tailnet_host = await tailnet.resolve_tailnet_host(_ts_cfg.enabled)
         _tailnet_trust = await _resolve_tailnet_trust(_cfg)
+        # Shared Crew: the Tailscale setup path reports what resolved here.
+        from kiro_crew.dashboard.tailnet_proxy_proof import proof_support
+        from kiro_crew.shared_crew.access import note_tailnet
+
+        note_tailnet(
+            enabled=bool(_ts_cfg.enabled),
+            host=_tailnet_host,
+            identity_trust=_tailnet_trust.enforces_identity and not _tailnet_trust.identity_unknown,
+            loopback_only=local_only,
+            proof_gap=await asyncio.to_thread(proof_support),
+            identity_config_unreadable=tailnet_identity_unknown(_cfg.degraded_sections),
+        )
+        # Direct tailnet listener: whois-verified, token-free, on this machine's
+        # own tailnet addresses only. Resolved here because the chain carries it.
+        from kiro_crew.dashboard import tailnet_direct_listener
+
+        _direct = await tailnet_direct_listener.resolve(_cfg, port, local_only)
         if _tailnet_host:
             logger.info(
                 "tailnet access enabled: trusting origin https://%s (bind and auth unchanged)",
@@ -1087,6 +1109,7 @@ async def start_dashboard(
             tailnet_host=_tailnet_host,
             configured_host=configured_host,
             dashboard_url=dashboard_url,
+            tailnet_direct=_direct.gate,
         )
 
         # Register only after the final allowed-origin set is selected.  The startup
@@ -1137,6 +1160,10 @@ async def start_dashboard(
         _register_connections_warm_lifecycle(app, state)
         _register_workflow_lifecycle(app, state)
         _register_crewmate_prune_gate(app, state)
+        # Shared Crew enterprise grant and budget gates; a no-op on the default seam.
+        from kiro_crew.shared_crew import enterprise_gates
+
+        enterprise_gates.install(app)
         _register_change_card_hook(app)
 
         # Unix-socket cleanup hook — registered before runner.setup freezes the
@@ -1173,6 +1200,7 @@ async def start_dashboard(
     # The listener is up -- keep it up. One failed accept() on Windows would
     # otherwise close it for the life of the process (see listener_guard).
     _arm_listener_guard(state, runner, site)
+    start_shared_crew_maintenance()
     # One-time prune of the crewmates an enrol-on-mount agent sync generated
     # from the user's own specs (see crewmate_prune_migration). Kicked here,
     # right after the bind, as a tracked background task -- its cost scales
@@ -1200,6 +1228,8 @@ async def start_dashboard(
     # nothing listens on and leave the real one free for anyone to take.
     _bound_port = _resolved_bound_port(runner, port)
     _second_loopback = await _start_secondary_loopback_site(runner, _bound_port, _bind_ip)
+    # The direct tailnet sites, on the same port; nothing when the gate is off.
+    await tailnet_direct_listener.start(app, runner, _bound_port, _direct)
 
     # Port bind succeeded — now safe to write the secret file. Offloaded:
     # _write_secret_file does blocking fs I/O (os.open/os.close, plus the

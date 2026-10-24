@@ -142,7 +142,6 @@ src/kiro_crew/dashboard/chat_folder_suggest.py
 src/kiro_crew/dashboard/chat_nav.py
 src/kiro_crew/dashboard/chat_title.py
 src/kiro_crew/dashboard/file_index.py
-src/kiro_crew/dashboard/handlers/ask_question.py
 src/kiro_crew/dashboard/handlers/files.py
 src/kiro_crew/dashboard/handlers/kiro_usage_api.py
 src/kiro_crew/dashboard/handlers/notifications_push.py
@@ -408,7 +407,6 @@ test/test_dashboard_cron_concurrent_create.py
 test/test_dashboard_file_io.py
 test/test_dashboard_files_coverage.py
 test/test_dashboard_no_legacy.py
-test/test_dashboard_route_table.py
 test/test_dashboard_server_coverage.py
 test/test_dashboard_sessions_memory.py
 test/test_dashboard_sessions_search.py

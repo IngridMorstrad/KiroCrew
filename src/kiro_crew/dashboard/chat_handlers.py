@@ -104,9 +104,13 @@ from kiro_crew.dashboard.chat_api.app_admission import (  # noqa: F401
     _slot_not_found,
 )
 from kiro_crew.dashboard.chat_api.chat_send import (  # noqa: F401
+    _committed_if_accepted,
+    _composer_locked_answer,
     _send_binds_agent,
     _send_harness_command,
+    _send_id_of,
     _send_writes_persona,
+    _settle_send_race,
     _sweep_stale_permissions,
     api_chat,
     decided_message_handling,

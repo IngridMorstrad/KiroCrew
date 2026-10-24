@@ -1,0 +1,568 @@
+"""In-Crew Tailscale invites: share this machine, learn who accepted, revoke.
+
+The owner connects a Tailscale API access key once. After that the People
+surface can invite a teammate by email or make an invite link, and Crew does the
+rest:
+
+1. :func:`connect` checks the key and finds this machine's device id by node key
+   (then tailnet address) from the local daemon, never by name;
+2. :func:`create_invites` asks Tailscale for the share invites and records each
+   with the optional alias and avatar the owner chose;
+3. :func:`sync` reads the device's invites back. For each newly accepted one it
+   binds the accepting user's stable Tailscale id and real login to the alias,
+   grants it live (:mod:`kiro_crew.dashboard.tailnet_live_allowlist`) and
+   recomputes the derived access set (``access_set``), which admits that login.
+   The login is also mirrored into ``dashboard.tailscale.allowed_logins`` so the
+   ``tailscale serve`` path turns identity trust on; that list is not where the
+   direct listener reads access from. The accepting login is used even when it
+   differs from the invited email: Tailscale lets an invite be accepted from any
+   account, and the account that accepted is the one that connects;
+4. :func:`revoke` deletes the invite at Tailscale, takes the login out of the
+   set, refuses it live, closes that person's open dashboard sockets, cancels
+   their queued work and stops their running turn (``access_set.stop_work``).
+
+Alias and avatar are display only. Access always comes from the verified login.
+Every invite, accept and revoke is written to the security event log with the
+actor, a digest of the invited email and the outcome.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+
+from kiro_crew.shared_crew import access_set
+from kiro_crew.shared_crew import tailscale_invite_store as store
+from kiro_crew.shared_crew.tailscale_api import (
+    CODE_NOT_FOUND,
+    CODE_RATE_LIMITED,
+    DeviceInvite,
+    TailscaleApi,
+    TailscaleApiError,
+    api_key_id,
+)
+
+logger = logging.getLogger(__name__)
+
+#: Where the owner shares this machine by hand when no key is connected.
+ADMIN_MACHINES_URL = "https://login.tailscale.com/admin/machines"
+ADMIN_KEYS_URL = "https://login.tailscale.com/admin/settings/keys"
+MAX_EMAILS = 20
+_EMAIL_RE = re.compile(r"\A[^@\s]{1,128}@[^@\s]{1,253}\Z")
+#: How soon before expiry the status read warns the owner.
+EXPIRY_WARN_SECS = 7 * 24 * 3600
+
+#: Poll schedule while invites are pending.
+POLL_BASE_SECS = 60.0
+POLL_MAX_SECS = 900.0
+#: A People page open syncs at most this often.
+SYNC_MIN_INTERVAL_SECS = 15.0
+
+CODE_NOT_CONNECTED = "not_connected"
+CODE_BAD_KEY = "invalid_key_format"
+CODE_DEVICE_NOT_FOUND = "device_not_found"
+CODE_DAEMON = "daemon_unavailable"
+CODE_BAD_EMAIL = "invalid_email"
+CODE_BACKING_OFF = "backing_off"
+
+
+class InviteError(Exception):
+    def __init__(self, code: str, retry_after: float = 0.0) -> None:
+        super().__init__(code)
+        self.code = code
+        self.retry_after = retry_after
+
+
+@dataclass(frozen=True)
+class DaemonSelf:
+    node_key: str
+    addresses: tuple[str, ...]
+    tailnet: str
+    login: str
+
+
+def _read_daemon_self() -> Optional[DaemonSelf]:
+    from kiro_crew.dashboard import tailnet
+
+    status = tailnet._run_json(["status", "--json"])
+    if not isinstance(status, dict) or not isinstance(status.get("Self"), dict):
+        return None
+    me = status["Self"]
+    ips = me.get("TailscaleIPs")
+    current = status.get("CurrentTailnet")
+    name = current.get("Name") if isinstance(current, dict) else ""
+    return DaemonSelf(
+        node_key=str(me.get("PublicKey") or ""),
+        addresses=tuple(a for a in ips if isinstance(a, str)) if isinstance(ips, list) else (),
+        tailnet=str(name or status.get("MagicDNSSuffix") or ""),
+        login=tailnet._self_login(status),
+    )
+
+
+#: Seams the tests replace: the daemon read and the API client.
+daemon_self_reader: Callable[[], Optional[DaemonSelf]] = _read_daemon_self
+api_factory: Callable[[str], TailscaleApi] = lambda key: TailscaleApi(key)  # noqa: E731
+
+
+def _nodekey(raw: str) -> str:
+    return raw.strip().lower().removeprefix("nodekey:")
+
+
+def _audit(operation: str, outcome: str, actor: str, *, email: str = "", detail: str = "") -> None:
+    resources = f"email_sha256:{store.email_hash(email)}" if email else ""
+    try:
+        from kiro_crew.sel import sel
+
+        sel().log_api_access(
+            caller=actor or "crew",
+            operation=f"shared_crew.invite.{operation}",
+            outcome=outcome,
+            source="shared-crew-invites",
+            resources=resources,
+            error=detail,
+        )
+    except Exception:  # noqa: BLE001 -- the audit never breaks the action
+        logger.debug("invite audit write failed", exc_info=True)
+
+
+async def _audit_async(*args: Any, **kwargs: Any) -> None:
+    await asyncio.to_thread(_audit, *args, **kwargs)
+
+
+def _api() -> tuple[TailscaleApi, str]:
+    key = store.load_credential()
+    if not key:
+        raise InviteError(CODE_NOT_CONNECTED)
+    device_id = str(store.load_state().get("device_id") or "")
+    if not device_id:
+        raise InviteError(CODE_NOT_CONNECTED)
+    return api_factory(key), device_id
+
+
+# ── connect ──
+
+
+async def connect(key: str, actor: str) -> dict[str, Any]:
+    key = key.strip()
+    key_id = api_key_id(key)
+    if not key_id:
+        raise InviteError(CODE_BAD_KEY)
+    me = await asyncio.to_thread(daemon_self_reader)
+    if me is None or not (me.node_key or me.addresses):
+        raise InviteError(CODE_DAEMON)
+    api = api_factory(key)
+    try:
+        devices = await api.list_devices()
+    except TailscaleApiError as exc:
+        await _audit_async("connect", "denied", actor, detail=exc.code)
+        raise
+    want = _nodekey(me.node_key)
+    device = next((d for d in devices if want and _nodekey(d.node_key) == want), None)
+    if device is None:
+        mine = set(me.addresses)
+        device = next((d for d in devices if mine & set(d.addresses)), None)
+    if device is None:
+        await _audit_async("connect", "denied", actor, detail=CODE_DEVICE_NOT_FOUND)
+        raise InviteError(CODE_DEVICE_NOT_FOUND)
+    try:
+        expires = await api.key_expiry(key_id)
+    except TailscaleApiError:
+        expires = ""
+    await asyncio.to_thread(store.save_credential, key)
+
+    def _mutate(state: dict[str, Any]) -> None:
+        state.update(
+            device_id=device.node_id,
+            tailnet=me.tailnet,
+            key_expires=expires,
+            connected_at=store.now(),
+            backoff_until=0.0,
+            backoff_secs=0.0,
+        )
+
+    await asyncio.to_thread(store.update_state, _mutate)
+    await _audit_async("connect", "granted", actor)
+    return await status_view()
+
+
+async def disconnect(actor: str) -> None:
+    await asyncio.to_thread(store.delete_credential)
+
+    def _mutate(state: dict[str, Any]) -> None:
+        state.update(device_id="", key_expires="", connected_at=0.0)
+
+    await asyncio.to_thread(store.update_state, _mutate)
+    await _audit_async("disconnect", "granted", actor)
+
+
+# ── views ──
+
+
+def _expiry_epoch(raw: str) -> float:
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _invite_row(row: dict[str, Any], members: dict[str, Any]) -> dict[str, Any]:
+    member = members.get(str(row.get("accepted_user_id") or ""))
+    out = {
+        "id": row.get("id"),
+        "kind": "email" if row.get("email") else "link",
+        "email": row.get("email") or "",
+        "multi_use": bool(row.get("multi_use")),
+        "alias": row.get("alias") or "",
+        "avatar_id": row.get("avatar_id") or "",
+        "created_at": row.get("created_at") or 0.0,
+        "status": "accepted" if member else "pending",
+        "accepted_login": member.get("login", "") if member else "",
+    }
+    if not row.get("email"):
+        # The owner copies a link invite; an email invite went by mail.
+        out["invite_url"] = row.get("invite_url") or ""
+    return out
+
+
+def _member_row(member: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "user_id": member.get("user_id"),
+        "login": member.get("login"),
+        "alias": member.get("alias") or "",
+        "avatar_id": member.get("avatar_id") or "",
+        "profile_pic_url": member.get("profile_pic_url") or "",
+        "invite_id": member.get("invite_id") or "",
+        "accepted_at": member.get("accepted_at") or 0.0,
+    }
+
+
+async def status_view() -> dict[str, Any]:
+    connected = await asyncio.to_thread(store.credential_present)
+    state = await asyncio.to_thread(store.load_state)
+    expires = str(state.get("key_expires") or "")
+    expiry = _expiry_epoch(expires) if expires else 0.0
+    now = store.now()
+    members = state.get("members") or {}
+    return {
+        "connected": bool(connected and state.get("device_id")),
+        "tailnet": state.get("tailnet") or "",
+        "key_expires": expires,
+        "key_expired": bool(expiry and expiry <= now),
+        "key_expires_soon": bool(expiry and now < expiry <= now + EXPIRY_WARN_SECS),
+        "admin_share_url": ADMIN_MACHINES_URL,
+        "admin_keys_url": ADMIN_KEYS_URL,
+        "invites": [
+            _invite_row(row, members)
+            for row in sorted(
+                (state.get("invites") or {}).values(),
+                key=lambda r: -float(r.get("created_at") or 0.0),
+            )
+        ],
+        "members": [_member_row(m) for m in members.values()],
+        "last_sync_at": state.get("last_sync_at") or 0.0,
+    }
+
+
+def members_by_login() -> dict[str, dict[str, Any]]:
+    """Each accepted person's display record, keyed by lower-cased verified login."""
+    return {
+        str(m.get("login") or "").strip().lower(): _member_row(m)
+        for m in (store.load_state().get("members") or {}).values()
+        if m.get("login")
+    }
+
+
+def member_for_login(login: str) -> Optional[dict[str, Any]]:
+    """The display record bound to *login*, for People rows."""
+    return members_by_login().get(login.strip().lower())
+
+
+# ── create, resend ──
+
+
+def clean_emails(raw: object) -> list[str]:
+    if not isinstance(raw, list) or len(raw) > MAX_EMAILS:
+        raise InviteError(CODE_BAD_EMAIL)
+    out: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not _EMAIL_RE.match(entry.strip()):
+            raise InviteError(CODE_BAD_EMAIL)
+        email = entry.strip()
+        if email.lower() not in {e.lower() for e in out}:
+            out.append(email)
+    return out
+
+
+async def create_invites(
+    emails: list[str], *, multi_use: bool, alias: str, avatar_id: str, actor: str
+) -> list[dict[str, Any]]:
+    api, device_id = await asyncio.to_thread(_api)
+    try:
+        made = await api.create_invites(device_id, emails, multi_use=multi_use and not emails)
+    except TailscaleApiError as exc:
+        for email in emails or [""]:
+            await _audit_async("create", "error", actor, email=email, detail=exc.code)
+        raise
+    alias = store.clean_alias(alias)
+    avatar_id = avatar_id if store.valid_avatar_id(avatar_id) else ""
+    created_at = store.now()
+
+    def _mutate(state: dict[str, Any]) -> None:
+        for invite in made:
+            state["invites"][invite.id] = {
+                "id": invite.id,
+                "email": invite.email,
+                "multi_use": invite.multi_use or (multi_use and not emails),
+                "invite_url": invite.invite_url,
+                "alias": alias,
+                "avatar_id": avatar_id,
+                "created_at": created_at,
+                "accepted_user_id": "",
+            }
+
+    state = await asyncio.to_thread(store.update_state, _mutate)
+    for invite in made:
+        await _audit_async("create", "granted", actor, email=invite.email)
+    members = state.get("members") or {}
+    return [_invite_row(state["invites"][i.id], members) for i in made]
+
+
+async def resend(invite_id: str, actor: str) -> None:
+    api, _ = await asyncio.to_thread(_api)
+    row = ((await asyncio.to_thread(store.load_state)).get("invites") or {}).get(invite_id)
+    try:
+        await api.resend_invite(invite_id)
+    except TailscaleApiError as exc:
+        await _audit_async(
+            "resend", "error", actor, email=(row or {}).get("email", ""), detail=exc.code
+        )
+        raise
+    await _audit_async("resend", "granted", actor, email=(row or {}).get("email", ""))
+
+
+# ── accept: sync with Tailscale ──
+
+AllowlistWriter = Callable[[str, bool], Any]
+
+
+async def _default_allowlist_writer(login: str, add: bool) -> bool:
+    from kiro_crew.shared_crew import tailscale_allowlist
+
+    return await tailscale_allowlist.write(login, add=add)
+
+
+#: Writes ``dashboard.tailscale.allowed_logins``; returns whether a restart is
+#: needed for it to apply. Replaced in tests.
+allowlist_writer: Callable[[str, bool], Any] = _default_allowlist_writer
+
+
+def _new_accepts(
+    state: dict[str, Any], invites: list[DeviceInvite]
+) -> list[tuple[DeviceInvite, dict[str, Any]]]:
+    out = []
+    for invite in invites:
+        if not (invite.accepted and invite.accepted_by):
+            continue
+        row = state["invites"].get(invite.id)
+        if row is None:
+            # Made in the admin console, not by Crew: still a person who may connect.
+            row = {"id": invite.id, "email": invite.email, "alias": "", "avatar_id": ""}
+        uid = invite.accepted_by.user_id
+        known = state["members"].get(uid)
+        if known and known.get("login") == invite.accepted_by.login:
+            continue
+        out.append((invite, row))
+    return out
+
+
+async def sync(*, actor: str = "crew", force: bool = False) -> dict[str, Any]:
+    """Read invites back from Tailscale and admit each newly accepted person."""
+    api, device_id = await asyncio.to_thread(_api)
+    state = await asyncio.to_thread(store.load_state)
+    now = store.now()
+    if not force and now < float(state.get("backoff_until") or 0.0):
+        raise InviteError(CODE_BACKING_OFF, float(state["backoff_until"]) - now)
+    try:
+        invites = await api.list_invites(device_id)
+    except TailscaleApiError as exc:
+        prior = float(state.get("backoff_secs") or 0.0)
+        wait = max(exc.retry_after, min(POLL_MAX_SECS, prior * 2 or POLL_BASE_SECS))
+
+        def _back(s: dict[str, Any]) -> None:
+            s.update(backoff_secs=wait, backoff_until=store.now() + wait)
+
+        await asyncio.to_thread(store.update_state, _back)
+        if exc.code == CODE_RATE_LIMITED:
+            raise InviteError(CODE_RATE_LIMITED, wait) from exc
+        raise
+    accepts = _new_accepts(state, invites)
+    restart = False
+    admitted: list[dict[str, Any]] = []
+    for invite, row in accepts:
+        by = invite.accepted_by
+        assert by is not None
+        try:
+            restart = bool(await allowlist_writer(by.login, True)) or restart
+        except Exception as exc:  # noqa: BLE001 -- not admitted is the safe failure
+            logger.warning("adding an accepted login to the allowlist failed", exc_info=True)
+            await _audit_async(
+                "accept", "error", actor, email=row.get("email", ""), detail=type(exc).__name__
+            )
+            continue
+        from kiro_crew.dashboard import tailnet_live_allowlist
+
+        tailnet_live_allowlist.grant(by.login)
+        await asyncio.to_thread(access_set.restore, by.login)
+        admitted.append(
+            {
+                "user_id": by.user_id,
+                "login": by.login,
+                "alias": row.get("alias") or "",
+                "avatar_id": row.get("avatar_id") or "",
+                "profile_pic_url": by.profile_pic_url,
+                "invite_id": invite.id,
+                "accepted_at": store.now(),
+            }
+        )
+        await _audit_async(
+            "accept",
+            "granted",
+            actor,
+            email=row.get("email", ""),
+            detail=f"login_sha256:{store.email_hash(by.login)}",
+        )
+    live_ids = {i.id for i in invites}
+
+    def _mutate(s: dict[str, Any]) -> None:
+        for member in admitted:
+            prior = s["members"].get(member["user_id"]) or {}
+            # A later accept never drops a display choice the owner made.
+            member["alias"] = member["alias"] or prior.get("alias", "")
+            member["avatar_id"] = member["avatar_id"] or prior.get("avatar_id", "")
+            s["members"][member["user_id"]] = member
+            row = s["invites"].get(member["invite_id"])
+            if row is not None:
+                row["accepted_user_id"] = member["user_id"]
+        # An invite absent from Tailscale's list that nobody accepted has expired
+        # or was revoked in the console.
+        for invite_id in list(s["invites"]):
+            if invite_id not in live_ids and not s["invites"][invite_id].get("accepted_user_id"):
+                del s["invites"][invite_id]
+        s.update(backoff_secs=0.0, backoff_until=0.0, last_sync_at=store.now())
+
+    await asyncio.to_thread(store.update_state, _mutate)
+    if admitted:
+        await asyncio.to_thread(access_set.rebuild)
+    return {"admitted": [m["login"] for m in admitted], "restart_required": restart}
+
+
+def pending_count() -> int:
+    state = store.load_state()
+    return sum(1 for r in (state.get("invites") or {}).values() if not r.get("accepted_user_id"))
+
+
+# ── revoke ──
+
+ConnectionCloser = Callable[[str], Any]
+
+
+async def _no_closer(_login: str) -> int:
+    return 0
+
+
+#: Closes a login's live dashboard connections; the routes install the real one.
+connection_closer: ConnectionCloser = _no_closer
+
+
+async def revoke(invite_id: str, actor: str) -> dict[str, Any]:
+    api, _ = await asyncio.to_thread(_api)
+    state = await asyncio.to_thread(store.load_state)
+    row = (state.get("invites") or {}).get(invite_id) or {}
+    member_id = str(row.get("accepted_user_id") or "")
+    if not member_id:
+        member_id = next(
+            (
+                uid
+                for uid, m in (state.get("members") or {}).items()
+                if m.get("invite_id") == invite_id
+            ),
+            "",
+        )
+    member = (state.get("members") or {}).get(member_id)
+    try:
+        await api.delete_invite(invite_id)
+    except TailscaleApiError as exc:
+        if exc.code != CODE_NOT_FOUND:
+            await _audit_async(
+                "revoke", "error", actor, email=row.get("email", ""), detail=exc.code
+            )
+            raise
+    closed = 0
+    stopped = {"cancelled_queued": 0, "stopped_running": 0}
+    if member:
+        login = str(member.get("login") or "")
+        from kiro_crew.dashboard import tailnet_live_allowlist
+
+        tailnet_live_allowlist.revoke(login)
+        try:
+            await allowlist_writer(login, False)
+        except Exception:  # noqa: BLE001 -- the live revoke already holds
+            logger.warning("removing a revoked login from the allowlist failed", exc_info=True)
+        closed = int(await connection_closer(login) or 0)
+
+    def _mutate(s: dict[str, Any]) -> None:
+        s["invites"].pop(invite_id, None)
+        if member_id:
+            s["members"].pop(member_id, None)
+
+    await asyncio.to_thread(store.update_state, _mutate)
+    if member:
+        await asyncio.to_thread(access_set.rebuild)
+        # Their running turn stops now; the slot frees once its runtime has stopped.
+        stopped = await access_set.stop_work(login, frozenset(), actor=actor)
+    await _audit_async(
+        "revoke",
+        "granted",
+        actor,
+        email=row.get("email", ""),
+        detail=f"closed_connections:{closed}",
+    )
+    return {
+        "revoked": invite_id,
+        "member_removed": bool(member),
+        "closed_connections": closed,
+        **stopped,
+    }
+
+
+# ── background poll ──
+
+
+async def poll_forever(sleep: Callable[[float], Any] = asyncio.sleep) -> None:
+    """Sync while invites are pending, backing off on failures."""
+    delay = POLL_BASE_SECS
+    while True:
+        await sleep(delay)
+        try:
+            if not await asyncio.to_thread(store.credential_present):
+                delay = POLL_BASE_SECS
+                continue
+            if await asyncio.to_thread(pending_count) == 0:
+                delay = POLL_BASE_SECS
+                continue
+            await sync()
+            delay = POLL_BASE_SECS
+        except InviteError as exc:
+            delay = min(POLL_MAX_SECS, max(POLL_BASE_SECS, exc.retry_after or delay * 2))
+        except TailscaleApiError as exc:
+            delay = min(POLL_MAX_SECS, max(exc.retry_after, delay * 2))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 -- the poller outlives one bad round
+            logger.warning("invite poll failed", exc_info=True)
+            delay = min(POLL_MAX_SECS, delay * 2)

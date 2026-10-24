@@ -335,6 +335,16 @@ from kiro_crew.config.sections_session import (  # noqa: F401
     _archive_retention_days,
     _migrate_workspaces,
 )
+from kiro_crew.config.sections_shared_crew import (  # noqa: F401
+    SHARED_CREW_BOUNDS,
+    SHARED_CREW_EXPOSURE_FLAGS,
+    SHARED_CREW_FLAGS,
+    EffectiveLimits,
+    SharedCrewConfig,
+    effective_limits,
+    load_shared_crew_config,
+    shared_crew_config_from,
+)
 from kiro_crew.config.sections_slack import (  # noqa: F401
     _VALID_ACTIVATIONS,
     _VALID_CHANNEL_PREFIXES,
@@ -457,6 +467,7 @@ _OWNERS = (
     "kiro_crew.config.sections_session",
     "kiro_crew.config.sections_limits",
     "kiro_crew.config.sections_tailnet",
+    "kiro_crew.config.sections_shared_crew",
     "kiro_crew.config.sections_dashboard",
     "kiro_crew.config.sections_dashboard_hosts",
     "kiro_crew.config.sections_slack",

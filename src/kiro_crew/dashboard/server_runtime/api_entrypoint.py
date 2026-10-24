@@ -311,6 +311,10 @@ async def start_api_server(
         tailnet_trust=_tailnet_trust,
     )
 
+    from kiro_crew.shared_crew import enterprise_gates
+
+    enterprise_gates.install(app)
+    start_shared_crew_maintenance = enterprise_gates.install_lifecycle(app)
     _register_mcp_routes(app)
 
     # Probe parity with the full dashboard server. Headless gateways are often
@@ -366,6 +370,7 @@ async def start_api_server(
     # Same listener guard as start_dashboard: a headless gateway loses its
     # listener to a failed accept() exactly the same way.
     _arm_listener_guard(state, runner, site)
+    start_shared_crew_maintenance()
     _kick_pinned_order_load(state)
     # Export the actually-bound port for child processes (parity with
     # start_dashboard — headless gateways spawn the same MCP stdio children).

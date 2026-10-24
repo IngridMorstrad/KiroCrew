@@ -94,8 +94,8 @@ def _deny_app_token(request: web.Request, operation: str) -> web.Response | None
 
     Denying app tokens outright also removes the need to bind each pending
     ``ask_id`` to an originating app: with only dashboard-user tokens accepted,
-    the sole party that can answer is the single dashboard owner — the actor the
-    card is addressed to.
+    the parties that can answer are the owner and the Shared Crew collaborators
+    the card is addressed to (``_deny_non_collaborator``).
 
     Callers are the dashboard UI answering or dismissing a card, so no
     legitimate caller is an app.
@@ -165,6 +165,25 @@ def _deny_non_owner(request: web.Request, operation: str) -> web.Response | None
     return _owner_denial_response(request, "forbidden", "owner_only")
 
 
+def _deny_non_collaborator(request: web.Request, operation: str) -> web.Response | None:
+    """Require the owner or a Shared Crew collaborator. Returns 403 or None.
+
+    Reading, answering and dismissing a question card is a collaboration right:
+    every collaborator sees the card and the first valid answer wins through the
+    shared decision registry. ``collaborators.is_collaborator_request`` admits the
+    owner (``is_owner_dashboard_request``) and a dashboard session whose verified
+    actor a membership boundary admitted (an allowlisted tailnet login behind
+    serve, or an enterprise assertion). Every caller the owner gate refuses for
+    another reason, a Slack-allowlist dashboard token among them, is refused here
+    exactly as before.
+    """
+    from kiro_crew.shared_crew.collaborators import is_collaborator_request
+
+    if is_collaborator_request(request):
+        return None
+    return _deny_non_owner(request, operation)
+
+
 async def api_ask_question(request: web.Request) -> web.Response:
     """POST /api/ask-question — show a question card and block for the answer.
 
@@ -183,9 +202,7 @@ async def api_ask_question(request: web.Request) -> web.Response:
     try:
         body = await request.json()
     except Exception:
-        return web.json_response(
-            {"error": "invalid JSON", "code": "invalid_json"}, status=400
-        )
+        return web.json_response({"error": "invalid JSON", "code": "invalid_json"}, status=400)
     if not isinstance(body, dict):
         # Valid JSON is not necessarily an object: `[]`, `null` and bare scalars
         # all parse, then blow up on `.get()` as a 500 instead of a 400.
@@ -215,9 +232,7 @@ async def api_ask_question(request: web.Request) -> web.Response:
     try:
         questions = validate_ask_user_question(body)
     except ValidationError as exc:
-        return web.json_response(
-            {"error": str(exc), "code": "invalid_questions"}, status=400
-        )
+        return web.json_response({"error": str(exc), "code": "invalid_questions"}, status=400)
 
     try:
         timeout_secs = body_int(body.get("timeout_secs") or state._QUESTION_TIMEOUT_DEFAULT)
@@ -250,9 +265,7 @@ async def api_ask_question(request: web.Request) -> web.Response:
         # Raised when redaction collapses two questions into the same key, which
         # is only detectable after the redaction pass — so it surfaces here as a
         # 400 rather than from validate_ask_user_question.
-        return web.json_response(
-            {"error": str(exc), "code": "duplicate_question_key"}, status=400
-        )
+        return web.json_response({"error": str(exc), "code": "duplicate_question_key"}, status=400)
     if answers is None:
         return web.json_response({"status": "timeout", "ask_id": ask_id})
     return web.json_response({"status": "answered", "ask_id": ask_id, "answers": answers})
@@ -277,14 +290,14 @@ async def api_ask_question_pending(request: web.Request) -> web.Response:
       dismiss it (the client no longer knows the ``card_id``) — a stuck state
       that only sending a message could clear.
 
-    Owner-only on the same grounds as the other endpoints: the payload is the
-    question text addressed to the owner.
+    Open to the owner and every collaborator (``_deny_non_collaborator``): the
+    payload is the question text addressed to whoever shares the session.
     """
     state: DashboardState = request.app["state"]
     deny = _deny_app_token(request, "ask_question_pending")
     if deny is not None:
         return deny
-    deny = _deny_non_owner(request, "ask_question_pending")
+    deny = _deny_non_collaborator(request, "ask_question_pending")
     if deny is not None:
         return deny
     out: list[dict] = [
@@ -341,14 +354,14 @@ async def api_ask_question_dismiss(request: web.Request) -> web.Response:
     of that record; the answer half retires through the ordinary user message the
     card's submit sends.
 
-    Owner-only on the same grounds as the other endpoints: it mutates the
-    owner's own session status.
+    Open to the owner and every collaborator (``_deny_non_collaborator``): any of
+    them may retire a card they all see.
     """
     state: DashboardState = request.app["state"]
     deny = _deny_app_token(request, "ask_question_dismiss")
     if deny is not None:
         return deny
-    deny = _deny_non_owner(request, "ask_question_dismiss")
+    deny = _deny_non_collaborator(request, "ask_question_dismiss")
     if deny is not None:
         return deny
     try:
@@ -394,16 +407,14 @@ async def api_ask_question_answer(request: web.Request) -> web.Response:
     deny = _deny_app_token(request, "ask_question_answer")
     if deny is not None:
         return deny
-    deny = _deny_non_owner(request, "ask_question_answer")
+    deny = _deny_non_collaborator(request, "ask_question_answer")
     if deny is not None:
         return deny
     ask_id = request.match_info["ask_id"]
     try:
         body = await request.json()
     except Exception:
-        return web.json_response(
-            {"error": "invalid JSON", "code": "invalid_json"}, status=400
-        )
+        return web.json_response({"error": "invalid JSON", "code": "invalid_json"}, status=400)
     if not isinstance(body, dict):
         return web.json_response(
             {"error": "body must be a JSON object", "code": "invalid_body"}, status=400
@@ -417,7 +428,11 @@ async def api_ask_question_answer(request: web.Request) -> web.Response:
         # ("queued"), so the agent neither reads the question as declined nor
         # waits for a message that has not arrived yet.
         raw_reason = body.get("reason")
-        reason = raw_reason if isinstance(raw_reason, str) and raw_reason in _ASK_SEND_REASONS else "dismissed"
+        reason = (
+            raw_reason
+            if isinstance(raw_reason, str) and raw_reason in _ASK_SEND_REASONS
+            else "dismissed"
+        )
     else:
         raw = body.get("answers")
         if not isinstance(raw, dict) or not raw:
@@ -476,7 +491,37 @@ async def api_ask_question_answer(request: web.Request) -> web.Response:
                 status=400,
             )
 
-    if not state.resolve_question(ask_id, answers, reason=reason):
+    # Shared Crew: the verified responder and this click's id ride into the
+    # resolution, so two collaborators answering at once settle it once.
+    from kiro_crew.shared_crew import decisions as shared_decisions
+
+    response_id, response_id_ok = shared_decisions.read_response_id(body)
+    if not response_id_ok:
+        return web.json_response(
+            {"error": "invalid response_id", "code": "invalid_response_id"}, status=400
+        )
+    if not state.resolve_question(
+        ask_id,
+        answers,
+        reason=reason,
+        responder=shared_decisions.request_principal(request),
+        response_id=response_id,
+    ):
+        # A different answer that lost the race is audited as the conflict.
+        late = shared_decisions.decisions_for(state)
+        decision_id = shared_decisions.question_decision_id(ask_id)
+        settled = shared_decisions.lost_race_reply(
+            (
+                late.classify_late(
+                    decision_id, response_id, shared_decisions.request_principal(request)
+                )
+                if response_id
+                else late.classify(decision_id, response_id)
+            ),
+            response_id,
+        )
+        if settled is not None:
+            return shared_decisions.respond(settled)
         recorded_reason = state.recent_question_resolutions().get(ask_id)
         if recorded_reason:
             return web.json_response(
@@ -555,9 +600,7 @@ def _unattested(request: web.Request, operation: str) -> web.Response:
         request,
         operation,
         message,
-        web.json_response(
-            {"error": message, "code": "session_unattested"}, status=403
-        ),
+        web.json_response({"error": message, "code": "session_unattested"}, status=403),
     )
 
 
@@ -588,9 +631,7 @@ async def api_agent_ask_open(request: web.Request) -> web.Response:
             request,
             "agent_ask_open",
             message,
-            web.json_response(
-                {"error": message, "code": "not_dashboard_session"}, status=403
-            ),
+            web.json_response({"error": message, "code": "not_dashboard_session"}, status=403),
             session_key=session_key,
         )
     slot_key = _slot_key_from_session(session_key)
@@ -609,7 +650,9 @@ async def api_agent_ask_open(request: web.Request) -> web.Response:
     elif isinstance(requested, str) and _ASK_ID_RE.fullmatch(requested):
         ask_id = requested
     else:
-        return web.json_response({"error": "ask_id must be 32 hex chars", "code": "invalid_ask_id"}, status=400)
+        return web.json_response(
+            {"error": "ask_id must be 32 hex chars", "code": "invalid_ask_id"}, status=400
+        )
     existing = state._agent_asks.get(ask_id)
     if existing is not None:
         # The ask is still registered, as when its owner retries an open whose reply was lost.
@@ -620,18 +663,14 @@ async def api_agent_ask_open(request: web.Request) -> web.Response:
                 request,
                 "agent_ask_open",
                 message,
-                web.json_response(
-                    {"error": message, "code": "ask_id_conflict"}, status=409
-                ),
+                web.json_response({"error": message, "code": "ask_id_conflict"}, status=409),
                 session_key=session_key,
             )
         return web.json_response({"ask_id": ask_id, "clients": 1})
     try:
         clients = await state.open_agent_ask(ask_id, slot_key, session_key, questions)
     except ValueError as exc:
-        return web.json_response(
-            {"error": str(exc), "code": "duplicate_question_key"}, status=400
-        )
+        return web.json_response({"error": str(exc), "code": "duplicate_question_key"}, status=400)
     try:
         if clients is None:
             outcome = "capacity"
@@ -679,9 +718,7 @@ async def api_agent_ask_wait(request: web.Request) -> web.Response:
                 request,
                 "agent_ask_wait",
                 message,
-                web.json_response(
-                    {"error": message, "code": "question_not_found"}, status=404
-                ),
+                web.json_response({"error": message, "code": "question_not_found"}, status=404),
                 session_key=session_key,
             )
         return web.json_response(
@@ -706,9 +743,7 @@ async def api_agent_ask_withdraw(request: web.Request) -> web.Response:
                 request,
                 "agent_ask_withdraw",
                 message,
-                web.json_response(
-                    {"error": message, "code": "question_not_found"}, status=404
-                ),
+                web.json_response({"error": message, "code": "question_not_found"}, status=404),
                 session_key=session_key,
             )
         return web.json_response(

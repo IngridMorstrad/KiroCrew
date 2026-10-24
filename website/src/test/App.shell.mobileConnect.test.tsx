@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useMobileConnect, MobileConnectDialog } from '../shell/nav/mobileConnect'
+import { useMobileConnect, MobileConnectDialog } from '../components/mobileConnect'
 import { api } from '../api/client'
 
 vi.mock('../components/MobileConnectModal', () => ({

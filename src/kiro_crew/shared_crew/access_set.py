@@ -1,0 +1,594 @@
+"""Who may reach this Crew over Tailscale: computed, never typed.
+
+Tailscale is the only access authority. The set of people who get in is
+derived, and this module derives it:
+
+* the owner (this machine's own Tailscale user);
+* each person who accepted a Crew Tailscale invite, by the login Tailscale's
+  API reported for them (``tailscale_invites``);
+* each person the owner approved from the Waiting list, by stable Tailscale
+  user id;
+* once, at the first start, the logins and ``tag:`` entries already in
+  ``dashboard.tailscale.allowed_logins`` (the migration seed). After that a hand
+  edit of the config list admits nobody.
+
+A same-tailnet person the Tailscale ACL lets reach this machine is not in the
+set. The direct tailnet listener refuses them with a "waiting for the owner"
+page and :func:`note_waiting` lists them (name, avatar and first sighting from
+``whois``) so the owner can Approve or Dismiss them on People. The list is
+bounded (:data:`MAX_WAITING`, oldest dropped) and rate-limited.
+
+Removing someone (:func:`stop_access`) refuses their next request, closes their
+dashboard sockets, cancels their queued work and stops their running turn
+through the admission service's own cancel path, which frees the slot only once
+the runtime has stopped. Finished work is kept.
+
+The state file lives in ``<data_home>/.vault/shared-crew-tailscale/`` beside the
+invite records, a directory every sandbox mode masks, so an agent's tools can
+neither read nor plant an approval. A file that cannot be read admits nobody
+but the owner. The computed set is published to
+:mod:`kiro_crew.dashboard.tailnet_live_allowlist`, which the auth middleware
+reads.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import threading
+import time
+from collections import deque
+from typing import Any, Awaitable, Callable, Optional
+
+from kiro_crew.atomic_write import atomic_write
+from kiro_crew.dashboard import tailnet_live_allowlist
+from kiro_crew.dashboard.tailnet_live_allowlist import AccessSnapshot
+from kiro_crew.shared_crew import tailscale_invite_store as store
+
+logger = logging.getLogger(__name__)
+
+ACCESS_FILE = "access.json"
+SCHEMA = 1
+MAX_WAITING = 50
+#: A listed person's sighting is refreshed at most this often.
+WAITING_REFRESH_SECS = 60.0
+#: At most this many NEW people join the Waiting list per minute.
+NEW_WAITING_PER_MINUTE = 10
+#: A dismissed person is not listed again for this long.
+DISMISS_SECS = 24 * 3600.0
+MAX_DISMISSED = 200
+_DISPLAY_MAX = 128
+
+CODE_NOT_WAITING = "not_waiting"
+CODE_NOT_APPROVED = "not_approved"
+CODE_ACK_REQUIRED = "first_share_ack_required"
+CODE_UNREADABLE = "access_unreadable"
+
+OUTCOME_ACCESS_REMOVED = "stopped: access removed"
+
+
+class AccessError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class _Unreadable(Exception):
+    pass
+
+
+_LOCK = threading.RLock()
+_STATE: Optional[dict[str, Any]] = None
+_OWNER: dict[str, str] = {"login": "", "user_id": ""}
+_NEW_TIMES: deque[float] = deque()
+_TOUCHED: dict[str, float] = {}
+
+#: Seams the tests replace.
+clock: Callable[[], float] = time.time
+
+
+async def _no_socket_closer(_principal_ids: frozenset[str], _login: str) -> int:
+    return 0
+
+
+#: Closes the dashboard sockets of the given principals; the routes install the real one.
+socket_closer: Callable[[frozenset[str], str], Awaitable[int]] = _no_socket_closer
+
+
+def _empty() -> dict[str, Any]:
+    return {
+        "schema": SCHEMA,
+        "seeded": False,
+        "seed": {"logins": [], "tags": []},
+        "approvals": {},
+        "waiting": {},
+        "dismissed": {},
+        "first_share_ack": None,
+    }
+
+
+def _path() -> Any:
+    return store.root() / ACCESS_FILE
+
+
+def _load_strict() -> dict[str, Any]:
+    """The state on disk; an absent file is empty, a damaged one raises ``_Unreadable``."""
+    path = _path()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return _empty()
+    except OSError as exc:
+        raise _Unreadable(str(exc)) from exc
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise _Unreadable("not json") from exc
+    if not isinstance(data, dict) or data.get("schema") != SCHEMA:
+        raise _Unreadable("schema")
+    out = _empty()
+    out.update({k: v for k, v in data.items() if k in out})
+    for key in ("approvals", "waiting", "dismissed"):
+        if not isinstance(out[key], dict):
+            raise _Unreadable(key)
+    seed = out["seed"]
+    if not isinstance(seed, dict) or not all(
+        isinstance(seed.get(k), list) for k in ("logins", "tags")
+    ):
+        raise _Unreadable("seed")
+    return out
+
+
+def _save(state: dict[str, Any]) -> None:
+    store.root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    atomic_write(_path(), json.dumps(state, indent=2, sort_keys=True), restrict_to_owner=True)
+
+
+_STATE_HOME = ""
+
+
+def _state() -> dict[str, Any]:
+    """The cached state, loading it on first use (or for a new data home). Raises ``_Unreadable``."""
+    global _STATE, _STATE_HOME
+    home = str(store.root())
+    if _STATE is None or _STATE_HOME != home:
+        _STATE = None
+        _STATE = _load_strict()
+        _STATE_HOME = home
+    return _STATE
+
+
+def _home() -> str:
+    from kiro_crew.config.paths import config_dir
+
+    return str(config_dir())
+
+
+def _norm(login: str) -> str:
+    return login.strip().lower()
+
+
+def _split_seed(entries: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    logins: list[str] = []
+    tags: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        value = _norm(entry)
+        (tags if value.startswith("tag:") else logins).append(value)
+    return sorted(set(logins)), sorted(set(tags))
+
+
+def _invite_logins() -> set[str]:
+    try:
+        members = store.load_state().get("members") or {}
+    except Exception:  # noqa: BLE001 -- an unreadable invite file adds nobody
+        return set()
+    return {_norm(str(m.get("login") or "")) for m in members.values() if isinstance(m, dict)} - {
+        ""
+    }
+
+
+def install(
+    seed: Optional[tuple[str, ...]], *, owner_login: str = "", owner_user_id: str = ""
+) -> AccessSnapshot:
+    """Load (seeding once from *seed*), publish the set and list refused people. Blocking.
+
+    *seed* is ``dashboard.tailscale.allowed_logins`` as read; ``None`` (the
+    section could not be read) seeds nothing and leaves seeding for a later start.
+    """
+    global _STATE
+    with _LOCK:
+        _STATE = None
+        _OWNER.update(login=_norm(owner_login), user_id=owner_user_id)
+        try:
+            state = _state()
+            if not state["seeded"] and seed is not None:
+                logins, tags = _split_seed(seed)
+                state["seed"] = {"logins": logins, "tags": tags}
+                state["seeded"] = True
+                _save(state)
+        except _Unreadable:
+            logger.warning("shared crew access set is unreadable; only the owner is admitted")
+        tailnet_live_allowlist.install_waiting_sink(note_waiting)
+        return rebuild()
+
+
+def set_owner(login: str, user_id: str) -> AccessSnapshot:
+    with _LOCK:
+        _OWNER.update(login=_norm(login), user_id=user_id)
+        return rebuild()
+
+
+def rebuild() -> AccessSnapshot:
+    """Recompute the set from its sources and publish it. Blocking."""
+    with _LOCK:
+        owner_login, owner_id = _OWNER["login"], _OWNER["user_id"]
+        try:
+            state = _state()
+        except _Unreadable:
+            snap = AccessSnapshot(
+                owner_login=owner_login,
+                owner_user_id=owner_id,
+                unreadable=True,
+                home=_home(),
+            )
+            tailnet_live_allowlist.install(snap)
+            return snap
+        approvals = [a for a in state["approvals"].values() if isinstance(a, dict)]
+        snap = AccessSnapshot(
+            owner_login=owner_login,
+            owner_user_id=owner_id,
+            member_logins=frozenset(set(state["seed"]["logins"]) | _invite_logins()),
+            approved_user_ids=frozenset(str(a.get("user_id") or "") for a in approvals) - {""},
+            approved_logins=frozenset(_norm(str(a.get("login") or "")) for a in approvals) - {""},
+            tags=frozenset(state["seed"]["tags"]),
+            home=_home(),
+        )
+        tailnet_live_allowlist.install(snap)
+        return snap
+
+
+def _audit(operation: str, outcome: str, actor: str, *, login: str = "", detail: str = "") -> None:
+    try:
+        from kiro_crew.sel import sel
+
+        sel().log_api_access(
+            caller=actor or "crew",
+            operation=f"shared_crew.access.{operation}",
+            outcome=outcome,
+            source="shared-crew-access",
+            resources=f"login_sha256:{store.email_hash(login)}" if login else "",
+            error=detail,
+        )
+    except Exception:  # noqa: BLE001 -- the audit never breaks the action
+        logger.debug("access audit write failed", exc_info=True)
+
+
+def _clean(raw: object, limit: int = _DISPLAY_MAX) -> str:
+    if not isinstance(raw, str):
+        return ""
+    return "".join(ch for ch in raw.strip() if ch.isprintable())[:limit]
+
+
+# ── waiting ──
+
+
+def note_waiting(peer: Any) -> bool:
+    """List a refused, ``whois``-verified person for the owner. Blocking; never raises.
+
+    Returns whether the person is on the list now. A dismissed person, a full
+    minute's quota of new people, or an unreadable file leaves them unlisted.
+    """
+    user_id = str(getattr(peer, "user_id", "") or "")
+    login = _norm(str(getattr(peer, "login", "") or ""))
+    if not user_id or not login or getattr(peer, "tagged", False):
+        return False
+    now = clock()
+    with _LOCK:
+        try:
+            state = _state()
+        except _Unreadable:
+            return False
+        waiting = state["waiting"]
+        row = waiting.get(user_id)
+        if row is not None:
+            if now - _TOUCHED.get(user_id, 0.0) >= WAITING_REFRESH_SECS:
+                _TOUCHED[user_id] = now
+                row.update(last_seen=now, login=login, attempts=int(row.get("attempts") or 0) + 1)
+                _save_quiet(state)
+            return True
+        until = state["dismissed"].get(user_id)
+        if isinstance(until, (int, float)) and until > now:
+            return False
+        while _NEW_TIMES and now - _NEW_TIMES[0] > 60.0:
+            _NEW_TIMES.popleft()
+        if len(_NEW_TIMES) >= NEW_WAITING_PER_MINUTE:
+            return False
+        _NEW_TIMES.append(now)
+        _TOUCHED[user_id] = now
+        waiting[user_id] = {
+            "user_id": user_id,
+            "login": login,
+            "display_name": _clean(getattr(peer, "display_name", "")) or login,
+            "avatar_url": _clean(getattr(peer, "profile_pic_url", ""), 512),
+            "node": _clean(getattr(peer, "node", "")),
+            "first_seen": now,
+            "last_seen": now,
+            "attempts": 1,
+        }
+        if len(waiting) > MAX_WAITING:
+            oldest = sorted(waiting, key=lambda k: float(waiting[k].get("first_seen") or 0.0))
+            for key in oldest[: len(waiting) - MAX_WAITING]:
+                del waiting[key]
+        _save_quiet(state)
+    _audit("waiting", "listed", "crew", login=login)
+    return user_id in waiting
+
+
+def _save_quiet(state: dict[str, Any]) -> None:
+    try:
+        _save(state)
+    except OSError:
+        logger.warning("saving the shared crew waiting list failed", exc_info=True)
+
+
+# ── first share ──
+
+
+def nobody_else_has_access() -> bool:
+    snap = tailnet_live_allowlist.snapshot()
+    return snap is None or snap.others == 0
+
+
+def first_share_acknowledged() -> bool:
+    with _LOCK:
+        try:
+            return bool(_state().get("first_share_ack"))
+        except _Unreadable:
+            return False
+
+
+def require_first_share_ack() -> None:
+    """Refuse the first invite or approve until the owner saw the warning. Blocking."""
+    if nobody_else_has_access() and not first_share_acknowledged():
+        raise AccessError(CODE_ACK_REQUIRED)
+
+
+def acknowledge_first_share(actor: str) -> None:
+    with _LOCK:
+        try:
+            state = _state()
+        except _Unreadable as exc:
+            raise AccessError(CODE_UNREADABLE) from exc
+        if not state.get("first_share_ack"):
+            state["first_share_ack"] = {"at": clock(), "by": actor}
+            _save(state)
+    _audit("first_share_ack", "granted", actor)
+
+
+# ── owner actions ──
+
+
+def approve(user_id: str, actor: str) -> dict[str, Any]:
+    """Admit a waiting person by stable user id. Blocking."""
+    require_first_share_ack()
+    with _LOCK:
+        try:
+            state = _state()
+        except _Unreadable as exc:
+            raise AccessError(CODE_UNREADABLE) from exc
+        row = state["waiting"].pop(user_id, None)
+        if not isinstance(row, dict):
+            raise AccessError(CODE_NOT_WAITING)
+        login = str(row.get("login") or "")
+        state["approvals"][user_id] = {
+            "user_id": user_id,
+            "login": login,
+            "display_name": row.get("display_name") or login,
+            "avatar_url": row.get("avatar_url") or "",
+            "first_seen": row.get("first_seen") or 0.0,
+            "approved_at": clock(),
+            "approved_by": actor,
+        }
+        state["dismissed"].pop(user_id, None)
+        _save(state)
+        tailnet_live_allowlist.restore_user_id(user_id)
+        tailnet_live_allowlist.clear_revoke(login)
+        rebuild()
+    restore(login, frozenset({user_id}))
+    _audit("approve", "granted", actor, login=login)
+    return state["approvals"][user_id]
+
+
+def dismiss(user_id: str, actor: str) -> None:
+    """Drop a waiting person from the list; they are not listed again for a day. Blocking."""
+    with _LOCK:
+        try:
+            state = _state()
+        except _Unreadable as exc:
+            raise AccessError(CODE_UNREADABLE) from exc
+        row = state["waiting"].pop(user_id, None)
+        if not isinstance(row, dict):
+            raise AccessError(CODE_NOT_WAITING)
+        dismissed = state["dismissed"]
+        dismissed[user_id] = clock() + DISMISS_SECS
+        if len(dismissed) > MAX_DISMISSED:
+            for key in sorted(dismissed, key=lambda k: float(dismissed[k]))[
+                : len(dismissed) - MAX_DISMISSED
+            ]:
+                del dismissed[key]
+        _save(state)
+    _audit("dismiss", "granted", actor, login=str(row.get("login") or ""))
+
+
+async def remove_approval(user_id: str, actor: str) -> dict[str, Any]:
+    """Take an approved person out of the set and stop everything they have running."""
+
+    def _drop() -> dict[str, Any]:
+        with _LOCK:
+            try:
+                state = _state()
+            except _Unreadable as exc:
+                raise AccessError(CODE_UNREADABLE) from exc
+            row = state["approvals"].pop(user_id, None)
+            if not isinstance(row, dict):
+                raise AccessError(CODE_NOT_APPROVED)
+            _save(state)
+            tailnet_live_allowlist.revoke_user_id(user_id)
+            tailnet_live_allowlist.revoke(str(row.get("login") or ""))
+            rebuild()
+            return row
+
+    row = await asyncio.to_thread(_drop)
+    result = await stop_access(str(row.get("login") or ""), frozenset({user_id}), actor=actor)
+    return {"removed": user_id, **result}
+
+
+_REMOVED: dict[str, float] = {}
+_REMOVED_MAX = 512
+
+
+def _note_removed(ids: frozenset[str]) -> None:
+    with _LOCK:
+        for pid in ids:
+            _REMOVED[pid] = clock()
+        while len(_REMOVED) > _REMOVED_MAX:
+            _REMOVED.pop(next(iter(_REMOVED)))
+
+
+def restore(login: str, user_ids: frozenset[str] = frozenset()) -> None:
+    """A removed person was let in again (approved, or accepted a new invite)."""
+    ids = principal_ids_for(login, user_ids)
+    with _LOCK:
+        for pid in ids:
+            _REMOVED.pop(pid, None)
+
+
+def principal_removed(principal_id: str) -> bool:
+    """Whether work charged to *principal_id* must not start: its person was removed."""
+    with _LOCK:
+        return bool(principal_id) and principal_id in _REMOVED
+
+
+def principal_ids_for(login: str, user_ids: frozenset[str]) -> frozenset[str]:
+    """Every principal id a person may have worked under: by login and by each user id."""
+    from kiro_crew.shared_crew.contracts import Provenance
+    from kiro_crew.shared_crew.identity import tailnet_principal
+
+    ids: set[str] = set()
+    if login:
+        ids.add(tailnet_principal(login, "", Provenance.TAILSCALE_SERVE).id)
+    for uid in user_ids | tailnet_live_allowlist.seen_user_ids(login):
+        ids.add(
+            tailnet_principal(login or "unknown", "", Provenance.TAILSCALE_DIRECT, user_id=uid).id
+        )
+    return frozenset(ids)
+
+
+async def stop_work(login: str, user_ids: frozenset[str], *, actor: str) -> dict[str, int]:
+    """Cancel a removed person's queued work and stop their running turn now.
+
+    Call after the person is out of the set, so a request racing this one is
+    already refused. Capacity is freed by the admission service once each
+    runtime has stopped, never here. Work that has not started yet and is
+    charged to them is refused when it reaches the front of the queue.
+    """
+    from kiro_crew.shared_crew.admission_gate import installed_service
+    from kiro_crew.shared_crew.admission_revoke import stop_principals
+
+    ids = principal_ids_for(login, user_ids)
+    _note_removed(ids)
+    stopped = {"queued": 0, "running": 0}
+    service = installed_service()
+    if service is not None:
+        try:
+            stopped = await stop_principals(service, ids)
+        except Exception:  # noqa: BLE001 -- reported, never raised past the removal
+            logger.warning("stopping a removed person's work failed", exc_info=True)
+    await asyncio.to_thread(
+        _audit,
+        "stop_work",
+        "granted",
+        actor,
+        login=login,
+        detail=f"{OUTCOME_ACCESS_REMOVED}; queued:{stopped['queued']} running:{stopped['running']}",
+    )
+    return {"cancelled_queued": stopped["queued"], "stopped_running": stopped["running"]}
+
+
+async def stop_access(login: str, user_ids: frozenset[str], *, actor: str) -> dict[str, int]:
+    """Close a removed person's dashboard sockets, then :func:`stop_work`."""
+    ids = principal_ids_for(login, user_ids)
+    closed = 0
+    try:
+        closed = int(await socket_closer(ids, login) or 0)
+    except Exception:  # noqa: BLE001 -- the refusal already holds
+        logger.warning("closing a removed person's sockets failed", exc_info=True)
+    stopped = await stop_work(login, user_ids, actor=actor)
+    return {"closed_connections": closed, **stopped}
+
+
+# ── read ──
+
+
+def view() -> dict[str, Any]:
+    """The People access body: waiting, approved, seeded entries and the first-share state."""
+    with _LOCK:
+        try:
+            state = _state()
+        except _Unreadable:
+            return {
+                "readable": False,
+                "waiting": [],
+                "approved": [],
+                "seeded": [],
+                "first_share_ack": False,
+            }
+        waiting = sorted(
+            (dict(r) for r in state["waiting"].values() if isinstance(r, dict)),
+            key=lambda r: -float(r.get("first_seen") or 0.0),
+        )
+        approved = sorted(
+            (dict(r) for r in state["approvals"].values() if isinstance(r, dict)),
+            key=lambda r: -float(r.get("approved_at") or 0.0),
+        )
+        return {
+            "readable": True,
+            "waiting": waiting,
+            "approved": approved,
+            "seeded": list(state["seed"]["logins"]) + list(state["seed"]["tags"]),
+            "first_share_ack": bool(state.get("first_share_ack")),
+        }
+
+
+def reset_for_tests() -> None:
+    global _STATE, socket_closer, clock
+    with _LOCK:
+        _STATE = None
+        _OWNER.update(login="", user_id="")
+        _NEW_TIMES.clear()
+        _TOUCHED.clear()
+        _REMOVED.clear()
+    socket_closer = _no_socket_closer
+    clock = time.time
+
+
+__all__ = [
+    "AccessError",
+    "acknowledge_first_share",
+    "approve",
+    "dismiss",
+    "install",
+    "note_waiting",
+    "principal_ids_for",
+    "principal_removed",
+    "rebuild",
+    "remove_approval",
+    "require_first_share_ack",
+    "set_owner",
+    "stop_access",
+    "stop_work",
+    "view",
+]

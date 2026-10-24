@@ -214,16 +214,18 @@ describe('send() confirms its own optimistic bubble from the response', { timeou
     expect((screen.getByLabelText('Message input') as HTMLTextAreaElement).value).toBe('')
   })
 
-  it('leaves the bubble pending when the server rejects the send', async () => {
+  it('drops the bubble when the server rejects the send', async () => {
     sendChat.mockResolvedValue({ ok: false, json: () => Promise.resolve({ ok: false, error: 'refused' }) })
     const store = makeStore()
     await renderPage(store)
     await sendText('this one was refused')
 
     await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1))
-    // A refusal is not a receipt, so the pending flag stays put. What the user
-    // is told is not this flag: the refusal path appends its own error row and
-    // hands the text back to the composer, immediately and by name.
-    expect(userRow(store)?.meta?.optimistic).toBe(true)
+    // A refusal is not a receipt, so nothing confirms the bubble; nothing was
+    // accepted either, so it goes. The refusal path appends its own error row
+    // and hands the text back to the composer, immediately and by name.
+    await waitFor(() => expect(store.getState().chat.messages.some(m => m.role === 'error')).toBe(true))
+    expect(userRow(store)).toBeUndefined()
+    expect((screen.getByLabelText('Message input') as HTMLTextAreaElement).value).toBe('this one was refused')
   })
 })

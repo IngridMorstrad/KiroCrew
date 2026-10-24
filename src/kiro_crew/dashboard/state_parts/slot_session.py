@@ -292,6 +292,10 @@ def init_session_fields(self: _ChatSlot) -> None:
     #: person's own tab, a fork, a restore. Read by
     #: ``DashboardState.creator_slot_count`` for ``MAX_SLOTS_PER_CREATOR``.
     self._created_by = ""
+    #: Shared Crew creator attribution (``shared_crew.attribution``): ``None``
+    #: until stamped or read back, then write-once. Persisted by the
+    #: metadata codec's ``attribution`` row.
+    self._attribution = None
     #: The creator's ACP session id, FROZEN at mint (see ``session_control``).
     #: Read at the child's first turn to stamp ``parent_sid`` on the immutable
     #: ``session/opened`` crew log entry -- never re-read live, so a creator slot

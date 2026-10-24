@@ -45,6 +45,8 @@ import ChatEmptyState from './chat/page/ChatEmptyState'
 import ChatTitleOverlay from './chat/page/ChatTitleOverlay'
 import ChatTranscriptView from './chat/page/ChatTranscriptView'
 import ComposerDockView from './chat/page/ComposerDockView'
+import { useComposerTypingLock } from './chat/shared-crew/useComposerTypingLock'
+import { useComposerEditWithTyping } from './chat/shared-crew/typingSignal'
 import ChatSidePanels from './chat/page/ChatSidePanels'
 import { slotBusySteer } from '../components/chat-input/busySend'
 import { useSessionAutomation } from './chat/page/sessionAutomation'
@@ -598,10 +600,12 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   const {
     followUpOptions, followUpSourceKey, followUpMulti,
     followUpPicked, followUpPickedRef, toggleFollowUpOption,
-    composerRootChange, composerUserEdit,
+    composerRootChange, composerUserEdit: followUpUserEdit,
   } = useFollowUpChips({
     messages, isStreaming, pendingQuestion, activeSlot, inputRef, setInput, prefillEdited, setPrefillEdited,
   })
+  // Shared Crew typing presence: the user's own edit happened, never what it was.
+  const composerUserEdit = useComposerEditWithTyping(followUpUserEdit)
   const {
     dashCfg, splitFeatureEnabled, linkPreviewsOn, socialShareOn, jevAutoConsented, connectionsUiOn, openActivePopout, focusActivePopout, returnSelfToMain, activePoppedOut, planTaskId,
   } = usePageFlags({
@@ -945,6 +949,11 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   })
 
   // The band ChatInput renders above the composer, and the session-control chips.
+  // Send now after a lost send race: a new, deliberate send of the draft the
+  // race handed back, at the session's current revision. It never steers.
+  const sendNowAfterRace = useCallback((slot: string) => { void send(undefined, slot, false, false, true) }, [send])
+  // Someone else typing in this shared session locks the composer read-only.
+  const typingLock = useComposerTypingLock(activeSlot)
   const composerAbove = useComposerAboveBand({
     langGen,
     controls: sessionControlState,
@@ -955,6 +964,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     folderSuggestionDecline,
     activeTip,
     dismissTip,
+    onSendNow: sendNowAfterRace,
   })
   const composerSessionControls = useSessionControlChips({ sessionControls, openSessionControl, activeSlot, sessionControlStatuses })
   // The two icon-only controls at the header bar's right end look alike, so
@@ -1089,7 +1099,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
               handleCancelQueued={handleCancelQueued} handleEditQueued={handleEditQueued} handleInterruptQueued={handleInterruptQueued} handleReorderQueued={handleReorderQueued}
               keepQuestionAnswer={keepQuestionAnswer} queuedMessages={queuedMessages} queuePendingIds={queuePendingIds} steer={steer} stopTurn={stopTurn} systemDeliveryCount={systemDeliveryCount}
               handleEditLastRequest={handleEditLastRequest} composerOptimizing={composerOptimizing} handleOptimizingChange={handleOptimizingChange} memorySwitching={memorySwitching}
-              showComposerMemoryChip={showComposerMemoryChip} switchMemoryMode={switchMemoryMode} composerAbove={composerAbove} composerSessionControls={composerSessionControls}
+              showComposerMemoryChip={showComposerMemoryChip} switchMemoryMode={switchMemoryMode} composerAbove={composerAbove} typingLock={typingLock} composerSessionControls={composerSessionControls}
             />
           </div>
           </SearchHighlightContext.Provider>

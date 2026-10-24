@@ -660,9 +660,9 @@ def test_the_whole_census_holds_the_known_rebinds_and_an_owner_s_definitions() -
 #: layer and the factory that built it. The order is a security contract: latency is
 #: outermost, the deny-audit boundary is outer to every barrier that can refuse, the
 #: SEL request audit is inner to them, the per-slot ownership checkpoint is inner to
-#: token auth and the audit record, and the workflow and crewmate-prune gates and the
-#: change-card hook (innermost, after auth has classified the caller) are appended
-#: after the explicit list.
+#: token auth and the audit record, and the workflow and crewmate-prune gates, the
+#: Shared Crew enterprise grant and budget gate and the change-card hook (innermost,
+#: after auth has classified the caller) are appended after the explicit list.
 _DASHBOARD_CHAIN = (
     ("route_latency_middleware", "make_route_latency_middleware.<locals>."),
     ("deny_audit_middleware", "_make_deny_audit_middleware.<locals>."),
@@ -677,6 +677,7 @@ _DASHBOARD_CHAIN = (
     ("spa_fallback", "_install_dashboard_middlewares.<locals>."),
     ("_workflow_ready", "_register_workflow_lifecycle.<locals>."),
     ("_crewmate_prune_gate", "_register_crewmate_prune_gate.<locals>."),
+    ("enterprise_gate_middleware", "make_enterprise_gate_middleware.<locals>."),
     ("_change_card_hook", "_register_change_card_hook.<locals>."),
 )
 _API_CHAIN = (
@@ -688,6 +689,7 @@ _API_CHAIN = (
     ("middleware", "token_auth_middleware.<locals>."),
     ("sel_audit_middleware", "_install_api_middlewares.<locals>."),
     ("slot_ownership_middleware", "slot_ownership_middleware"),
+    ("enterprise_gate_middleware", "make_enterprise_gate_middleware.<locals>."),
     ("_workflow_ready", "_register_workflow_lifecycle.<locals>."),
 )
 
@@ -784,7 +786,8 @@ _DASHBOARD_BOOT = tuple("""
     _dist_file_handler _dist_file_handler _dist_file_handler discover_app_window_entries
     register_app_window_paths _install_asset_cache_control_finalizer
     tailnet_effective_allowed_logins tailnet_identity_unknown degraded_config_files
-    build_allowed_origins _make_host_validation_middleware _make_csrf_middleware
+    tailnet_identity_unknown build_allowed_origins _make_host_validation_middleware
+    _make_csrf_middleware
     _make_deny_audit_middleware resolve_dashboard_host build_host_canonical_redirect
     warm_auth_singletons warm_sel_singleton make_route_latency_middleware
     _mixed_internal_api_paths safe_context_call current_context token_auth_middleware
