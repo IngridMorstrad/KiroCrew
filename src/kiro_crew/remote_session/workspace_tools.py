@@ -273,9 +273,14 @@ def _run_grouped(
     which is how an unwind or a stdout cutoff stops it. Without ``timeout`` only
     the leader is signalled. An expiry raises ``TimeoutExpired``. A stdout limit
     keeps only that prefix and stops the read when reached; this intentional
-    cutoff reports success. Stderr keeps a bounded tail.
+    cutoff reports success. Stderr keeps a bounded tail. On Windows the read
+    runs unwrapped: a ``timeout`` there may be System32's unrelated wait
+    command, and none can signal a Windows process tree, so the deadline is
+    this function's own.
     """
-    wrapped, wait_secs = _under_timeout(argv, timeout)
+    wrapped, wait_secs = (
+        (argv, timeout) if sys.platform == "win32" else _under_timeout(argv, timeout)
+    )
     timer = wrapped is not argv
     # timeout would report a missing program as exit 127; keep the error.
     if timer and shutil.which(argv[0], path=env.get("PATH", os.defpath)) is None:
@@ -328,6 +333,14 @@ def _run_grouped(
                     raise subprocess.TimeoutExpired(argv, timeout)
                 if index == 0 and len(prefix) == stdout_limit:
                     cutoff = True
+                    # Close our end first: git's next write then fails with a
+                    # broken pipe, which ends it and any child holding the pipe
+                    # on every platform. Windows has no group signal, and its
+                    # git.exe is a launcher, so stopping the leader alone would
+                    # leave the real git writing until the deadline.
+                    assert proc.stdout is not None
+                    with contextlib.suppress(OSError):
+                        proc.stdout.close()
                     _stop_read(proc)
             if errors:
                 raise errors[0]
@@ -367,13 +380,35 @@ def _stop_read(proc: Any) -> None:
 
 
 def _unwind(proc: Any) -> None:
-    """Stop and reap a still-running command; without ``timeout``, the leader only."""
-    _stop_read(proc)
+    """Stop and reap a still-running command; without ``timeout``, the leader only.
+
+    On Windows the whole tree is ended instead: there is no group signal, and
+    git.exe is a launcher, so stopping the leader would orphan the real git.
+    """
+    if sys.platform == "win32":
+        _stop_tree(proc)
+    else:
+        _stop_read(proc)
     try:
         proc.wait(timeout=2 * _KILL_GRACE_SECS)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=10)
+
+
+def _stop_tree(proc: Any) -> None:
+    """Windows: end ``proc`` and every process under it (``taskkill /T``)."""
+    root = os.environ.get("SystemRoot") or "C:\\Windows"
+    taskkill = os.path.join(root, "System32", "taskkill.exe")
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(
+            [taskkill, "/T", "/F", "/PID", str(proc.pid)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2 * _KILL_GRACE_SECS,
+            check=False,
+        )
 
 
 class ToolError(Exception):

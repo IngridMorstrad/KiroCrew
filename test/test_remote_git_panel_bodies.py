@@ -86,13 +86,13 @@ def test_a_huge_history_or_status_read_is_streamed_to_the_cap(tmp_path, monkeypa
 
     root, git = _plain_git_repo(tmp_path)
     huge = "s" * (2 * wt.MAX_READ_BYTES)
-    (root / "a.txt").write_text("a\n", encoding="utf-8")
+    (root / "a.txt").write_text("a\n", encoding="utf-8", newline="\n")
     git(root, "add", ".")
     # One commit subject, or one untracked file list, larger than the read cap.
-    (tmp_path / "message").write_text(huge, encoding="utf-8")
+    (tmp_path / "message").write_text(huge, encoding="utf-8", newline="\n")
     git(root, "commit", "-q", "-F", str(tmp_path / "message"))
     for i in range(2 * wt.MAX_READ_BYTES // 200):
-        (root / f"untracked-{i:05d}-{'n' * 180}").write_text("", encoding="utf-8")
+        (root / f"untracked-{i:05d}-{'n' * 180}").write_text("", encoding="utf-8", newline="\n")
     real_popen = subprocess.Popen
     buffered = []
 
@@ -253,7 +253,7 @@ def test_a_truncated_reply_carrying_bodies_builds_no_hunks():
 
 def _committed_file(tmp_path, name="tracked.sh", body="echo hi\n"):
     root, git = _plain_git_repo(tmp_path)
-    (root / name).write_text(body, encoding="utf-8")
+    (root / name).write_text(body, encoding="utf-8", newline="\n")
     git(root, "add", ".")
     git(root, "commit", "-q", "-m", "seed")
     return root, git
@@ -318,7 +318,9 @@ def test_a_renamed_file_diffs_against_its_source(tmp_path):
     body = "".join(f"line {i}\n" for i in range(20))
     root, git = _committed_file(tmp_path, "a.txt", body)
     git(root, "mv", "a.txt", "b.txt")
-    (root / "b.txt").write_text(body.replace("line 7\n", "line seven\n"), encoding="utf-8")
+    (root / "b.txt").write_text(
+        body.replace("line 7\n", "line seven\n"), encoding="utf-8", newline="\n"
+    )
     # Without the source the HEAD side is absent: a whole-file addition.
     assert "--- /dev/null" in _gateway_diff(root, "b.txt")
     patch = _gateway_diff(root, "b.txt", "a.txt")
@@ -329,7 +331,7 @@ def test_a_renamed_file_diffs_against_its_source(tmp_path):
     changed = [line for line in patch.splitlines()[5:] if line[:1] in "+-"]
     assert changed == ["-line 7", "+line seven"]
     # A pure rename is still a difference.
-    (root / "b.txt").write_text(body, encoding="utf-8")
+    (root / "b.txt").write_text(body, encoding="utf-8", newline="\n")
     assert _gateway_diff(root, "b.txt", "a.txt") == (
         "diff --git a/a.txt b/b.txt\nrename from a.txt\nrename to b.txt\n"
     )
@@ -524,7 +526,7 @@ def test_an_over_cap_file_holding_a_pem_sends_no_key_line(tmp_path, side):
     pem = "\n".join("    " + line for line in [PEM_BEGIN_RSA, *key_lines, PEM_END_RSA])
     content = prefix + "  key: |\n" + pem + "\n" + ordinary * (wt.MAX_READ_BYTES // len(ordinary))
     path = root / "config.yaml"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
     if side == "old":
         git(root, "add", "config.yaml")
         git(root, "commit", "-q", "-m", "seed")
@@ -556,7 +558,7 @@ def test_an_indented_pem_with_no_footer_in_a_complete_file_shows_no_key_line(
         "    " + line + "\n" for line in [PEM_BEGIN_RSA, *key_lines]
     )
     path = root / "config.yaml"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
     if side == "old":
         git(root, "add", "config.yaml")
         git(root, "commit", "-q", "-m", "seed")
@@ -586,7 +588,7 @@ def test_a_complete_pem_uses_whole_body_redaction(tmp_path):
     key_lines = [blob[i : i + 32] for i in range(0, len(blob), 32)]
     pem = "\n".join([PEM_BEGIN_RSA, *key_lines, PEM_END_RSA])
     ordinary = "ordinary-" + "x" * 110 + "\n"
-    (root / "f").write_text(pem + "\n" + ordinary * 20, encoding="utf-8")
+    (root / "f").write_text(pem + "\n" + ordinary * 20, encoding="utf-8", newline="\n")
     bodies = wt.browse(wt.Workspace(str(root)), {"op": "git_bodies", "path": "f"})
     assert bodies["truncated"] is False and PEM_END_RSA in bodies["new"]
     clean = redact_via_context(bodies["new"])
@@ -597,3 +599,70 @@ def test_a_complete_pem_uses_whole_body_redaction(tmp_path):
     assert [line[1:] for line in output.splitlines() if line.startswith("+")][
         1:
     ] == clean.splitlines()
+
+
+@pytest.mark.parametrize("op", ["git_log", "git_status"])
+def test_a_windows_capped_read_ends_the_writer_by_closing_its_pipe(tmp_path, monkeypatch, op):
+    """Windows runs the read unwrapped, and stopping its leader need not stop the
+    process writing (git.exe is a launcher). Closing our end of the pipe at the cap
+    is what ends the writer, so a capped read still answers instead of waiting out
+    its 30-second deadline. Simulated here by a stop that stops nothing."""
+    from kiro_crew.remote_session import workspace_tools as wt
+
+    root, git = _plain_git_repo(tmp_path)
+    (root / "a.txt").write_text("a\n", encoding="utf-8", newline="\n")
+    git(root, "add", ".")
+    (tmp_path / "message").write_text("s" * (2 * wt.MAX_READ_BYTES), encoding="utf-8")
+    git(root, "commit", "-q", "-F", str(tmp_path / "message"))
+    for i in range(2 * wt.MAX_READ_BYTES // 200):
+        (root / f"untracked-{i:05d}-{'n' * 180}").write_text("", encoding="utf-8")
+    wrapped = []
+    real_under_timeout = wt._under_timeout
+    monkeypatch.setattr(wt, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(wt, "_stop_read", lambda proc: None)
+    monkeypatch.setattr(
+        wt, "_under_timeout", lambda *a: wrapped.append(a) or real_under_timeout(*a)
+    )
+    result = wt.browse(wt.Workspace(str(root)), {"op": op})
+    assert result["git"] is True and result["truncated"] is True, result
+    assert 0 < len(result["output"].encode()) <= wt.MAX_READ_BYTES
+    # No coreutils wrapper on Windows: a `timeout` there may be System32's.
+    assert not wrapped
+
+
+def test_a_read_past_its_deadline_leaves_no_process_behind(tmp_path, monkeypatch):
+    """A capped read that outlives its deadline is stopped with everything it
+    started. Windows has no group signal and git.exe is a launcher, so the
+    whole tree is ended there (`taskkill /T`). The leader here starts a child
+    that holds the read's pipe, as that launcher does. Off Windows the Windows
+    path runs with a group stop standing in for taskkill, so the test fails
+    wherever the unwind stops only the leader."""
+    import os
+    import signal
+    import subprocess
+
+    from kiro_crew.platform_compat_liveness import pid_exists
+    from kiro_crew.remote_session import workspace_tools as wt
+    from kiro_crew.testing.wait import wait_until
+
+    if sys.platform != "win32":
+        monkeypatch.setattr(wt, "sys", SimpleNamespace(platform="win32"))
+        monkeypatch.setattr(wt, "_stop_tree", lambda proc: os.killpg(proc.pid, signal.SIGKILL))
+    marker = tmp_path / "child.pid"
+    script = (
+        "import pathlib, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        f"pathlib.Path({str(marker)!r}).write_text(str(child.pid))\n"
+        "time.sleep(120)\n"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        wt._run_grouped(
+            [sys.executable, "-c", script],
+            cwd=str(tmp_path),
+            env=dict(os.environ),
+            timeout=3,
+            stderr=subprocess.PIPE,
+            stdout_limit=wt.MAX_READ_BYTES,
+        )
+    child = int(marker.read_text())
+    wait_until(lambda: not pid_exists(child), describe=lambda: f"child {child} still running")

@@ -26,22 +26,30 @@ import RemoteFilesPanel from '../pages/chat/RemoteFilesPanel'
 import RemoteGitPanel, { parsePorcelain } from '../pages/chat/RemoteGitPanel'
 import { relativeTime } from '../components/GitPanel'
 import { api } from '../api/client'
+import { newQueryClient } from '../api/queryClient'
 import { ApiError } from '../api/apiError'
 import { copyToClipboard } from '../utils/clipboard'
 import { __resetNavSeamForTests, consumeChatHandoff, installSoftNavigate, setGatewayConnected } from '../utils/errorReport'
+import { Provider } from 'react-redux'
+import { createTestStore } from './helpers'
 import '../i18n'
 
 vi.mock('../utils/clipboard', () => ({ copyToClipboard: vi.fn() }))
 
 const clients: QueryClient[] = []
+let testStore = createTestStore()
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   clients.push(qc)
-  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider> })
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <Provider store={testStore}><QueryClientProvider client={qc}>{children}</QueryClientProvider></Provider>
+    ),
+  })
 }
 
-afterEach(() => { clients.splice(0).forEach(client => client.clear()) })
+afterEach(() => { clients.splice(0).forEach(client => client.clear()); testStore = createTestStore() })
 
 const ROOT = { root: '/workspace/w', truncated: false }
 const CODER = 'Coder MicroVM'
@@ -572,6 +580,32 @@ describe('RemoteGitPanel', () => {
     expect(screen.queryByText(/no difference from the last commit/i)).not.toBeInTheDocument()
   })
 
+  it('re-reads a file diff when it is reopened, under the app query defaults', async () => {
+    let body = 'diff --git a/run.sh b/run.sh\n--- a/run.sh\n+++ b/run.sh\n@@ -1 +1 @@\n-a\n+b\n'
+    const git = vi.spyOn(api, 'chatSlotEnvironmentGit').mockImplementation(async (_slot, op) => {
+      if (op === 'git_status') return { root: '/w', git: true, output: '## main\0 M run.sh\0' }
+      if (op === 'git_log') return { root: '/w', git: true, output: '' }
+      return { root: '/w', git: true, output: body }
+    })
+    // The app's own client: queries never go stale unless they say so.
+    const qc = newQueryClient()
+    clients.push(qc)
+    const u = userEvent.setup()
+    render(<RemoteGitPanel slot="chat-1" name="Remote" />, {
+      wrapper: ({ children }) => (
+        <Provider store={testStore}><QueryClientProvider client={qc}>{children}</QueryClientProvider></Provider>
+      ),
+    })
+    const row = await screen.findByRole('button', { name: 'Modified run.sh' })
+    await u.click(row)
+    expect((await screen.findByTestId('patch', {}, { timeout: 5000 })).textContent).toBe(body)
+    await u.click(row)
+    body = 'diff --git a/run.sh b/run.sh\n--- a/run.sh\n+++ b/run.sh\n@@ -1 +1 @@\n-a\n+c\n'
+    await u.click(row)
+    await waitFor(() => expect(screen.getByTestId('patch').textContent).toBe(body))
+    expect(git.mock.calls.filter(([, op]) => op === 'git_diff')).toHaveLength(2)
+  })
+
   it('says a clean working tree has no changes since the last commit', async () => {
     vi.spyOn(api, 'chatSlotEnvironmentGit').mockImplementation(async (_slot, op) =>
       op === 'git_status' ? { root: '/w', git: true, output: '## main\0' } : { root: '/w', git: true, output: '' })
@@ -860,10 +894,14 @@ describe('RemoteGitPanel', () => {
       expect(ask).toBeVisible()
       expect(ask.textContent).toMatch(/^Draft\b/)
       await u.click(ask)
-      expect(consumeChatHandoff()).toBe(
-        'Show me the full diff of data/big file.csv against the last commit in the workspace Coder MicroVM. It was too large for the Git panel to show.',
-      )
-      expect(navigate).toHaveBeenCalledWith('/chat')
+      // Staged in THIS chat's composer (the one bound to the workspace), not
+      // handed to a fresh chat whose agent could not reach it.
+      expect(testStore.getState().chat.mainComposerAppend).toEqual({
+        slot: 'chat-1',
+        text: 'Show me the full diff of data/big file.csv against the last commit in the workspace Coder MicroVM. It was too large for the Git panel to show.',
+      })
+      expect(consumeChatHandoff()).toBeNull()
+      expect(navigate).not.toHaveBeenCalled()
     } finally {
       __resetNavSeamForTests()
     }
@@ -1042,8 +1080,9 @@ describe('RemoteGitPanel', () => {
       expect(ask).toHaveAttribute('title', DRAFT_TITLE)
       expect(ask.textContent).toMatch(/^Draft\b/)
       await u.click(ask)
-      expect(consumeChatHandoff()).toBe(prompt)
-      expect(navigate).toHaveBeenCalledWith('/chat')
+      expect(testStore.getState().chat.mainComposerAppend).toEqual({ slot: 'chat-1', text: prompt })
+      expect(consumeChatHandoff()).toBeNull()
+      expect(navigate).not.toHaveBeenCalled()
       unmount()
       setGatewayConnected(false)
       wrap(<RemoteGitPanel slot="chat-2" name="Coder MicroVM" />)

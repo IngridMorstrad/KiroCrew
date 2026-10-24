@@ -11,6 +11,8 @@ import { slotEnvironmentQueryKey, useSlotEnvironmentPlacement } from '../../comp
 import { Btn, IconButton, PanelSectionHeader } from '../../components/ui'
 import { fmtList } from '../../i18n/format'
 import { PierrePatch } from '../../pierre'
+import { useAppDispatch } from '../../store'
+import { stageToMainComposer } from '../../store/chatSlice'
 import { errorCode, isCloudSandbox, remoteKey } from './RemoteFilesPanel'
 
 /** `from` is a rename or copy's source path; `path` is where it is now. */
@@ -111,6 +113,7 @@ export default function RemoteGitPanel(props: { slot: string; name: string }) {
  *  open file belongs to the session it was opened in. */
 function RemoteGitView({ slot, name }: { slot: string; name: string }) {
   const { t } = useTranslation()
+  const dispatch = useAppDispatch()
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<string | null>(null)
   // Only one row is open at a time, so one id names the open diff region.
@@ -148,12 +151,19 @@ function RemoteGitView({ slot, name }: { slot: string; name: string }) {
       ? api.chatSlotEnvironmentGit(slot, 'git_diff', selected ?? '.', selectedFrom)
       : api.chatSlotEnvironmentGit(slot, 'git_diff', selected ?? '.'),
     retry: false,
+    // Re-read on reopen and on return to the tab, as status does: the app's
+    // default never goes stale, which would keep a patch the agent has since
+    // committed under a changes list that no longer shows it.
+    staleTime: 0,
     enabled: !!selected && !!status.data?.git,
   })
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: [...remoteKey(slot), 'git'] }) }
-  /** A request to the agent, staged as a composer draft; the label says so. */
+  /** A request to the agent, staged as a draft in THIS chat's composer: this
+   *  chat is the one bound to the workspace the request is about, so a fresh
+   *  chat's agent could not reach it. The label says so. */
+  const stage = (text: string) => { dispatch(stageToMainComposer({ slot, text })) }
   const askAgent = (prompt: string, label: string) => (
-    <AskAgentButton prompt={prompt} label={label} title={t('sessionEnvironments.remoteGit.askDraftTitle')} tone="accent" />
+    <AskAgentButton prompt={prompt} label={label} title={t('sessionEnvironments.remoteGit.askDraftTitle')} tone="accent" onStage={stage} />
   )
   /** A failed read leads with what could not be read; git's own text, or the
    *  transport failure, follows as the detail. A coded stop is already a

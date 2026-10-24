@@ -35,6 +35,9 @@ BENIGN_PACKAGE_SPAWNS: frozenset[str] = frozenset(
         "remote_session/worker.py::run",
         "remote_session/workspace_tools.py::run_command",
         "remote_session/workspace_tools.py::_run_grouped",
+        # Windows only: taskkill /T from the system directory on a read the
+        # guest itself started, so a deadline leaves no orphaned git.exe.
+        "remote_session/workspace_tools.py::_stop_tree",
         # The Fargate container command runs this stdlib-only bootstrap as guest
         # PID 1. Its authenticated shell requests execute only inside that task;
         # the disposable guest, not the gateway sandbox, supplies isolation.
