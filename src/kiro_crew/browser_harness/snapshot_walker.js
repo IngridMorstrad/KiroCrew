@@ -347,6 +347,57 @@
       installConsoleHook();
       var buf = window.__kcConsole || [];
       return buf.slice(Math.max(0, buf.length - limit));
+    },
+
+    // How many password inputs have a box on the page, by the live view's mask
+    // rule (screencast.py `_MASK_JS`): any `input[type=password]` with a non-empty
+    // box, open shadow roots included to the same depth, plus the documents of
+    // same-origin frames -- and any filled field `secretish` names (an OTP, a card
+    // code, a token), whose value the outline also withholds. The decision hooks
+    // send no screenshot while this is not 0.
+    passwordBoxes: function () {
+      var n = 0;
+      function walkRoot(root, d) {
+        var found = root.querySelectorAll("input, textarea");
+        for (var i = 0; i < found.length; i++) {
+          var el = found[i];
+          var guarded = inputType(el) === "password" || (secretish(el) && !!el.value);
+          if (!guarded) continue;
+          var b = el.getBoundingClientRect();
+          if (b.width > 0 && b.height > 0) n++;
+        }
+        if (d >= 8) return;
+        var all = root.querySelectorAll("*");
+        for (var j = 0; j < all.length; j++) {
+          if (all[j].shadowRoot) walkRoot(all[j].shadowRoot, d + 1);
+          var tag = (all[j].tagName || "").toLowerCase();
+          if (tag === "iframe" || tag === "frame") {
+            var inner = null;
+            try { inner = all[j].contentDocument; } catch (e) { inner = null; }
+            if (inner) walkRoot(inner, d + 1);
+          }
+        }
+      }
+      walkRoot(document, 0);
+      return n;
+    },
+
+    // Boxes of visible <canvas> elements in the viewport, CSS pixels
+    // [left, top, width, height]: the only targets the screenshot locator may
+    // click, because the outline cannot see inside them.
+    canvasRects: function () {
+      var out = [];
+      var rects = { w: window.innerWidth, h: window.innerHeight, rects: out };
+      var all = document.querySelectorAll("canvas");
+      for (var i = 0; i < all.length && out.length < 32; i++) {
+        var el = all[i];
+        if (!visible(el)) continue;
+        var b = el.getBoundingClientRect();
+        if (b.width < 16 || b.height < 16) continue;
+        if (b.right <= 0 || b.bottom <= 0 || b.left >= window.innerWidth || b.top >= window.innerHeight) continue;
+        out.push([b.left, b.top, b.width, b.height]);
+      }
+      return rects;
     }
   };
   return api;

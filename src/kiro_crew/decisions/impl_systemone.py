@@ -28,10 +28,12 @@ the gate never names it, it builds whatever ``provider.select`` returns.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 import math
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -39,11 +41,15 @@ from urllib.parse import urlsplit
 from kiro_crew.config.sections import DECISION_PROVIDER_MODEL_DEFAULT
 from kiro_crew.decisions.local_models import active_id, is_loopback_endpoint
 from kiro_crew.decisions.types import (
+    IMAGE_FORMATS,
+    IMAGE_MAX_BYTES,
     SCORE_MAX_LEVELS,
     SCORE_MIN_LEVELS,
     Answer,
     Answers,
+    Box,
     Choice,
+    ImageAsset,
     Noul,
     Question,
     Score,
@@ -101,6 +107,9 @@ class SystemOneProfile:
     model: str
     vault_secret: str
     request_id_header: str
+    #: The opt-in header the service requires on a request carrying an image or a
+    #: Box question.
+    images_header: str = ""
 
 
 #: Jev by TypeSafe, the shipped hosted service. Values unchanged from before the
@@ -111,6 +120,7 @@ HOSTED_TYPESAFE = SystemOneProfile(
     model=DECISION_PROVIDER_MODEL_DEFAULT,
     vault_secret="TYPESAFE_API_KEY",
     request_id_header="x-typesafe-request-id",
+    images_header="TypeSafe-Danger-Zone-Images",
 )
 
 _DEFAULT_ENDPOINT = HOSTED_TYPESAFE.endpoint
@@ -261,18 +271,41 @@ def resolve_api_key(raw: str) -> str:
         return ""
 
 
-def _to_wire(state: dict | str, model: str, questions: list[Question]) -> dict[str, Any]:
+def _to_wire(
+    state: dict | str,
+    model: str,
+    questions: list[Question],
+    assets: Mapping[str, ImageAsset] | None = None,
+) -> dict[str, Any]:
     """Map each question to the provider's wire shape for its type.
 
     The model id is checked here as well as by the gate's scrub: this is the one
-    function that puts it on the wire, so the bound holds for any caller.
+    function that puts it on the wire, so the bound holds for any caller. Each
+    image becomes ``assets[<id>] = {type: image, format, data_base64}``; the state
+    names it by that id.
     """
     if not is_model_id(model):
         raise ProviderProtocolError("provider.model is not a model id")
     wire_questions: dict[str, Any] = {}
     for q in questions:
         wire_questions[q.id] = _question_to_wire(q)
-    return {"state": state, "model": model, "questions": wire_questions}
+    body: dict[str, Any] = {"state": state, "model": model, "questions": wire_questions}
+    if assets:
+        body["assets"] = {asset_id: _asset_to_wire(asset) for asset_id, asset in assets.items()}
+    return body
+
+
+def _asset_to_wire(asset: object) -> dict[str, Any]:
+    """One image in the provider's shape, or raise for anything the service refuses."""
+    if not isinstance(asset, ImageAsset) or asset.format not in IMAGE_FORMATS:
+        raise ProviderProtocolError("unsupported image asset")
+    if not asset.data or len(asset.data) > IMAGE_MAX_BYTES:
+        raise ProviderProtocolError("image asset is empty or too large")
+    return {
+        "type": "image",
+        "format": asset.format,
+        "data_base64": base64.b64encode(asset.data).decode("ascii"),
+    }
 
 
 def _question_to_wire(q: object) -> dict[str, Any]:
@@ -301,6 +334,8 @@ def _question_to_wire(q: object) -> dict[str, Any]:
         if not SCORE_MIN_LEVELS <= len(q.levels) <= SCORE_MAX_LEVELS:
             raise ProviderProtocolError("score question has an unsupported number of levels")
         return {"type": "score", "instructions": q.prompt, "criteria": list(q.levels)}
+    if isinstance(q, Box):
+        return {"type": "box", "instructions": q.prompt}
     raise ProviderProtocolError("unsupported question type")
 
 
@@ -340,6 +375,8 @@ def _answer_from_wire(q: Question, raw: dict) -> Answer:
         return _noul_from_wire(q, raw)
     if isinstance(q, Score):
         return _score_from_wire(q, raw)
+    if isinstance(q, Box):
+        return _box_from_wire(q, raw)
     if not isinstance(q, Choice):
         raise ProviderProtocolError("unsupported question type")
     if raw.get("type") != "choice":
@@ -398,6 +435,31 @@ def _score_from_wire(q: Score, raw: dict) -> Answer:
         level_ps.append(level_p)
     confidence = _as_float_or_none(raw.get("confidence"))
     return Answer(id=q.id, value=value, p=max(level_ps), confidence=confidence)
+
+
+def _box_from_wire(q: Box, raw: dict) -> Answer:
+    """``{"type": "box", "box": {left, top, right, bottom}, "confidence"}``, fractions 0..1.
+
+    A box with no confidence, an edge outside 0..1, or a zero or negative area is a
+    protocol error: there is no answer a caller could act on.
+    """
+    if raw.get("type") != "box":
+        raise ProviderProtocolError("answer type does not match question")
+    box = raw.get("box")
+    if not isinstance(box, dict):
+        raise ProviderProtocolError("answer has no 'box' object")
+    edges: dict[str, float] = {}
+    for edge in ("left", "top", "right", "bottom"):
+        value = _as_float_or_none(box.get(edge))
+        if value is None or not 0.0 <= value <= 1.0:
+            raise ProviderProtocolError("a box edge is not a fraction 0..1")
+        edges[edge] = value
+    if edges["left"] >= edges["right"] or edges["top"] >= edges["bottom"]:
+        raise ProviderProtocolError("the box has no area")
+    confidence = _as_float_or_none(raw.get("confidence"))
+    if confidence is None or not 0.0 <= confidence <= 1.0:
+        raise ProviderProtocolError("answer has no valid box confidence")
+    return Answer(id=q.id, value=edges, p=confidence, confidence=confidence)
 
 
 def _as_float_or_none(raw: Any) -> float | None:
@@ -477,15 +539,26 @@ class SystemOneProvider:
         #: conversation text -- only the three provider-stamped fields.
         self.last_response_meta: dict[str, Any] | None = None
 
-    async def ask(self, state: dict | str, questions: list[Question]) -> Answers:
+    async def ask(
+        self,
+        state: dict | str,
+        questions: list[Question],
+        *,
+        assets: Mapping[str, ImageAsset] | None = None,
+    ) -> Answers:
         """POST one request carrying every question. Raises on any failure.
 
         Error text never quotes the request or the response body: the gate logs
         the exception class only, and a provider message could echo the state.
+
+        *assets* are the images the state names by id. A request carrying one, or
+        a Box question, also carries the hosted profile's image opt-in header.
         """
         if not questions:
             raise ProviderProtocolError("no questions to ask")
         headers = {"Content-Type": "application/json"}
+        if assets or any(isinstance(q, Box) for q in questions):
+            headers[HOSTED_TYPESAFE.images_header] = "true"
         # A local model server gets NO credential. Whatever listens on a loopback
         # port is not TypeSafe, and handing it the Jev key would give that key to
         # any process on this machine that bound the port first.
@@ -499,7 +572,7 @@ class SystemOneProvider:
 
         import aiohttp
 
-        body = _to_wire(state, self._model, questions)
+        body = _to_wire(state, self._model, questions, assets)
         timeout_ms = _as_float_or_none(self._timeout_ms)
         # Per request, not per session: the session is shared, and the total covers
         # waiting for a pooled connection as well as the exchange itself.

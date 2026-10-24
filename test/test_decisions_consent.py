@@ -260,6 +260,9 @@ class TestWrite:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
+            # Screenshots are off until asked for; the page-outline scope ``browser``
+            # is on by default and is therefore not written at all.
+            "browser_images": False,
         }
         assert consent.permits(CUSTOM) is True
         assert consent.permits(DEFAULT_ENDPOINT) is False
@@ -279,6 +282,7 @@ class TestWrite:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
+            "browser_images": False,
         }
         assert consent.permits(CUSTOM) is False
 
@@ -294,6 +298,7 @@ class TestWrite:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
+            "browser_images": False,
         }
 
     def test_records_the_history_ceiling_it_was_given(self, keystone):
@@ -529,6 +534,10 @@ class TestHandler:
             "compaction": False,
             "memory_text": False,
             "nudge_evidence": False,
+            # The browser page-outline scope reads TRUE when absent (on by default
+            # once consent stands); screenshots read false.
+            "browser": True,
+            "browser_images": False,
             # One row per point this build ships, projected from the seam's own
             # registry so the card lists what the gate will answer for. Nothing is
             # sent on this keystone, so every status is the effective ``off``.
@@ -785,6 +794,7 @@ class TestHandler:
             compaction=False,
             memory_text=False,
             nudge_evidence=False,
+            **browser_scopes,
         ):
             seen.append(history_budget_chars)
             return real(
@@ -795,6 +805,7 @@ class TestHandler:
                 compaction=compaction,
                 memory_text=memory_text,
                 nudge_evidence=nudge_evidence,
+                **browser_scopes,
             )
 
         monkeypatch.setattr(consent, "save_enabled", _spy)
@@ -1545,6 +1556,7 @@ class TestPointProjection:
             consent.STATE_KEY_COMPACTION,
             consent.STATE_KEY_MEMORY_TEXT,
             consent.STATE_KEY_NUDGE_EVIDENCE,
+            consent.STATE_KEY_BROWSER,
         }
 
     @pytest.mark.asyncio
@@ -1678,9 +1690,22 @@ class TestPointProjection:
         async def _get():
             return await api_decisions_consent_get(_request())
 
-        # Consent given, no scope: every SCOPED point is held back and no other is.
+        # Consent given, no scope ABSENT-AS-NO: the browser outline scope is the one
+        # on by default, so absent it reads active and only an explicit false holds
+        # it back.
         keystone.write_text(
             json.dumps({"enabled": True, "endpoint": DEFAULT_ENDPOINT}), encoding="utf-8"
+        )
+        got = {r["id"]: r["status"] for r in json.loads((await _get()).text)["points"]}
+        assert got["browser.step"] == "active"
+
+        # Consent given, every scope refused: every SCOPED point is held back and no
+        # other is.
+        keystone.write_text(
+            json.dumps(
+                {"enabled": True, "endpoint": DEFAULT_ENDPOINT, consent.STATE_KEY_BROWSER: False}
+            ),
+            encoding="utf-8",
         )
         rows = json.loads((await _get()).text)["points"]
         got = {r["id"]: r["status"] for r in rows}

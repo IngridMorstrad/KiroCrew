@@ -149,7 +149,17 @@ class TestEveryProviderConforms:
             provider_mod.KIND_LOCAL,
             provider_mod.KIND_SESSION_LLM,
         )
-        assert spec.supports and spec.supports <= provider_mod.QUESTION_KINDS
+        image_kinds = {provider_mod.KIND_BOX, provider_mod.CAPABILITY_IMAGE}
+        assert spec.supports and spec.supports <= provider_mod.QUESTION_KINDS | image_kinds
+        assert provider_mod.QUESTION_KINDS <= spec.supports
+        # Box is asked only about an image, so it is declared with images or not at all.
+        assert (provider_mod.KIND_BOX in spec.supports) is (
+            provider_mod.CAPABILITY_IMAGE in spec.supports
+        )
+        # Only the hosted service is declared to read images.
+        assert (provider_mod.CAPABILITY_IMAGE in spec.supports) is (
+            spec.id == provider_mod.PROVIDER_HOSTED
+        )
         # Only a loopback provider is governed by the local row, and only the
         # session-LLM lane is authorized without the keystone.
         assert spec.local is (spec.egress == provider_mod.EGRESS_LOOPBACK)
@@ -521,9 +531,17 @@ def _browser_sources() -> list[Path]:
     return files
 
 
+#: The one browser module that may reach the seam, and only from inside a function
+#: (the optional ``browser.step`` hooks), so the package never joins the browser's
+#: import graph.
+_BROWSER_DECISION_HOOKS = "browser_harness/decide.py"
+
+
 def _imports_decisions(path: Path) -> bool:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
+    hooks = path.relative_to(REPO_SRC).as_posix() == _BROWSER_DECISION_HOOKS
+    nodes = tree.body if hooks else list(ast.walk(tree))
+    for node in nodes:
         if isinstance(node, ast.Import):
             if any(a.name.startswith("kiro_crew.decisions") for a in node.names):
                 return True
@@ -539,4 +557,25 @@ def _imports_decisions(path: Path) -> bool:
 def test_the_browser_stack_imports_nothing_from_decisions():
     files = _browser_sources()
     assert files, "no browser sources found; the scan would pass vacuously"
+    assert _BROWSER_DECISION_HOOKS in {p.relative_to(REPO_SRC).as_posix() for p in files}
     assert [str(p.relative_to(REPO_SRC)) for p in files if _imports_decisions(p)] == []
+
+
+def test_the_browser_hooks_reach_the_seam_only_through_the_gate():
+    """No provider implementation is named from browser code: only ``gate``/``types``."""
+    tree = ast.parse((REPO_SRC / _BROWSER_DECISION_HOOKS).read_text(encoding="utf-8"))
+    modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("kiro_crew.decisions")
+    }
+    assert modules == {"kiro_crew.decisions.types"} | (modules & {"kiro_crew.decisions"})
+    names = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "kiro_crew.decisions"
+        for alias in node.names
+    }
+    assert names == {"gate"}
+    assert "jev" not in (REPO_SRC / _BROWSER_DECISION_HOOKS).read_text(encoding="utf-8").lower()

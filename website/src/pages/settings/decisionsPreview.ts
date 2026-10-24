@@ -288,6 +288,14 @@ export interface DecisionsView {
    */
   nudgeEvidence: boolean
   /**
+   * The two `browser.step` scopes: the page OUTLINE of the agent's tab, and
+   * SCREENSHOTS of it. Read as the server reports them: `browser` is the one scope
+   * the server reports true when the keystone does not mention it (on by default
+   * once consent stands), so the card draws what the gate will do.
+   */
+  browser: boolean
+  browserImages: boolean
+  /**
    * The prior-conversation CEILING the owner reviewed, in characters.
    *
    * From the KEYSTONE, not from `config.json`. The two differ exactly when an agent
@@ -318,6 +326,8 @@ const UNSUPPORTED: DecisionsView = {
   compaction: false,
   memoryText: false,
   nudgeEvidence: false,
+  browser: false,
+  browserImages: false,
   historyBudget: 0,
   points: [],
 }
@@ -370,6 +380,8 @@ export function readConsent(body: unknown): Omit<DecisionsView, 'bucket' | 'poin
       compaction: false,
       memoryText: false,
       nudgeEvidence: false,
+      browser: false,
+      browserImages: false,
       historyBudget: 0,
     }
   }
@@ -394,6 +406,9 @@ export function readConsent(body: unknown): Omit<DecisionsView, 'bucket' | 'poin
   // `compaction` on purpose: that yes covered the owner's OWN transcript at their own
   // agent's compaction, and this one covers rows from sessions the loop watches.
   const nudgeEvidence = root.nudge_evidence === true
+  // Exact `true`s as well; an older gateway omits both and they read as off.
+  const browser = root.browser === true
+  const browserImages = root.browser_images === true
   // A whole non-negative number or nothing: an older gateway omits the field, and a
   // value nobody can read back as a budget is not one. 0 either way, which is the
   // shipped default and the least that can leave.
@@ -409,6 +424,8 @@ export function readConsent(body: unknown): Omit<DecisionsView, 'bucket' | 'poin
     compaction,
     memoryText,
     nudgeEvidence,
+    browser,
+    browserImages,
     historyBudget,
   }
 }

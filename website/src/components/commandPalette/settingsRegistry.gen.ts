@@ -1778,6 +1778,15 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
   },
   {
+    "id": "developer.also-send-screenshots-of-the-agent-s-browser-tab",
+    "label": "Also send screenshots of the agent's browser tab",
+    "labelKey": "pages.developer.featurePreviewsTab.decisions_browser_images",
+    "description": "Off until you turn it on. Sends a screenshot before and after a step to check it, and a screenshot to find a target drawn on a canvas, which the outline cannot see. No screenshot is taken while a password field is on the page or while you have taken over the browser. Only the hosted decision model accepts screenshots; a local model gets the outline only.",
+    "tab": "developer",
+    "type": "toggle",
+    "occurrence": 1
+  },
+  {
     "id": "developer.also-send-snippets-of-recalled-memories-so-jev-can-drop-the-ones-that-do-not-help",
     "labelKey": "pages.developer.featurePreviewsTab.decisions_memory_text",
     "tab": "developer",

@@ -209,6 +209,7 @@ async def test_an_op_past_its_budget_is_timeout(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(harness_ops, "run_op", _hang)
     monkeypatch.setattr(mod, "OP_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(mod, "DECISION_HEADROOM_S", 0.0)
     resp = await mod.api_browser_op(_request({"op": "snapshot", "session_key": "k"}))
     body = json.loads(resp.body)
     assert body["ok"] is False and body["code"] == "timeout"

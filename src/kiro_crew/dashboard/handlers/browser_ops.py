@@ -70,6 +70,7 @@ from aiohttp import web
 from kiro_crew.browser_harness import ops as harness_ops
 from kiro_crew.browser_harness import url_gate
 from kiro_crew.browser_harness.budgets import (
+    DECISION_HEADROOM_S,
     ENSURE_TIMEOUT_S,
     HANDBACK_WAIT_S,
     HOLD_TIMEOUT_S,
@@ -77,6 +78,7 @@ from kiro_crew.browser_harness.budgets import (
     OP_TIMEOUT_S,
     SLOW_OP_TIMEOUT_S,
 )
+from kiro_crew.browser_harness.decide import BrowserDecisions
 from kiro_crew.browser_harness.live_hub import (
     STATE_DONE,
     STATE_WAITING_ALLOW,
@@ -381,7 +383,15 @@ async def api_browser_op(request: web.Request) -> web.Response:
             }
         )
     ctx = build_context(key, supervisor, hub)
-    budget = SLOW_OP_TIMEOUT_S if op in harness_ops.SLOW_OPS else OP_TIMEOUT_S
+    # The optional decision-model hooks (``browser.step``), keyed by the caller's own
+    # session key -- the identity the gate samples and governance binds on, not the
+    # card's slot key. They ask the gate first and run the op exactly as written
+    # whenever it answers no.
+    ctx.decisions = BrowserDecisions(session_key)
+    # Plus the decision hooks' own ceilings, so a hook never eats into the op's time.
+    budget = (
+        SLOW_OP_TIMEOUT_S if op in harness_ops.SLOW_OPS else OP_TIMEOUT_S
+    ) + DECISION_HEADROOM_S
     if hub.in_control(key):
         # Answered at once, with ``hold``: the shim parks the tool and polls
         # ``/api/browser/handback`` until the person lets go, then posts the op

@@ -69,8 +69,14 @@ AUTHORITY_SESSION_PROVIDER = "session-provider"
 ROW_DECISIONS = "capabilities.decisions"
 ROW_DECISIONS_LOCAL = "capabilities.decisions_local"
 
-#: The question types this build declares (``decisions.types``), as wire words.
+#: The text question types this build declares (``decisions.types``), as wire words.
 QUESTION_KINDS = frozenset({"choice", "noul", "score"})
+
+#: The image-only question type and the image capability. A spec declares them in
+#: ``supports`` only when its client can carry an image to a provider that reads
+#: one; the gate sends neither to a spec that does not (``gate.decide``).
+KIND_BOX = "box"
+CAPABILITY_IMAGE = "image"
 
 #: Registry ids. Stable identifiers for code and tests, never persisted.
 PROVIDER_HOSTED = "systemone-hosted"
@@ -96,6 +102,11 @@ class DecisionProvider(Protocol):
     async def ask(self, state: dict | str, questions: list[Question]) -> Answers: ...
 
 
+# A provider whose spec declares :data:`CAPABILITY_IMAGE` also accepts
+# ``assets={asset_id: ImageAsset}`` as a keyword on ``ask``; the gate passes it
+# only to such a provider, so every other one keeps the two-argument call.
+
+
 #: Builds one provider for one decision from the ``decisions.provider`` section
 #: and the model id the gate already scrubbed.
 ProviderFactory = Callable[[Any, str], DecisionProvider]
@@ -112,7 +123,8 @@ class ProviderSpec:
     authority: str
     #: The capability row that governs this provider (see :data:`ROW_DECISIONS`).
     governance_row: str
-    #: The question types it answers, from :data:`QUESTION_KINDS`.
+    #: The question types it answers, from :data:`QUESTION_KINDS`, plus
+    #: :data:`KIND_BOX` and :data:`CAPABILITY_IMAGE` where it can take an image.
     supports: frozenset[str]
     #: ``(min, max)`` seconds the budget is clamped into, or ``None`` to use
     #: ``provider.timeout_ms`` as configured.
@@ -156,7 +168,9 @@ _REGISTRY: dict[str, ProviderSpec] = {
             egress=EGRESS_THIRD_PARTY,
             authority=AUTHORITY_KEYSTONE,
             governance_row=ROW_DECISIONS,
-            supports=QUESTION_KINDS,
+            # The hosted service reads images and answers Box; the local presets
+            # in the catalog are text models, so their spec declares neither.
+            supports=QUESTION_KINDS | {KIND_BOX, CAPABILITY_IMAGE},
             timeout_window=None,
             factory=_build_system_one,
         ),

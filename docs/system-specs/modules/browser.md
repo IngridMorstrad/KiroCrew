@@ -591,8 +591,8 @@ Every op calls `live_hub.step`; `run_op`'s own `in_control` check is the backsto
 under the route's fence (the route holds the op until the hand-back, see Takeover).
 A refusal is a value (`{ok: false, code}`); a transport
 failure is the route's `browser_error`; `timeout` is the route's budget (20 s, 75 s
-for the slow ops); `browser_busy` is the bounded wait for another chat's op on the
-gateway-wide lock (75 s); `not_installed` comes from `browsing_available(home)`.
+for the slow ops, each plus the decision hooks' 12 s headroom); `browser_busy` is the bounded wait for another chat's op on the
+gateway-wide lock (75 s plus the hooks' 12 s headroom); `not_installed` comes from `browsing_available(home)`.
 The budgets live in one module (`browser_harness/budgets.py`) that both the route
 and the tool shim import: the shim's HTTP timeout is DERIVED as the route's worst
 case (browser start + the 10-minute hold + lock wait + bind + op) plus a margin, so the tool never
@@ -605,6 +605,53 @@ web-component login form). The
 builtin skill that drove a browser (`web-browse`, `web-verify`, `web-preview`,
 `browser-auth`, and the rest) speak only of this tool; `browser-auth` is "take
 over to sign in".
+
+### Decision-model help (`browser.step`)
+
+An optional add-on: with no decision model, or with any of its gates closed, every
+op runs exactly as the table above says. `browser_harness/decide.py`
+(`BrowserDecisions`, set on `OpContext.decisions` by the op route with the caller's
+own session key) is the only browser module that reaches the decision seam, and it
+imports `kiro_crew.decisions` inside functions only and names no provider: every
+request goes through `decisions.gate.decide` and the provider registry
+(`docs/system-specs/modules/decisions.md`, section 15, owns the point, its scopes
+and its gates). Three uses:
+
+| Use | Ops | Request | Used when | Otherwise |
+|---|---|---|---|---|
+| pick | `click`, `hover`, `type`, `select_option` with `target` (a description) and no `ref`/`x`/`y` | one Choice over the outline's refs, each option `role "name"` plus the nearest heading above it (at most 200, the ones sharing most words with `target`), with Nouls `present`, `error_shown`, `not_found`, `bot_check` | `present > 0.7`, the pick's p >= 0.6, no risk Noul > 0.7: the op runs on that ref and the result carries `picked` | refused `needs_ref` |
+| verify | `click`, `type`, `navigate` that succeeded | before/after outlines, or before/after screenshots with the image scope; Nouls `as_expected`, `changed`, `error_shown` | any valid answer: the result carries `verify` `{as_expected, changed, error_shown: yes/no/unsure, by: outline/screenshot}` | the result is today's, byte for byte |
+| box | `click`, `hover` whose pick found no control (`present < 0.3`) on a page with a visible `<canvas>` (`canvasRects`) | one screenshot, Noul `present` + Box `where` | `present > 0.7`, confidence >= 0.6 and the box centre inside a canvas: the op runs on that pixel | refused `needs_ref` |
+
+A `target` with no hook to resolve it (`OpContext.decisions` unset, or every gate
+closed) is refused `needs_ref` without touching the page, so the agent is told to
+pass a `ref` rather than having text typed into whatever holds focus.
+
+Cost when off: no network, no governance probe and no page call. Only the ops above
+pay one keystone read off the event loop (`gate.is_enabled`), and none when the
+configured provider is `none`. Each request is capped at 500 ms (text) or 800 ms
+(image), and by `provider.timeout_ms`; the hook's own page work is bounded too
+(everything before the op -- outline, pick, canvas locator, before-frame -- 6 s,
+one frame with its two checks 3 s, the whole check after the op 6 s), and past any of them the op's own result is returned as it is. The
+route adds their sum (`budgets.DECISION_HEADROOM_S`, 12 s) to every op's budget, and
+the lock wait and the shim's derived timeouts include it, so a slow hook never eats
+into the op's own time and a finished op is never reported as a timeout. It all
+runs under the op lock, so these caps are also the longest it holds the lock.
+
+What leaves: the `target`, the page title and the walker's outline (no field
+values of password or secret-named fields, no cookies, no URL), scrubbed by the
+gate. A screenshot only with the `browser_images` scope and a provider that
+declares images: taken with `max_dim` 1568, read and deleted at once from the
+screenshot directory, never sent while the walker's `passwordBoxes` is not 0 --
+the live view's mask rule (any `input[type=password]` with a box, open shadow roots
+included) plus same-origin frame documents and any filled field the walker treats
+as secret -- or while the person holds the browser (`ctx.in_control`). Both are
+checked before AND after the capture, and a frame that fails the second check is
+discarded. A cross-origin frame cannot be read, as for the live view; a password
+input renders as bullets there too. When a frame cannot be taken the step check
+falls back to the outlines. The box is scaled by the viewport size `canvasRects`
+returns with the canvas boxes, so it lands in the CSS pixels `click` uses. Tests:
+`test/test_browser_decisions.py`.
 
 ### Capability model
 

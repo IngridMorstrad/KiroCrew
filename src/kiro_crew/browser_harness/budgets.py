@@ -24,13 +24,20 @@ from __future__ import annotations
 OP_TIMEOUT_S = 20.0
 #: An op that waits on the page (navigate, back, wait_for).
 SLOW_OP_TIMEOUT_S = 75.0
+#: The optional decision-model hooks' own ceilings (``browser_harness.decide``):
+#: everything before the op, and the step check after it. The route adds their sum
+#: to every op's budget, so a slow hook can never eat into the time the op itself
+#: is given -- an op that succeeded is never reported as a timeout.
+DECISION_PRE_OP_S = 6.0
+DECISION_POST_OP_S = 6.0
+DECISION_HEADROOM_S = DECISION_PRE_OP_S + DECISION_POST_OP_S
 #: How long an op waits for the browser to come up (Kiro's Chromium launch, or
 #: the owner's Allow click) before answering ``browser_error``.
 ENSURE_TIMEOUT_S = 60.0
 #: How long an op waits for another chat's op to leave the gateway-wide lock
 #: before answering ``browser_busy``. One slow op's worth, so a fast op behind a
 #: navigate is served; two would push the total past the shim's budget.
-LOCK_WAIT_S = SLOW_OP_TIMEOUT_S
+LOCK_WAIT_S = SLOW_OP_TIMEOUT_S + DECISION_HEADROOM_S
 #: Added to the gateway's worst case so the shim always hears the gateway's
 #: answer rather than inventing its own.
 SHIM_MARGIN_S = 10.0
@@ -75,10 +82,20 @@ CREDENTIAL_WORST_S = CREDENTIAL_FINGERPRINT_S + CREDENTIAL_LOCK_WAIT_S + CREDENT
 #: is not in it: a held op answers at once with ``hold: true`` and the shim waits
 #: between calls.
 GATEWAY_FAST_WORST_S = (
-    ENSURE_TIMEOUT_S + LOCK_WAIT_S + CREDENTIAL_WORST_S + OP_TIMEOUT_S + OP_TIMEOUT_S
+    ENSURE_TIMEOUT_S
+    + LOCK_WAIT_S
+    + CREDENTIAL_WORST_S
+    + OP_TIMEOUT_S
+    + OP_TIMEOUT_S
+    + DECISION_HEADROOM_S
 )
 GATEWAY_SLOW_WORST_S = (
-    ENSURE_TIMEOUT_S + LOCK_WAIT_S + CREDENTIAL_WORST_S + OP_TIMEOUT_S + SLOW_OP_TIMEOUT_S
+    ENSURE_TIMEOUT_S
+    + LOCK_WAIT_S
+    + CREDENTIAL_WORST_S
+    + OP_TIMEOUT_S
+    + SLOW_OP_TIMEOUT_S
+    + DECISION_HEADROOM_S
 )
 
 #: What the shim waits on the HTTP call, per op class. Strictly longer than the
@@ -88,6 +105,9 @@ SHIM_FAST_TIMEOUT_S = GATEWAY_FAST_WORST_S + SHIM_MARGIN_S
 SHIM_SLOW_TIMEOUT_S = GATEWAY_SLOW_WORST_S + SHIM_MARGIN_S
 
 __all__ = [
+    "DECISION_HEADROOM_S",
+    "DECISION_POST_OP_S",
+    "DECISION_PRE_OP_S",
     "CREDENTIAL_FINGERPRINT_S",
     "CREDENTIAL_LOCK_WAIT_S",
     "CREDENTIAL_REPULL_S",

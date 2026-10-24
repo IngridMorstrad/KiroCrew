@@ -44,7 +44,7 @@ import re
 import threading
 import time
 from hashlib import sha256
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from kiro_crew import credential_patterns as _cred
 from kiro_crew.config.sections import (
@@ -60,7 +60,9 @@ from kiro_crew.decisions.types import (
     SCORE_MIN_LEVELS,
     Answer,
     Answers,
+    Box,
     Choice,
+    ImageAsset,
     Noul,
     Question,
     Score,
@@ -82,6 +84,7 @@ DECISION_POINT_NAMES = (
     "compaction.keep",
     "memory.recall",
     "nudge.wake",
+    "browser.step",
 )
 
 #: The ONE point that has two providers, and therefore the one point whose
@@ -154,6 +157,18 @@ POINTS_NEEDING_MEMORY_TEXT = frozenset({"memory.recall"})
 #: forge they do not control. An install that granted any other scope is inert
 #: here, which is the property every scope on this keystone exists to give.
 POINTS_NEEDING_NUDGE_EVIDENCE = frozenset({"nudge.wake"})
+
+#: Points whose request carries the OUTLINE OF THE AGENT'S BROWSER TAB, and which
+#: therefore need the keystone's ``browser`` scope (``consent.consented_browser``).
+#: The one scope that reads as granted when absent: the owner chose that an armed
+#: decision model helps the browser by default, and an explicit ``false`` turns it
+#: off. Its screenshots are a request scope of their own (:data:`IMAGE_SCOPES`).
+POINTS_NEEDING_BROWSER = frozenset({"browser.step"})
+
+#: Request scopes that authorize sending an IMAGE. ``decide(images=...)`` refuses
+#: unless the request names one of these, so no caller can send a picture under a
+#: text scope: an image cannot be scrubbed the way text is.
+IMAGE_SCOPES = frozenset({_consent.STATE_KEY_BROWSER_IMAGES})
 
 #: The model id sent when the config leaves ``provider.model`` empty -- the same
 #: fallback ``impl_systemone`` applies, so the id the scrub clears is the id sent.
@@ -249,6 +264,8 @@ def _value_in_domain(value: object, question: object) -> bool:
         return isinstance(value, str) and value in question.options
     if isinstance(question, Noul):
         return _probability(value)
+    if isinstance(question, Box):
+        return _is_box(value)
     if isinstance(question, Score):
         levels = len(question.levels)
         if not SCORE_MIN_LEVELS <= levels <= SCORE_MAX_LEVELS:
@@ -257,6 +274,15 @@ def _value_in_domain(value: object, question: object) -> bool:
             return False
         return math.isfinite(value) and 0.0 <= value <= levels - 1
     return False
+
+
+def _is_box(value: object) -> bool:
+    """Whether *value* is ``{left, top, right, bottom}`` fractions with a positive area."""
+    if not isinstance(value, dict) or set(value) != {"left", "top", "right", "bottom"}:
+        return False
+    if not all(_probability(value[edge]) for edge in value):
+        return False
+    return bool(value["left"] < value["right"] and value["top"] < value["bottom"])
 
 
 def _snapshot() -> Any:
@@ -381,13 +407,14 @@ def _consented_for(
     own (:data:`REQUEST_SCOPES`), held against this same keystone read -- so the
     scope and the endpoint it authorizes come from one snapshot.
     """
-    state = _consent.load_state()
     endpoint = configured_endpoint(config)
     from kiro_crew.decisions.local_models import ENDPOINT_NONE
 
-    # "No decision model" chosen: nothing to send to, whatever the keystone says.
+    # "No decision model" chosen: nothing to send to, whatever the keystone says --
+    # so the keystone is not even read.
     if endpoint == ENDPOINT_NONE:
         return False
+    state = _consent.load_state()
     if _consent.permits(endpoint, state):
         if not _scope_consented(point, state):
             return False
@@ -433,6 +460,7 @@ POINT_SCOPE_KEYS: dict[str, str] = {
     **{p: _consent.STATE_KEY_COMPACTION for p in POINTS_NEEDING_COMPACTION},
     **{p: _consent.STATE_KEY_MEMORY_TEXT for p in POINTS_NEEDING_MEMORY_TEXT},
     **{p: _consent.STATE_KEY_NUDGE_EVIDENCE for p in POINTS_NEEDING_NUDGE_EVIDENCE},
+    **{p: _consent.STATE_KEY_BROWSER for p in POINTS_NEEDING_BROWSER},
 }
 
 
@@ -454,6 +482,10 @@ _POINT_SCOPES: dict[str, tuple[str, str]] = {
     **{
         p: ("consented_nudge_evidence", "evidence from other sessions and third parties")
         for p in POINTS_NEEDING_NUDGE_EVIDENCE
+    },
+    **{
+        p: ("consented_browser", "the outline of the agent's browser tab")
+        for p in POINTS_NEEDING_BROWSER
     },
 }
 
@@ -505,6 +537,10 @@ def _scope_consented(point: str | None, state: dict) -> bool:
 #: an agent-written tool argument on a sub-agent start.
 REQUEST_SCOPES: dict[str, tuple[str, str]] = {
     _consent.STATE_KEY_TOOL_ARGS: ("consented_tool_args", "tool-call arguments"),
+    _consent.STATE_KEY_BROWSER_IMAGES: (
+        "consented_browser_images",
+        "screenshots of the agent's browser tab",
+    ),
 }
 
 
@@ -925,6 +961,52 @@ def scrub_reason(
     return ERROR_SCRUBBED_URL if warnings else None
 
 
+def _request_needs(
+    questions: Sequence[Question], images: Mapping[str, ImageAsset] | None = None
+) -> frozenset[str]:
+    """What a request needs from its provider beyond the text question types:
+    ``image`` when it carries an image, ``box`` when it asks a Box question."""
+    needs: set[str] = set()
+    if images:
+        needs.add(_provider.CAPABILITY_IMAGE)
+    if any(isinstance(q, Box) for q in questions):
+        needs.add(_provider.KIND_BOX)
+    return frozenset(needs)
+
+
+def provider_supports(needs: frozenset[str], config: Any | None = None) -> bool:
+    """Whether the endpoint lane's configured provider declares every one of *needs*.
+
+    Pure: the registry selection reads the config snapshot and the preset catalog,
+    no file and no network. Unreadable reads as unsupported, so an image is never
+    sent to a provider nobody established can read one.
+    """
+    if not needs:
+        return True
+    try:
+        provider = getattr(_decisions_config(config), "provider", None)
+        spec = _provider.select(
+            LANE_ENDPOINT,
+            endpoint=_consent.normalize_endpoint(getattr(provider, "endpoint", "")),
+            model=str(getattr(provider, "model", "") or ""),
+        )
+    except Exception:
+        return False
+    return needs <= spec.supports
+
+
+def request_scope_granted(scope: str) -> bool:
+    """Whether the keystone records *scope* (:data:`REQUEST_SCOPES`). Filesystem IO.
+
+    Only the scope: consent itself, the endpoint and governance are
+    :func:`is_enabled`'s question. Unknown or unreadable reads False.
+    """
+    try:
+        return _request_scopes_consented((scope,), _consent.load_state())
+    except Exception:
+        return False
+
+
 def _sampled(point: str, session_key: str | None, config: Any | None, *, consented: bool) -> bool:
     """Refusals 1-3, shared by :func:`is_enabled` and :func:`decide` so the two
     cannot drift. No ``await``, no IO, no import of an implementation: the one
@@ -987,6 +1069,8 @@ async def decide(
     extra: dict[str, Any] | None = None,
     receipt: dict[str, Any] | None = None,
     scopes: Sequence[str] = (),
+    images: Mapping[str, ImageAsset] | None = None,
+    max_wait_s: float | None = None,
 ) -> Answers | None:
     """Ask *questions* about *state* at *point*, or return ``None``.
 
@@ -1025,9 +1109,27 @@ async def decide(
     authorizes the endpoint, so a consent change between a caller's own check and
     the send cannot let the request through under the wider category; a missing,
     unknown or unreadable scope refuses with no row.
+
+    *images* are pictures the state names by asset id. They are sent only when
+    *scopes* names one of :data:`IMAGE_SCOPES` -- an image cannot be scrubbed, so it
+    needs a grant of its own -- and only to a provider whose registry entry
+    declares ``image`` (and ``box`` for a Box question). A request that needs
+    either from a provider that does not declare it, or a Box question with no
+    image, refuses with no row and no IO.
+
+    *max_wait_s* narrows the provider budget for this one call; it never widens it.
     """
     if receipt is not None:
         receipt["row_written"] = False
+    needs = _request_needs(questions, images)
+    if _provider.KIND_BOX in needs and not images:
+        return None
+    if images and not (
+        IMAGE_SCOPES.intersection(scopes)
+        and all(isinstance(asset, ImageAsset) for asset in images.values())
+    ):
+        logger.debug("decisions: %s images refused: no image scope named", point)
+        return None
 
     # Guarded because *config* may be an arbitrary object whose attribute reads
     # raise, and this seam must never alter the turn it sits in.
@@ -1041,6 +1143,8 @@ async def decide(
         if cfg is None:
             # An unprimed watcher fails CLOSED here rather than letting a later
             # helper re-read a snapshot that may have appeared in the meantime.
+            return None
+        if not provider_supports(needs, cfg):
             return None
         # The keystone is a file read, so it leaves the event loop; everything
         # else `_sampled` checks is attribute reads on the snapshot.
@@ -1060,6 +1164,8 @@ async def decide(
         if not _sampled(point, session_key, cfg, consented=authorized):
             return None
         budget = timeout_secs(cfg, lane=lane)
+        if max_wait_s is not None and math.isfinite(max_wait_s) and max_wait_s > 0:
+            budget = min(budget, max_wait_s)
         provider = getattr(_decisions_config(cfg), "provider", None)
     except Exception as exc:
         logger.debug("decisions: %s config read failed (%s)", point, type(exc).__name__)
@@ -1161,7 +1267,12 @@ async def decide(
         # out of ``decide``. Bound to a name so its response metadata can be read
         # after a successful call.
         oracle = _oracle(lane, provider, model)
-        answers = await asyncio.wait_for(oracle.ask(state, questions), timeout=budget)
+        # Assets only to a provider that declared images (checked above), so every
+        # other provider keeps the two-argument call.
+        call = (
+            oracle.ask(state, questions, assets=images) if images else oracle.ask(state, questions)
+        )
+        answers = await asyncio.wait_for(call, timeout=budget)
     except asyncio.TimeoutError:
         # Named apart from the generic branch: "timeout" is the one failure an
         # operator can act on mechanically (raise timeout_ms, or accept the rate).

@@ -609,6 +609,7 @@ class TestPointName:
             "compaction.keep",
             "memory.recall",
             "nudge.wake",
+            "browser.step",
         )
 
     @pytest.mark.parametrize("unknown", ["skills.dedupe", "cron.novelty", "", "skills.Select"])
@@ -699,8 +700,27 @@ class TestPointName:
         install_impl(_RecordingOracle())
         assert is_enabled("skills.select", config=_config()) is True
         assert is_enabled("message.steer", config=_config()) is True
+        # The one default-on scope reads as granted when absent, so a keystone that
+        # records "no scope" has to say no to it in so many words.
+        keystone = consent_mod.consent_path()
+        state = json.loads(keystone.read_text(encoding="utf-8"))
+        keystone.write_text(
+            json.dumps({**state, consent_mod.STATE_KEY_BROWSER: False}),
+            encoding="utf-8",
+        )
         for name in gate_mod._POINT_SCOPES:
             assert is_enabled(name, config=_config(judge_provider=gate_mod.LANE_JEV)) is False, name
+
+    def test_the_one_default_on_scope_is_pinned_and_an_explicit_no_holds(
+        self, install_impl, tmp_path
+    ):
+        """``browser`` is on by default once consent stands; ``false`` still turns it off."""
+        install_impl(_RecordingOracle())
+        assert is_enabled("browser.step", config=_config()) is True
+        keystone = tmp_path / "decisions_consent.json"
+        state = json.loads(keystone.read_text(encoding="utf-8"))
+        keystone.write_text(json.dumps({**state, "browser": False}), encoding="utf-8")
+        assert is_enabled("browser.step", config=_config()) is False
 
 
 # ---------------------------------------------------------------------------

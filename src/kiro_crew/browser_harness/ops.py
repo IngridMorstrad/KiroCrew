@@ -130,6 +130,32 @@ async def _no_sleep(_seconds: float) -> None:  # pragma: no cover - replaced by 
     return None
 
 
+#: Ops that accept ``target`` -- the element described in words -- in place of a
+#: ``ref``. Only the optional ``browser.step`` decision hook (``browser_harness.decide``)
+#: can resolve one; without it such a call is refused with ``needs_ref``.
+TARGET_OPS: frozenset[str] = frozenset({"click", "hover", "type", "select_option"})
+
+
+def names_target_only(op: str, args: dict[str, Any]) -> bool:
+    """Whether *args* name the element only by ``target``: no ``ref`` and no ``x``/``y``."""
+    target = args.get("target")
+    return (
+        op in TARGET_OPS
+        and isinstance(target, str)
+        and bool(target.strip())
+        and args.get("ref") is None
+        and args.get("x") is None
+        and args.get("y") is None
+    )
+
+
+def needs_ref() -> dict[str, Any]:
+    return refusal(
+        "needs_ref",
+        "`target` could not be matched to one element; call snapshot and pass `ref`",
+    )
+
+
 @dataclass
 class OpContext:
     """What one op needs from the gateway, all injected so tests fake it.
@@ -152,6 +178,9 @@ class OpContext:
     screenshot_dir: Path = field(default_factory=lambda: Path(os.getcwd()))
     sleep: _SleepFn = _no_sleep
     now: Callable[[], float] = time.monotonic
+    #: The optional ``browser.step`` hooks (``browser_harness.decide.BrowserDecisions``)
+    #: for this caller's session, or ``None``: then every op runs exactly as written.
+    decisions: Any = None
 
 
 def screenshot_dir(home: Path) -> Path:
@@ -711,4 +740,8 @@ async def run_op(op: str, args: dict[str, Any], ctx: OpContext) -> dict[str, Any
             "user_in_control",
             "the user has taken over the browser; wait for them to hand it back",
         )
+    if ctx.decisions is not None:
+        return await ctx.decisions.run(op, args, ctx, handler)  # type: ignore[no-any-return]
+    if names_target_only(op, args):
+        return needs_ref()
     return await handler(ctx, args)
