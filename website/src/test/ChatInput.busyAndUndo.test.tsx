@@ -195,6 +195,53 @@ describe('ChatInput', () => {
     })
   })
 
+  describe('Optimize prompt while a turn runs (issue #23572)', () => {
+    // Optimize rewrites the draft and never sends, so the busy send slot must
+    // not take it away: a steer or queued prompt is written mid-turn.
+    it('keeps Optimize beside the queue button and enables it for a draft', () => {
+      renderWithProviders(<ChatInput {...defaultProps} value="tighten this" isRunning onStop={vi.fn()} />)
+      expect(screen.getByRole('button', { name: 'Queue message' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Optimize prompt' })).not.toBeDisabled()
+    })
+
+    it('keeps Optimize beside the steer/queue split button', () => {
+      renderWithProviders(<ChatInput {...defaultProps} value="tighten this" isRunning onStop={vi.fn()} canSteer onSteer={vi.fn()} />)
+      expect(screen.getByTestId('busy-send-button')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Optimize prompt' })).not.toBeDisabled()
+    })
+
+    it('shows Optimize disabled next to Stop on an empty composer, as it is when idle', () => {
+      renderWithProviders(<ChatInput {...defaultProps} value="" isRunning onStop={vi.fn()} />)
+      expect(screen.getByTestId('stop-button-armed')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Optimize prompt' })).toBeDisabled()
+    })
+
+    it('keeps Optimize in responsive (crewmate) mode beside Stop', () => {
+      renderWithProviders(<ChatInput {...defaultProps} value="" isRunning onStop={vi.fn()} busyMode="responsive" />)
+      expect(screen.getByRole('button', { name: 'Optimize prompt' })).toBeInTheDocument()
+    })
+
+    it('hides Optimize while busy when the host opted out of the optimizer', () => {
+      renderWithProviders(<ChatInput {...defaultProps} value="tighten this" isRunning onStop={vi.fn()} promptOptimizer={false} />)
+      expect(screen.queryByRole('button', { name: 'Optimize prompt' })).not.toBeInTheDocument()
+    })
+
+    it('holds the queue button while the optimize rewrites the draft', async () => {
+      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => new Promise<Response>(() => {}))
+      try {
+        const onSend = vi.fn()
+        renderWithProviders(<ChatInput {...defaultProps} value="tighten this" isRunning onStop={vi.fn()} onSend={onSend} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+        const queue = screen.getByRole('button', { name: 'Queue message' })
+        await waitFor(() => expect(queue).toBeDisabled())
+        fireEvent.click(queue)
+        expect(onSend).not.toHaveBeenCalled()
+      } finally {
+        fetchSpy.mockRestore()
+      }
+    })
+  })
+
   describe('a staged session reference does not arm the mid-turn button', () => {
     // Regression guard for a dead click this feature briefly introduced. A
     // staged reference correctly enables the IDLE send button, but the mid-turn

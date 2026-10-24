@@ -852,6 +852,29 @@ function ChatInput({
   // including a caller's own `placeholder`, which `resolvedPlaceholder` carries.
   const placeholderIsHint = !placeholder && activePlaceholder === resolvedPlaceholder
   const { handleInput } = useTextareaAutosize({ inputRef, mirrorRef, value, prefillHint, manualHeight, dragging, textareaParked, activePlaceholder })
+  // "Optimize prompt" rewrites the draft in place and never sends, so it stays
+  // in the row while a turn runs: that is when the next steer or queued prompt
+  // is written (issue #23572). The send-slot branches below decide what sits
+  // beside it.
+  const optimizeButton = promptOptimizer && !terminal.active ? (
+    <button
+      className={`w-8 h-8 rounded-lg border-none flex items-center justify-center cursor-pointer transition-all disabled:cursor-not-allowed ${optimizing ? 'bg-accent/20 text-accent animate-pulse' : 'bg-transparent text-muted hover:text-accent hover:bg-accent/10 disabled:opacity-40 disabled:hover:text-muted disabled:hover:bg-transparent'}`}
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); optimizeUnlessLocked() }}
+      // A single mutation backs this instance, so only one optimize can
+      // run at a time. Disable on the RAW pending flag (not the
+      // slot-scoped `optimizing`) so the button also reads as busy on a
+      // *different* session while the originating session's optimize is
+      // still in flight — matching the re-entrancy guard in
+      // optimizePrompt(). optimizing ⊂ optimizePending, so this stays
+      // disabled on the originating session too.
+      disabled={!value.trim() || optimizePending || !connected || disabled}
+      aria-label={optimizePending && !optimizing ? i18nT('components.chatInput.optimize_prompt_busy_optimizing_another_chat') : i18nT('components.chatInput.optimize_prompt')}
+      title={optimizePending && !optimizing ? i18nT('components.chatInput.optimizing_another_chat_please_wait') : i18nT('components.chatInput.optimize_prompt_2', { shortcut: platformShortcut('Cmd+Shift+Enter') })}
+      {...offlineProps(connected, i18nT('utils.offline.optimize'), i18nT('components.chatInput.optimize_prompt'))}
+    >
+      {optimizing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+    </button>
+  ) : null
 
   return (
     // 'input-area' is a stable theming hook — see website/docs/theming-contract.md
@@ -1579,33 +1602,23 @@ function ChatInput({
               // the idle Send queues the message behind the compaction, so a
               // user with something to say is never left without a send.
               <CompactingIndicator />
-            ) : busyMode !== 'responsive' && (isRunning || stopState === 'soft_pending' || stopState === 'killing') && (onStop || (!terminal.active && canSteer && onSteer)) ? (
-              <BusySendControls stopState={stopState} killingEscaped={killingEscaped} stopWithTap={stopWithTap} isQueued={isQueued && !terminal.active} composerHasDraft={composerHasDraft && !terminal.active} canSteer={canSteer} onSteer={onSteer} steerOnly={steerOnly} fireComposer={fireComposer} disabled={disabled} holdSend={holdSend} holdSendReason={holdSendReason} connected={connected} effectiveBusyMode={effectiveBusyMode} setBusySendMode={setBusySendMode} onBusyModePicked={focusComposerAfterPick} sendOnEnter={sendOnEnter} jevAutoAvailable={jevAutoAvailable} onStop={onStop} terminalActive={terminal.active} stopDeclinedArmed={stopDeclinedArmed} />
-            ) : busyMode === 'responsive' && onStop && ((isRunning && !composerHasDraft) || stopState === 'soft_pending' || stopState === 'killing') ? (
+            ) : busyMode !== 'responsive' && (isRunning || stopState === 'soft_pending' || stopState === 'killing') && (onStop || (!terminal.active && canSteer && onSteer)) ? (<>
+              {optimizeButton}
+              {/* Steer and queue wait out an in-flight optimize, like the idle
+                  Send: the draft is being rewritten under them. Enter already
+                  waits (the keydown checks `optimizingRef`). Stop is not gated. */}
+              <BusySendControls stopState={stopState} killingEscaped={killingEscaped} stopWithTap={stopWithTap} isQueued={isQueued && !terminal.active} composerHasDraft={composerHasDraft && !terminal.active} canSteer={canSteer} onSteer={onSteer} steerOnly={steerOnly} fireComposer={fireComposer} disabled={disabled || optimizing} holdSend={holdSend} holdSendReason={holdSendReason} connected={connected} effectiveBusyMode={effectiveBusyMode} setBusySendMode={setBusySendMode} onBusyModePicked={focusComposerAfterPick} sendOnEnter={sendOnEnter} jevAutoAvailable={jevAutoAvailable} onStop={onStop} terminalActive={terminal.active} stopDeclinedArmed={stopDeclinedArmed} />
+            </>) : busyMode === 'responsive' && onStop && ((isRunning && !composerHasDraft) || stopState === 'soft_pending' || stopState === 'killing') ? (
               // Responsive (crewmate) mode keeps the Stop control: an empty
               // composer mid-turn is Stop, and a stop in progress keeps its
               // escalation states. Once the person types, the plain Send below
               // returns -- never the steer/queue split -- and the gateway
               // decides how that send reaches the running turn.
-              <BusySendControls stopState={stopState} killingEscaped={killingEscaped} stopWithTap={stopWithTap} isQueued={false} composerHasDraft={false} canSteer={false} steerOnly={false} fireComposer={fireComposer} disabled={disabled} holdSend={holdSend} holdSendReason={holdSendReason} connected={connected} effectiveBusyMode={effectiveBusyMode} setBusySendMode={setBusySendMode} sendOnEnter={sendOnEnter} jevAutoAvailable={false} onStop={onStop} terminalActive={terminal.active} stopDeclinedArmed={stopDeclinedArmed} />
+              // The optimize button keeps its place so the row does not
+              // shift when the first character brings the idle group back.
+              <>{optimizeButton}<BusySendControls stopState={stopState} killingEscaped={killingEscaped} stopWithTap={stopWithTap} isQueued={false} composerHasDraft={false} canSteer={false} steerOnly={false} fireComposer={fireComposer} disabled={disabled} holdSend={holdSend} holdSendReason={holdSendReason} connected={connected} effectiveBusyMode={effectiveBusyMode} setBusySendMode={setBusySendMode} sendOnEnter={sendOnEnter} jevAutoAvailable={false} onStop={onStop} terminalActive={terminal.active} stopDeclinedArmed={stopDeclinedArmed} /></>
             ) : !terminal.active && (<>
-              {promptOptimizer && <button
-                className={`w-8 h-8 rounded-lg border-none flex items-center justify-center cursor-pointer transition-all disabled:cursor-not-allowed ${optimizing ? 'bg-accent/20 text-accent animate-pulse' : 'bg-transparent text-muted hover:text-accent hover:bg-accent/10 disabled:opacity-40 disabled:hover:text-muted disabled:hover:bg-transparent'}`}
-                onClick={(e) => { e.stopPropagation(); e.preventDefault(); optimizeUnlessLocked() }}
-                // A single mutation backs this instance, so only one optimize can
-                // run at a time. Disable on the RAW pending flag (not the
-                // slot-scoped `optimizing`) so the button also reads as busy on a
-                // *different* session while the originating session's optimize is
-                // still in flight — matching the re-entrancy guard in
-                // optimizePrompt(). optimizing ⊂ optimizePending, so this stays
-                // disabled on the originating session too.
-                disabled={!value.trim() || optimizePending || !connected || disabled}
-                aria-label={optimizePending && !optimizing ? i18nT('components.chatInput.optimize_prompt_busy_optimizing_another_chat') : i18nT('components.chatInput.optimize_prompt')}
-                title={optimizePending && !optimizing ? i18nT('components.chatInput.optimizing_another_chat_please_wait') : i18nT('components.chatInput.optimize_prompt_2', { shortcut: platformShortcut('Cmd+Shift+Enter') })}
-                {...offlineProps(connected, i18nT('utils.offline.optimize'), i18nT('components.chatInput.optimize_prompt'))}
-              >
-                {optimizing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              </button>}
+              {optimizeButton}
               {/* 'primary' is a stable theming hook (button.primary) — see website/docs/theming-contract.md */}
               {/*
                 Sixth state of this button. The first five are send / stop /
