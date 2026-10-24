@@ -246,17 +246,26 @@ class TestAutoApplyUpdate:
         ds = _mock_dashboard_state()
         orch.dashboard_state = ds
         with patch.dict("os.environ", {"KIROCREW_PROJECT_DIR": "/tmp/proj"}, clear=False):
-            with patch(
-                "kiro_crew.slack.gateway.platform_compat.trusted_git_bin",
-                return_value="/trusted/bin/git",
-            ):
-                with patch(
+            with (
+                patch(
+                    "kiro_crew.slack.gateway.platform_compat.trusted_git_bin",
+                    return_value="/trusted/bin/git",
+                ),
+                # Permissive, so only the branch gate can stop the run before the
+                # next precondition (the repo-named exec config) is read.
+                patch(
+                    "kiro_crew.slack.gateway.repo_exec_config_reason", return_value=""
+                ) as exec_config,
+                patch("kiro_crew.slack.gateway.tracks_upstream", return_value=True),
+                patch(
                     "asyncio.create_subprocess_exec",
                     new_callable=AsyncMock,
                     return_value=proc,
-                ) as spawn:
-                    await orch._auto_apply_update()
+                ) as spawn,
+            ):
+                await orch._auto_apply_update()
         # Only the branch probe ran: no fetch follows a non-primary branch.
+        exec_config.assert_not_called()
         spawn.assert_awaited_once()
         assert "--abbrev-ref" in spawn.await_args.args
         ds.push_update_progress.assert_not_called()
