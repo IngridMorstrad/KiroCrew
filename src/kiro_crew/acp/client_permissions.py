@@ -27,7 +27,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Callable
 
-from kiro_crew import acp_tool_gate, permission_floor
+from kiro_crew import acp_tool_gate, mediated_request_capability, permission_floor
 from kiro_crew import sel as sel_module
 from kiro_crew.acp._dispatch import (
     ACP_BACKENDS_META_IDENTITY,
@@ -301,24 +301,37 @@ async def approve_tool(
             resolved_id = OPTION_ALLOW_ALWAYS if always else OPTION_ALLOW_ONCE
     # The wait for the write lock is the last await before the answer goes
     # out, so the withdrawal is read again under that lock.
-    recheck: dict[str, Callable[[], None]] = {}
-    if withdraw_if is not None:
-        recheck["before_write"] = lambda: permission_floor.raise_if_withdrawn(withdraw_if)
-    if deadline is not None:
-        grant_check = grant_deadline_guard(deadline, request_id)
+    # The approval mints the single-use mediated-secret capability for this call
+    # (a no-op for every tool but the trusted kirocrew-secrets one). It is minted
+    # LAST under the write lock, after the withdrawal and the grant deadline, so no
+    # caller can claim it while the approval still waits for the lock, and before
+    # the frame, so the harness can never run the call ahead of the grant. It is
+    # revoked, pending or already claimed, unless the answer actually went out.
+    capability = mediated_request_capability.ApprovalMint(
+        getattr(self, "_session_key", "") or "", gate_event
+    )
+    grant_check = grant_deadline_guard(deadline, request_id) if deadline is not None else None
 
-        def before_write() -> None:
-            # The withdrawal first (no-op without one), then the grant.
+    def before_write() -> None:
+        # The withdrawal first (no-op without one), then the grant, then the mint.
+        if withdraw_if is not None:
             permission_floor.raise_if_withdrawn(withdraw_if)
+        if grant_check is not None:
             grant_check()
+        capability.mint()
 
+    # An approval with nothing to check under the lock is sent as before.
+    recheck: dict[str, Callable[[], None]] = {}
+    if withdraw_if is not None or grant_check is not None or capability.applies:
         recheck["before_write"] = before_write
+    sent = False
     try:
         await self._send_response(
             request_id,
             {"outcome": {"outcome": OUTCOME_SELECTED, "optionId": resolved_id}},
             **recheck,
         )
+        sent = True
     except GrantEnded:
         # Nothing was written: put the request back exactly as it was.
         if gate_events is not None and gate_event is not None:
@@ -331,6 +344,8 @@ async def approve_tool(
     except permission_floor.ApprovalWithdrawn:
         _restore_withdrawn(self, request_id, gate_event, recorded, pi_gate_tool)
         raise
+    finally:
+        capability.settle(sent=sent)
     return True
 
 
@@ -374,7 +389,13 @@ async def reject_tool(self: AcpClient, request_id: str | int) -> None:
     (kiro-cli), which kiro handles as an ordinary rejection.
     """
     recorded = self._permission_options.pop(request_id, None)
-    getattr(self, "_permission_gate_events", {}).pop(request_id, None)
+    gate_event = getattr(self, "_permission_gate_events", {}).pop(request_id, None)
+    # A deny (or cancel) invalidates any mediated-secret grant minted for this
+    # call id, so an approve-then-reject on the same id leaves nothing a reused id
+    # could claim. By call id, not token: the deny path holds no mint token.
+    mediated_request_capability.invalidate_for_gate_event(
+        getattr(self, "_session_key", "") or "", gate_event
+    )
     self._note_pi_gate_denied(request_id)
     # Read by the concurrent-prompt steer settle: this denial may end the turn
     # before a steer sent into it is read.
