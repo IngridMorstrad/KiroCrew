@@ -13,13 +13,14 @@ handler wiring.
 
 import asyncio
 import re
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from chat_test_helpers import _make_state
 from test_chat_slack import _make_slack_app
 
+from kiro_crew.dashboard import chat_slack
 from kiro_crew.dashboard.chat_backfill import select_backfill_messages
 from kiro_crew.dashboard.chat_slack import drain_slack_backfill
 from kiro_crew.slack.format import SLACK_MAX_TEXT, SLACK_MSG_LIMIT
@@ -351,9 +352,9 @@ class TestBackfillFormatting:
         content = filler + split_secret + ("z" * 200)
 
         assert len(content) > boundary, "no split would happen at all"
-        assert len(filler) < cut < len(filler) + len(split_secret), (
-            "the credential must straddle the cut for this test to mean anything"
-        )
+        assert (
+            len(filler) < cut < len(filler) + len(split_secret)
+        ), "the credential must straddle the cut for this test to mean anything"
         _seed(slot, [("user", "paste"), ("assistant", content)])
 
         posted = await _drain(state, slot)
@@ -498,9 +499,7 @@ class TestBackfillOffWindowFirstTurn:
     async def test_transcript_read_failure_degrades_to_memory(self, tmp_path):
         state = _state(tmp_path)
         slot = state.get_or_create_slot("s1")
-        state.conversation_log.read_messages_chained = MagicMock(
-            side_effect=OSError("disk gone")
-        )
+        state.conversation_log.read_messages_chained = MagicMock(side_effect=OSError("disk gone"))
         rows = []
         for i in range(1, 8):
             rows.append(("user", f"q{i}"))
@@ -571,9 +570,7 @@ class TestBackfillHandlerWiring:
         assert "Session linked from dashboard" in sent[0], "anchor must be posted first"
         # sent[0] is the anchor, whose title legitimately quotes the first user
         # prompt — so only the posts AFTER it can evidence a completed backfill.
-        assert sent[1:] == [], (
-            "the request waited for the backfill instead of backgrounding it"
-        )
+        assert sent[1:] == [], "the request waited for the backfill instead of backgrounding it"
 
         pending = [t for t in state._background_tasks if not t.done()]
         assert pending, "link did not register a background drain"
@@ -610,6 +607,11 @@ class TestBackfillHandlerWiring:
 
         await drain_slack_backfill(state, slot, "C1", "1700.1")
 
+        # The first failed post ends the seeding: nothing after it is attempted.
+        state.slack_client.post_message.assert_awaited_once()
+        channel, _text, thread_ts = state.slack_client.post_message.await_args.args
+        assert (channel, thread_ts) == ("C1", "1700.1")
+
     @pytest.mark.asyncio
     async def test_no_slack_client_is_a_noop(self, tmp_path):
         state = _state(tmp_path)
@@ -617,4 +619,7 @@ class TestBackfillHandlerWiring:
         _seed(slot, [("user", "one"), ("assistant", "two")])
         state.slack_client = None
 
-        await drain_slack_backfill(state, slot, "C1", "1700.1")
+        with patch.object(chat_slack, "select_backfill_messages") as select:
+            await drain_slack_backfill(state, slot, "C1", "1700.1")
+
+        select.assert_not_called()
