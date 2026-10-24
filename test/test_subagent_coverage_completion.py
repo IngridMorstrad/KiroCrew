@@ -885,6 +885,9 @@ class TestSweepDigestHolds:
 
     @pytest.mark.parametrize("form", ["sync", "async"])
     def test_closing_wave_not_forced(self, monkeypatch: pytest.MonkeyPatch, form: str) -> None:
+        """With no member outstanding and the final report in flight, the real
+        wave-close digest lands when that report is consumed; a forced partial
+        digest here would race it and could deliver the same members twice."""
         monkeypatch.setattr(sa, "DIGEST_HOLD_SECS", 10.0)
         mgr = _manager(on_done=AsyncMock())
         held = _info("a", batch_id="w1", batch_total=1, done=True)
