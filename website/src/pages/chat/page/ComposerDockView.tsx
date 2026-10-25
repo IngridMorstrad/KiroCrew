@@ -308,7 +308,7 @@ export default function ComposerDockView({
   // approvals are decided only on the conductor's card, so it shows none of its
   // own; with the conductor closed it does not send until the person reopens it.
   const crewWorkerView = steerWorker !== undefined && !!steerWorkerRoot
-  const { rootClosed: steerRootClosedRaw, rootTitle: steerRootTitle } = useCrewRoot(crewWorkerView ? steerWorkerRoot : '')
+  const { rootClosed: steerRootClosedRaw } = useCrewRoot(crewWorkerView ? steerWorkerRoot : '')
   const steerRootClosed = crewWorkerView && steerRootClosedRaw
   // A worker's steer is refused past the steer route's limit BEFORE the draft is
   // cleared, so an over-long paste stays in the box with the reason beside it.
@@ -560,9 +560,10 @@ export default function ComposerDockView({
               jevAutoAvailable={jevAutoConsented && !!slotRunning}
               onFollowUpSend={(text?: string) => send(text)}
               // Streaming, compaction and stopping keep the input interactive (api_chat queues on slot.running and stop preserves the
-              // queue, so Enter queues a follow-up during the stop window). Only a memory-mode switch locks it, the reason as placeholder.
+              // queue, so Enter queues a follow-up during the stop window). A memory-mode switch locks it, the reason as placeholder; a
+              // worker of a closed conductor too, its reason said once by the gate's line above the composer.
               disabled={memorySwitching || steerRootClosed}
-              lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : steerRootClosed ? i18nT('components.crewMode.worker_root_closed_composer', { name: steerRootTitle }) : undefined}
+              lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : undefined}
               // A worker's approval band (Allow once / Trust / Reject) is not drawn:
               // the conductor's approval card is the one place it is decided.
               slotApprovalChrome={crewApprovalDecidableHere({ crew_root: crewWorkerView ? steerWorkerRoot : '' }, 'worker_main_pane')}

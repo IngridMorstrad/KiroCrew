@@ -9645,7 +9645,6 @@
       "approval_trust": "このワーカーを信頼",
       "approval_trust_hint": "これを承認し、ゲートウェイが再起動するまでこのワーカーが確認なしでツールを使えるようにします。",
       "reopen_conductor": "指揮役を開き直す",
-      "root_closed": "{{name}} は閉じています。このワーカーへの指示を続けるには開き直してください。",
       "worker_approval_waiting": "{{name}} で承認を待っています",
       "worker_open_conductor": "{{name}} を開く",
       "worker_root_closed_composer": "作業を続けるには {{name}} を再度開いてください",

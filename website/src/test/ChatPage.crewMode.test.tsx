@@ -68,7 +68,7 @@ vi.mock('../components/WelcomeView', () => ({ default: () => null }))
 vi.mock('../components/MarkdownPanel', () => ({ default: () => null }))
 vi.mock('../pages/chat/ActivityViewer', () => ({ default: () => null }))
 vi.mock('../components/DetailPanel', () => ({ default: () => null }))
-vi.mock('../hooks/useWebSocket', () => ({ useWebSocket: () => ({ subscribeLogs: () => {} }) }))
+vi.mock('../hooks/useWebSocket', () => ({ useWebSocket: () => ({ subscribeLogs: () => {} }), emitSlotFocused: () => {} }))
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -77,6 +77,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 import ChatPage from '../pages/ChatPage'
 import { setCrewModeCatalog } from '../lib/crewMode'
+import { openCrewSession } from '../pages/chat/command-center/CrewWorkerList'
 // The surface registry is populated by module side effect, and only `App.tsx`
 // imports it in production -- so a harness that mounts ChatPage directly starts
 // with an EMPTY registry and every surface lookup misses. Import it here for the
@@ -208,6 +209,22 @@ describe('Crew Mode on ChatPage', () => {
     await waitFor(() => expect(store.getState().chat.activeSlot).toBe('root-1'))
   })
 
+  it('V1: a worker opened from Workers while Split View is on leaves the split and shows the worker', async () => {
+    dashboardConfig.mockResolvedValue({ session_grid: true })
+    const store = await renderWith({ messages: [{ role: 'user', content: 'do part 2' }], agent: 'kirocrew-worker', agentKind: 'template', createdBy: 'root-1', crewRoot: 'root-1', slotKeys: ['slot-a', 'root-1'] })
+    fireEvent.click(screen.getByTestId('crew-back-to-conductor'))
+    await waitFor(() => expect(store.getState().chat.activeSlot).toBe('root-1'))
+    // Split View on the conductor: the grid replaces the single chat.
+    await act(async () => { fireEvent.keyDown(document, { key: 'd', ctrlKey: true }) })
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Split right' }).length).toBeGreaterThan(0))
+    // The Workers panel's open action.
+    await act(async () => { openCrewSession(store.dispatch, 'slot-a', true) })
+    await waitFor(() => expect(screen.getByTestId('crew-worker-breadcrumb')).toHaveTextContent('Worker B'))
+    expect(screen.getByTestId('crew-steer-composer')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Split right' })).toBeNull()
+    dashboardConfig.mockResolvedValue({})
+  })
+
   it("a running worker's steer hint says a send cuts into its current reply", async () => {
     detail.running = true
     await renderWith({ messages: [{ role: 'user', content: 'do part 2' }], agent: 'kirocrew-worker', agentKind: 'template', createdBy: 'root-1', crewRoot: 'root-1', slotKeys: ['slot-a', 'root-1'], listedRunning: true })
@@ -252,6 +269,9 @@ describe('Crew Mode on ChatPage', () => {
     const box = within(screen.getByTestId('crew-steer-composer')).getByRole('textbox')
     expect(box).toHaveAttribute('aria-disabled', 'true')
     expect(box).toHaveAttribute('readonly')
+    // R5 V2: the reopen sentence is said once, not again in the header or the box.
+    expect(screen.getAllByText(/to keep working|Reopen it to keep steering/)).toHaveLength(1)
+    expect(box.getAttribute('placeholder') ?? '').not.toContain('to keep working')
     // R4 H4: only the reopen line, no 'Starts a new turn' hint.
     expect(screen.queryByTestId('crew-steer-hint')).toBeNull()
   })

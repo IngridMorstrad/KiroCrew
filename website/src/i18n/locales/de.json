@@ -9788,7 +9788,6 @@
       "approval_trust": "Diesem Mitarbeiter vertrauen",
       "approval_trust_hint": "Gibt dies frei und lässt diesen Mitarbeiter Tools ohne Nachfrage nutzen, bis das Gateway neu startet.",
       "reopen_conductor": "Dirigenten wieder öffnen",
-      "root_closed": "{{name}} ist geschlossen. Öffne ihn wieder, um diesen Mitarbeiter weiter zu steuern.",
       "worker_approval_waiting": "Wartet auf Freigabe in {{name}}",
       "worker_open_conductor": "{{name}} öffnen",
       "worker_root_closed_composer": "Öffne {{name}} wieder, um weiterzuarbeiten",

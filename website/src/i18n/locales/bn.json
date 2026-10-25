@@ -9788,7 +9788,6 @@
       "approval_trust": "এই ওয়ার্কারকে বিশ্বাস করুন",
       "approval_trust_hint": "এটি অনুমোদন করে এবং গেটওয়ে রিস্টার্ট না হওয়া পর্যন্ত এই ওয়ার্কারকে না জিজ্ঞেস করে টুল চালাতে দেয়।",
       "reopen_conductor": "কন্ডাক্টর আবার খুলুন",
-      "root_closed": "{{name}} বন্ধ। এই ওয়ার্কারকে নির্দেশ দিতে থাকতে এটি আবার খুলুন।",
       "worker_approval_waiting": "{{name}}-এ অনুমোদনের অপেক্ষায়",
       "worker_open_conductor": "{{name}} খুলুন",
       "worker_root_closed_composer": "কাজ চালিয়ে যেতে {{name}} আবার খুলুন",

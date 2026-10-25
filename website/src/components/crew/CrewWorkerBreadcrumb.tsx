@@ -67,11 +67,9 @@ export function CrewWorkerBreadcrumb({ root, worker }: { root: string; worker: C
       {/* A failed worker-list read is said on its own line under the row, beside
           nothing else, so the row keeps its two controls. The composer draft is
           saved per chat, so the hand-off is safe. */}
-      {/* A closed root is said plainly, not as a failed read: its list cannot be
-          read until it is reopened, and steering waits for it. */}
-      {rootClosed
-        ? <p role="status" className="pointer-events-auto text-[12px] text-muted" data-testid="crew-root-closed">{i18nT('components.crewMode.root_closed', { name: rootTitle })}</p>
-        : failed && <ErrorNotice variant="inline" className="pointer-events-auto" message={i18nT('commandCenter.workers_error')} askAgent />}
+      {/* A closed root is said once, by the composer's own line; its list cannot
+          be read until it is reopened, which is not a failed read. */}
+      {!rootClosed && failed && <ErrorNotice variant="inline" className="pointer-events-auto" message={i18nT('commandCenter.workers_error')} askAgent />}
       {reopenFailed && <ErrorNotice variant="inline" className="pointer-events-auto" message={i18nT('commandCenter.worker_reopen_failed')} />}
     </div>
   )

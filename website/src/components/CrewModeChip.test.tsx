@@ -1,12 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { act, screen, fireEvent, within } from '@testing-library/react'
-import { renderWithProviders } from '../test/helpers'
+import { act, render, screen, fireEvent, within } from '@testing-library/react'
 import { CrewModeChip } from './CrewModeChip'
 import CrewModeWelcome, { CREW_WELCOME_PLAY_SECS } from './CrewModeWelcome'
 
 describe('CrewModeChip', () => {
   it('reads off and reports it through aria-pressed', () => {
-    renderWithProviders(<CrewModeChip onTurnOn={vi.fn()} />)
+    render(<CrewModeChip onTurnOn={vi.fn()} />)
     const chip = screen.getByTestId('crew-mode-chip')
     expect(chip).toHaveAttribute('aria-pressed', 'false')
     // Only one label is displayed: the short name below `sm`, the explained one
@@ -16,7 +15,7 @@ describe('CrewModeChip', () => {
   })
 
   it('says what turning it on does in its hint', () => {
-    renderWithProviders(<CrewModeChip onTurnOn={vi.fn()} />)
+    render(<CrewModeChip onTurnOn={vi.fn()} />)
     expect(screen.getByTestId('crew-mode-chip')).toHaveAttribute(
       'title',
       'Turn on Crew Mode: each task runs in its own chat and reports back here.',
@@ -24,7 +23,7 @@ describe('CrewModeChip', () => {
   })
 
   it('has no on state and no off control', () => {
-    renderWithProviders(<CrewModeChip onTurnOn={vi.fn()} />)
+    render(<CrewModeChip onTurnOn={vi.fn()} />)
     const chip = screen.getByTestId('crew-mode-chip')
     expect(chip).not.toHaveTextContent('Crew Mode on')
     expect(chip.querySelector('svg.lucide-x')).toBeNull()
@@ -33,14 +32,14 @@ describe('CrewModeChip', () => {
 
   it('calls onTurnOn on click', () => {
     const onTurnOn = vi.fn()
-    renderWithProviders(<CrewModeChip onTurnOn={onTurnOn} />)
+    render(<CrewModeChip onTurnOn={onTurnOn} />)
     fireEvent.click(screen.getByTestId('crew-mode-chip'))
     expect(onTurnOn).toHaveBeenCalledTimes(1)
   })
 
   it('cannot be pressed while disabled', () => {
     const onTurnOn = vi.fn()
-    renderWithProviders(<CrewModeChip onTurnOn={onTurnOn} disabled />)
+    render(<CrewModeChip onTurnOn={onTurnOn} disabled />)
     const chip = screen.getByTestId('crew-mode-chip')
     expect(chip).toBeDisabled()
     fireEvent.click(chip)
@@ -49,7 +48,7 @@ describe('CrewModeChip', () => {
 
   it('stays focusable while a reply runs, and ignores clicks', () => {
     const onTurnOn = vi.fn()
-    renderWithProviders(<CrewModeChip onTurnOn={onTurnOn} busy />)
+    render(<CrewModeChip onTurnOn={onTurnOn} busy />)
     const chip = screen.getByTestId('crew-mode-chip')
     // aria-disabled, not disabled: a keyboard still reaches it and hears its hint.
     expect(chip).not.toBeDisabled()
@@ -62,24 +61,24 @@ describe('CrewModeChip', () => {
   })
 
   it('keeps the accessible name Crew Mode', () => {
-    renderWithProviders(<CrewModeChip onTurnOn={vi.fn()} />)
+    render(<CrewModeChip onTurnOn={vi.fn()} />)
     expect(screen.getByRole('button', { name: 'Crew Mode', pressed: false })).toBeInTheDocument()
   })
 
   it('names the visible line that describes it', () => {
-    renderWithProviders(<><CrewModeChip onTurnOn={vi.fn()} describedBy="note" /><span id="note">Available after the reply.</span></>)
+    render(<><CrewModeChip onTurnOn={vi.fn()} describedBy="note" /><span id="note">Available after the reply.</span></>)
     expect(screen.getByRole('button', { name: 'Crew Mode' })).toHaveAccessibleDescription('Available after the reply.')
   })
 
   it('fades when disabled for any other reason', () => {
-    renderWithProviders(<CrewModeChip onTurnOn={vi.fn()} disabled />)
+    render(<CrewModeChip onTurnOn={vi.fn()} disabled />)
     expect(screen.getByTestId('crew-mode-chip')).toHaveClass('disabled:opacity-60')
   })
 })
 
 describe('CrewModeWelcome', () => {
   it('shows the title, the slogan, the flow labels and one button, and no other words', () => {
-    renderWithProviders(<CrewModeWelcome onOpenTaskBoard={vi.fn()} />)
+    render(<CrewModeWelcome onOpenTaskBoard={vi.fn()} />)
     const page = screen.getByTestId('crew-mode-welcome')
     expect(within(page).getByRole('heading', { name: 'Crew Mode' })).toBeInTheDocument()
     expect(within(page).getByRole('button', { name: 'Task board' })).toBeInTheDocument()
@@ -89,21 +88,21 @@ describe('CrewModeWelcome', () => {
   })
 
   it('reads the flow as an ordered list a screen reader can follow', () => {
-    renderWithProviders(<CrewModeWelcome />)
+    render(<CrewModeWelcome />)
     const flow = screen.getByRole('list', { name: 'How Crew Mode works' })
     const steps = within(flow).getAllByRole('listitem').map(li => li.textContent)
     expect(steps).toEqual(['Goal', 'Split', 'Own chats', 'Board', 'Needs you'])
   })
 
   it('keeps the art and the arrows out of the accessibility tree', () => {
-    renderWithProviders(<CrewModeWelcome />)
+    render(<CrewModeWelcome />)
     const page = screen.getByTestId('crew-mode-welcome')
     expect(within(page).queryAllByRole('img')).toHaveLength(0)
     expect(within(page).getAllByTestId('kiro-ghost-mark').every(g => g.closest('[aria-hidden="true"]'))).toBe(true)
   })
 
   it('draws no sample board', () => {
-    renderWithProviders(<CrewModeWelcome onOpenTaskBoard={vi.fn()} />)
+    render(<CrewModeWelcome onOpenTaskBoard={vi.fn()} />)
     const page = screen.getByTestId('crew-mode-welcome')
     expect(within(page).queryByRole('region')).toBeNull()
     expect(within(page).queryByText('Your crew')).toBeNull()
@@ -113,14 +112,14 @@ describe('CrewModeWelcome', () => {
   })
 
   it('stops moving the moment the person starts on the composer', () => {
-    renderWithProviders(<><CrewModeWelcome /><textarea aria-label="composer" /></>)
+    render(<><CrewModeWelcome /><textarea aria-label="composer" /></>)
     expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'playing')
     fireEvent.focusIn(screen.getByRole('textbox', { name: 'composer' }))
     expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'still')
   })
 
   it('stops moving while typing, even without a focus change', () => {
-    renderWithProviders(<><CrewModeWelcome /><textarea aria-label="composer" /></>)
+    render(<><CrewModeWelcome /><textarea aria-label="composer" /></>)
     fireEvent.input(screen.getByRole('textbox', { name: 'composer' }), { target: { value: 'a' } })
     expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'still')
   })
@@ -128,7 +127,7 @@ describe('CrewModeWelcome', () => {
   it('settles on its final frame once it has played, and stays still', () => {
     vi.useFakeTimers()
     try {
-      renderWithProviders(<CrewModeWelcome />)
+      render(<CrewModeWelcome />)
       expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'playing')
       act(() => { vi.advanceTimersByTime(CREW_WELCOME_PLAY_SECS * 1000) })
       expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'still')
@@ -140,18 +139,18 @@ describe('CrewModeWelcome', () => {
   })
 
   it('plays its entrance once per chat: a later mount for the same chat starts on the final frame', () => {
-    const first = renderWithProviders(<CrewModeWelcome chatKey="chat-replay" />)
+    const first = render(<CrewModeWelcome chatKey="chat-replay" />)
     expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'playing')
     first.unmount()
-    renderWithProviders(<CrewModeWelcome chatKey="chat-replay" />)
+    render(<CrewModeWelcome chatKey="chat-replay" />)
     expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'still')
   })
 
   it('plays for a different chat', () => {
     // Keys of its own: the played-once memory is module state, so sharing a key with
     // the test above would make the outcome depend on the order they run in.
-    renderWithProviders(<CrewModeWelcome chatKey="chat-different-a" />).unmount()
-    renderWithProviders(<CrewModeWelcome chatKey="chat-different-b" />)
+    render(<CrewModeWelcome chatKey="chat-different-a" />).unmount()
+    render(<CrewModeWelcome chatKey="chat-different-b" />)
     expect(screen.getByTestId('crew-mode-welcome')).toHaveAttribute('data-motion', 'playing')
   })
 
@@ -161,13 +160,13 @@ describe('CrewModeWelcome', () => {
 
   it('opens the task board from its one button', () => {
     const onOpenTaskBoard = vi.fn()
-    renderWithProviders(<CrewModeWelcome onOpenTaskBoard={onOpenTaskBoard} />)
+    render(<CrewModeWelcome onOpenTaskBoard={onOpenTaskBoard} />)
     fireEvent.click(screen.getByRole('button', { name: 'Task board' }))
     expect(onOpenTaskBoard).toHaveBeenCalledTimes(1)
   })
 
   it('shows the board button as its icon alone where room is tight, name kept', () => {
-    renderWithProviders(<CrewModeWelcome onOpenTaskBoard={vi.fn()} />)
+    render(<CrewModeWelcome onOpenTaskBoard={vi.fn()} />)
     const btn = screen.getByTestId('crew-mode-open-board')
     // The name lives on the button itself, so hiding the label never loses it.
     expect(btn).toHaveAttribute('aria-label', 'Task board')
@@ -188,7 +187,7 @@ describe('CrewModeWelcome', () => {
   })
 
   it('leaves the button out when there is no board to open', () => {
-    renderWithProviders(<CrewModeWelcome />)
+    render(<CrewModeWelcome />)
     expect(screen.queryByTestId('crew-mode-open-board')).toBeNull()
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
