@@ -50,11 +50,15 @@ def _runtime(tmp_path, monkeypatch, backend: str) -> AcpRuntime:
     return rt
 
 
-async def _run(rt: AcpRuntime, tmp_path, *, accepts: bool, mode: str, answer):
-    """One prompt on a fresh session; returns (elicitation events, echoed answer)."""
+async def _run(rt: AcpRuntime, *, accepts: bool, mode: str, answer):
+    """One prompt on a fresh session; returns (elicitation events, echoed answer).
+
+    The session opens in the runtime's OWN work dir: on macOS a Kiro-wire runtime
+    binds that one directory at spawn and refuses a session cwd anywhere else.
+    """
     await rt.spawn()
     try:
-        handle = await rt.create_session(cwd=tmp_path, mcp_servers=[])
+        handle = await rt.create_session(cwd=rt._work_dir, mcp_servers=[])
         handle.accepts_elicitation = accepts
         events = []
         text: list[str] = []
@@ -88,7 +92,6 @@ async def test_a_form_answer_reaches_the_engine_on_either_wire(tmp_path, monkeyp
 
     events, echoed = await _run(
         _runtime(tmp_path, monkeypatch, backend),
-        tmp_path,
         accepts=True,
         mode="form",
         answer=_answer,
@@ -107,7 +110,6 @@ async def test_a_url_ask_is_accepted_without_content(tmp_path, monkeypatch):
 
     _events, echoed = await _run(
         _runtime(tmp_path, monkeypatch, ACP_BACKEND_KAS),
-        tmp_path,
         accepts=True,
         mode="url",
         answer=_answer,
@@ -126,7 +128,6 @@ async def test_a_consumer_that_cannot_ask_a_person_declines_without_an_event(tmp
 
     events, echoed = await _run(
         _runtime(tmp_path, monkeypatch, ACP_BACKEND_KAS),
-        tmp_path,
         accepts=False,
         mode="form",
         answer=_answer,
@@ -146,7 +147,6 @@ async def test_a_stop_over_an_open_ask_answers_it_cancel_on_the_wire(tmp_path, m
 
     events, echoed = await _run(
         _runtime(tmp_path, monkeypatch, ACP_BACKEND_KAS),
-        tmp_path,
         accepts=True,
         mode="form",
         answer=_answer,
