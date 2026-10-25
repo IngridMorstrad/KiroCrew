@@ -26,7 +26,7 @@ import logging
 import os
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
 
 from kiro_crew import platform_compat
@@ -34,7 +34,8 @@ from kiro_crew import platform_compat
 logger = logging.getLogger(__name__)
 
 POWER_SUPPLY_ROOT = Path("/sys/class/power_supply")
-PMSET_PATH = "/usr/bin/pmset"
+#: macOS-only; ``_macos_battery`` reads it.
+PMSET_PATH = str(PurePosixPath("/", "usr", "bin", "pmset"))
 
 REASON_BATTERY = "battery_present"
 REASON_NO_BATTERY = "no_battery"

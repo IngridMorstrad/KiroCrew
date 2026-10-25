@@ -25,12 +25,13 @@ Nothing here raises. The blocking reads run on the caller's subprocess executor.
 from __future__ import annotations
 
 import ipaddress
-import os
 import struct
 import sys
 import threading
 import time
 from pathlib import Path
+
+from kiro_crew import platform_compat
 
 __all__ = [
     "PROOF_DAEMON_NOT_FOUND",
@@ -54,6 +55,11 @@ _DAEMON_UID_TTL_SECS = 30.0
 
 _daemon_uid_lock = threading.Lock()
 _daemon_uid_cache: tuple[float, frozenset[int]] | None = None
+
+
+def _effective_uid() -> int | None:
+    """This process's effective uid, or ``None`` on a platform with no uid."""
+    return platform_compat.effective_uid()
 
 
 def _decode(
@@ -162,7 +168,7 @@ def loopback_client_is_daemon(peer: object, local: object) -> bool:
         return False
     try:
         owner = _socket_owner_uid(peer_addr, local_addr)
-        if owner is None or owner == os.geteuid():
+        if owner is None or owner == _effective_uid():
             return False
         return owner in _daemon_uids()
     except Exception:  # noqa: BLE001 - the module contract: nothing here raises
@@ -182,9 +188,11 @@ def proof_support() -> str:
         return PROOF_PLATFORM_UNPROVABLE
     try:
         uids = _scan_daemon_uids()
-        euid = os.geteuid()
+        euid = _effective_uid()
     except Exception:  # noqa: BLE001 - the module contract: nothing here raises
         return PROOF_DAEMON_NOT_FOUND
+    if euid is None:
+        return PROOF_PLATFORM_UNPROVABLE
     if not uids:
         return PROOF_DAEMON_NOT_FOUND
     return "" if uids - {euid} else PROOF_DAEMON_SAME_USER

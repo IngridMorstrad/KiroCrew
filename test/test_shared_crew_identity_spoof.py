@@ -145,7 +145,7 @@ async def test_forged_login_headers_without_xff_never_name_bob(monkeypatch):
 async def test_a_proven_daemon_socket_still_resolves(monkeypatch):
     """Positive control: the real ``/proc`` lookup finds this socket's owner."""
     real_uid = os.geteuid()
-    monkeypatch.setattr(tailnet_proxy_proof.os, "geteuid", lambda: real_uid + 1)
+    monkeypatch.setattr(tailnet_proxy_proof, "_effective_uid", lambda: real_uid + 1)
     monkeypatch.setattr(tailnet_proxy_proof, "_daemon_uids", lambda: frozenset({real_uid}))
     client = await _client()
     try:
@@ -202,7 +202,7 @@ def _fake_proc(root: Path, *, tcp: str = "", tcp6: str = "", daemon_uid: int | N
 def fake_proc(tmp_path, monkeypatch):
     monkeypatch.setattr(tailnet_proxy_proof, "_PROC", tmp_path)
     monkeypatch.setattr(tailnet_proxy_proof.sys, "platform", "linux")
-    monkeypatch.setattr(tailnet_proxy_proof.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(tailnet_proxy_proof, "_effective_uid", lambda: 1000)
     return tmp_path
 
 

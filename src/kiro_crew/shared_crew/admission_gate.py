@@ -1821,11 +1821,10 @@ async def shutdown_cleanup(
             break
         await pause(interval)
     try:
-        runner = getattr(service._slices, "_runner", _containment._run)
         released += await asyncio.to_thread(
             _runtime.release_instance_slice,
             service._slices,
-            populated=lambda name: _containment.slice_populated(name, runner=runner),
+            populated=service._slices.populated,
         )
     except Exception:  # noqa: BLE001 -- cleanup never blocks the stop
         logger.debug("shared crew: instance slice release at stop failed", exc_info=True)

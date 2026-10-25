@@ -36,6 +36,7 @@ import socket
 import stat
 import subprocess
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import quote
 
@@ -54,8 +55,12 @@ MAX_ANSWER_BYTES = 2 * 1024 * 1024
 #: The ``Host`` the daemon's LocalAPI requires.
 _LOCALAPI_HOST = "local-tailscaled.sock"
 
-LINUX_SOCKETS = ("/var/run/tailscale/tailscaled.sock", "/run/tailscale/tailscaled.sock")
-MACOS_SOCKETS = ("/var/run/tailscaled.socket",)
+#: POSIX-only daemon sockets; ``_unix_socket_paths`` offers none on Windows.
+LINUX_SOCKETS = (
+    str(PurePosixPath("/", "var", "run", "tailscale", "tailscaled.sock")),
+    str(PurePosixPath("/", "run", "tailscale", "tailscaled.sock")),
+)
+MACOS_SOCKETS = (str(PurePosixPath("/", "var", "run", "tailscaled.socket")),)
 #: The standalone macOS app publishes its LocalAPI port as a symlink target here
 #: and the matching token in ``sameuserproof-<port>``. Root-owned.
 MACOS_MACSYS_DIR = "/Library/Tailscale"

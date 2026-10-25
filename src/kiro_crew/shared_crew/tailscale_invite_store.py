@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from kiro_crew.atomic_write import atomic_write
+from kiro_crew.owner_only_files import mkdirs_owner_only
 
 ROOT_LEAF = "shared-crew-tailscale"
 SECRET_NAME = "tailscale_api_key"
@@ -56,6 +57,13 @@ def root() -> Path:
     return config_dir() / ".vault" / ROOT_LEAF
 
 
+def ensure_root() -> Path:
+    """The store's directory, creating it and any missing parent owner-only."""
+    here = root()
+    mkdirs_owner_only(here)
+    return here
+
+
 def _vault() -> Any:
     from kiro_crew.secrets.vault import SecretVault
 
@@ -66,7 +74,7 @@ def _vault() -> Any:
 
 
 def save_credential(key: str) -> None:
-    root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    ensure_root()
     _vault().set_sync(SECRET_NAME, key)
 
 
@@ -124,7 +132,7 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(state: dict[str, Any]) -> None:
-    root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    ensure_root()
     payload = json.dumps(state, indent=2, sort_keys=True)
     atomic_write(root() / STATE_FILE, payload, restrict_to_owner=True)
 
@@ -175,8 +183,8 @@ def save_avatar(data: bytes) -> str:
         raise ValueError("avatar_type")
     ext, _ctype = sniffed
     avatar_id = f"{hashlib.sha256(data).hexdigest()[:32]}.{ext}"
-    folder = root() / AVATAR_DIR
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    folder = ensure_root() / AVATAR_DIR
+    mkdirs_owner_only(folder)
     target = folder / avatar_id
     if not target.exists():
         atomic_write(target, data)

@@ -39,6 +39,8 @@ from kiro_crew.shared_crew.enterprise import (
 
 _TRUST_DOMAIN_RE = re.compile(r"\A[a-z0-9]([a-z0-9.\-]{0,253}[a-z0-9])?\Z")
 _SPIFFE_RE = re.compile(r"\Aspiffe://([^/]+)((?:/[A-Za-z0-9._\-]+)+)\Z")
+#: A ``.`` or ``..`` path segment, which a SPIFFE ID must not carry.
+_DOT_SEGMENT_RE = re.compile(r"/\.{1,2}(?=/|\Z)")
 
 
 def parse_spiffe_id(value: str) -> Optional[tuple[str, str]]:
@@ -46,7 +48,7 @@ def parse_spiffe_id(value: str) -> Optional[tuple[str, str]]:
     m = _SPIFFE_RE.match(value or "")
     if not m or not _TRUST_DOMAIN_RE.match(m.group(1)):
         return None
-    if any(seg in (".", "..") for seg in m.group(2).split("/")[1:]):
+    if _DOT_SEGMENT_RE.search(m.group(2)):
         return None
     return m.group(1), m.group(2)
 

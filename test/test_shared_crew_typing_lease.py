@@ -302,9 +302,17 @@ async def test_the_idle_timer_unlocks_without_another_report():
     state = _State(_Clock())
     real = TypingLeaseRegistry(idle_seconds=0.05)
     state._shared_crew_typing_lease = real
+    idle_ended = asyncio.Event()
+
+    def broadcast(msg_type: str, data: dict) -> None:
+        state.frames.append((msg_type, data))
+        if msg_type == FRAME_TYPING_LEASE and data.get("ended") == END_IDLE:
+            idle_ended.set()
+
+    state.broadcast_ws = broadcast  # type: ignore[method-assign]
     real.typed("s1", "ws:a", ALICE)
     typing_lease.arm_idle_timer(state, real)
-    await asyncio.sleep(0.3)
+    await asyncio.wait_for(idle_ended.wait(), timeout=10)
     assert real.holder("s1") is None
     assert state.lease_frames()[-1]["ended"] == END_IDLE
 

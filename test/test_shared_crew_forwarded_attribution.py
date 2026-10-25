@@ -104,7 +104,7 @@ def _daemon(root: Path, pid: int, uid: int) -> None:
 def fake_proc(tmp_path, monkeypatch):
     monkeypatch.setattr(proof, "_PROC", tmp_path)
     monkeypatch.setattr(proof.sys, "platform", "linux")
-    monkeypatch.setattr(proof.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(proof, "_effective_uid", lambda: 1000)
     return tmp_path
 
 

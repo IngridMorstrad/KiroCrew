@@ -306,7 +306,11 @@ _CGROUP_ROOT = "/sys/fs/cgroup"
 
 
 def slice_populated(
-    slice_name: str, *, runner: Runner = _run, cgroup_root: str = _CGROUP_ROOT
+    slice_name: str,
+    *,
+    runner: Runner = _run,
+    cgroup_root: str = _CGROUP_ROOT,
+    systemctl: str | None = None,
 ) -> bool | None:
     """Whether anything at all still runs under *slice_name*, or None when unknown.
 
@@ -316,9 +320,10 @@ def slice_populated(
     """
     if not _UNIT_NAME_RE.match(slice_name or "") or not slice_name.endswith(".slice"):
         return None
-    from kiro_crew import platform_compat
+    if systemctl is None:
+        from kiro_crew import platform_compat
 
-    systemctl = platform_compat.trusted_system_bin("systemctl")
+        systemctl = platform_compat.trusted_system_bin("systemctl")
     if systemctl is None:
         return None
     try:
@@ -435,6 +440,10 @@ class SliceManager:
         from kiro_crew import platform_compat
 
         return platform_compat.trusted_system_bin("systemctl")
+
+    def populated(self, slice_name: str) -> bool | None:
+        """:func:`slice_populated`, asked through this manager's runner and ``systemctl``."""
+        return slice_populated(slice_name, runner=self._runner, systemctl=self._bin())
 
     def apply(self, slice_name: str, limits: SliceLimits, *, cpu_delegated: bool) -> bool:
         if not _UNIT_NAME_RE.match(slice_name or "") or not slice_name.endswith(".slice"):

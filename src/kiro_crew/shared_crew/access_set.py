@@ -141,7 +141,7 @@ def _load_strict() -> dict[str, Any]:
 
 
 def _save(state: dict[str, Any]) -> None:
-    store.root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    store.ensure_root()
     atomic_write(_path(), json.dumps(state, indent=2, sort_keys=True), restrict_to_owner=True)
 
 

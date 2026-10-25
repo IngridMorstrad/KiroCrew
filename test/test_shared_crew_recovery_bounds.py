@@ -513,7 +513,7 @@ async def test_idle_principal_slices_are_stopped_and_their_drop_ins_removed(tmp_
 async def test_slices_an_earlier_process_left_are_released_at_start(tmp_path, clock):
     stem = _containment.instance_slice_name()[: -len(".slice")]
     left = f"{stem}-pabcdef012345.slice"
-    busy_left = f"{stem}-p111111111111.slice"
+    busy_left = f"{stem}-pbeefbeefbeef.slice"
     runner = _Runner({"list-units": f"{left} loaded active active\n{busy_left} loaded\n"})
     svc = _service(
         _open(tmp_path / "t.db", clock),
