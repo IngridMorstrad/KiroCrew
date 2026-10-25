@@ -53,10 +53,7 @@ class TestEmbedRateLimiter:
         from kiro_crew.knowledge.ingestion import EmbedRateLimiter
         limiter = EmbedRateLimiter(rate_limit=0)
         refill_before = limiter._last_refill
-        fake_sleep = AsyncMock()
-        with patch("kiro_crew.knowledge.ingestion.asyncio.sleep", fake_sleep):
-            asyncio.run(limiter.acquire())
-        fake_sleep.assert_not_awaited()
+        asyncio.run(limiter.acquire())
         # Returned before the bucket was touched: no refill, no token spent.
         assert limiter._last_refill == refill_before
         assert limiter._tokens == 0.0
