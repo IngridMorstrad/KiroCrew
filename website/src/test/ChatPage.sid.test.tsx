@@ -527,6 +527,11 @@ describe('ChatPage ?sid= URL parameter', () => {
       await vi.advanceTimersByTimeAsync(50)
       expect(screen.queryByText(/session "chat-9-900" not found/i)).toBeNull()
       expect(store.getState().chat.activeSlot).toBe('chat-9-900')
+      // The recovery is the page's own switch, not the user opening the chat:
+      // once it has landed it records no user open, so it reads no cron note
+      // and cannot undo a Mark unread (#23564).
+      expect(store.getState().chat.slotSwitchRequestId).toBeNull()
+      expect(store.getState().chat.userOpen).toBeUndefined()
       vi.useRealTimers()
     })
 

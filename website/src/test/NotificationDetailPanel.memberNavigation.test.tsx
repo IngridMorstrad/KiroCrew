@@ -115,6 +115,6 @@ describe('NotificationDetailPanel session-page navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: /Go to chat/i }))
 
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/chat'))
-    expect(switchSlot).toHaveBeenCalledWith({ key: 'chat-2-200', announceOnMissing: true })
+    expect(switchSlot).toHaveBeenCalledWith({ key: 'chat-2-200', announceOnMissing: true, gesture: true })
   })
 })

@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { api } from '../api/client'
+import { setActiveSlot } from '../store/chatSlice'
+import { dispatchLiveNotification } from '../hooks/notificationEvent'
+import { useMarkTranscriptShown } from '../hooks/useAckCronNotesInView'
+import type { Notification } from '../types'
+import { addNotification } from '../store/notificationsSlice'
 import { Provider, useSelector } from 'react-redux'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
@@ -8,6 +14,7 @@ import type { RootState } from '../store'
 import { setActiveId } from '../store/instancesSlice'
 import { LocalOverlayRoot } from '../components/overlayRoot'
 import { useNotificationSheet } from '../shell/notifications/notificationSheet'
+import { closeCrewWindow, openCrewWindow } from '../pages/chat/crew-window/crewWindowStore'
 
 // The arrival banner shows over every Crew, but the sheet it opens hides with
 // the local one: a banner tap over a remote Crew must bring the local Crew
@@ -35,6 +42,63 @@ describe('notification sheet across Crew switches', () => {
     act(() => { result.current.openPanelOn('1700000000.000001') })
     expect(store.getState().instances.activeId).toBeNull()
     expect(result.current.selectedTs).toBe('1700000000.000001')
+  })
+
+  // #23564: the sheet's hook reads a cron note arriving live while a pane shows
+  // its chat, but not while a remote Crew or a crew window covers the pane.
+  describe('cron note read on view', () => {
+    const RUN_NOTE = { kind: 'cron', title: 'Digest', body: 'done', ts: 'run-1', slot: 'cron-a', job_id: 'job-a' } as const
+    function setupCron(hidden: boolean) {
+      vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+      const ack = vi.spyOn(api, 'ackNotification').mockResolvedValue(new Response('{}'))
+      const store = createTestStore()
+      store.dispatch(setActiveId(hidden ? 'remote-crew' : null))
+      store.dispatch(setActiveSlot('cron-a'))
+      function Root({ children }: { children: ReactNode }) {
+        const remoteActive = useSelector((s: RootState) => s.instances.activeId !== null)
+        return <LocalOverlayRoot hidden={remoteActive}>{children}</LocalOverlayRoot>
+      }
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <Provider store={store}>
+          <MemoryRouter initialEntries={['/chat']}><Root>{children}</Root></MemoryRouter>
+        </Provider>
+      )
+      // A pane showing the cron chat's transcript, as ChatTranscriptView marks it.
+      renderHook(() => { useMarkTranscriptShown('cron-a', true); return useNotificationSheet() }, { wrapper })
+      const arrive = (n: Notification) => act(() => { store.dispatch(addNotification(n)); dispatchLiveNotification(n) })
+      return { store, ack, arrive }
+    }
+    afterEach(() => vi.restoreAllMocks())
+
+    it('reads it with the local Crew in front', async () => {
+      const { store, ack, arrive } = setupCron(false)
+      arrive(RUN_NOTE)
+      await waitFor(() => expect(store.getState().notifications.items[0].acked).toBe(true))
+      expect(ack).toHaveBeenCalledWith('run-1')
+    })
+
+    it('leaves it unread while a crew window covers the chat', async () => {
+      // ChatPaneChrome draws the crew window over the pane without moving
+      // activeSlot or unmounting the transcript under it.
+      openCrewWindow({ instanceId: 'peer-1', key: 'peer-chat' })
+      try {
+        const { store, ack, arrive } = setupCron(false)
+        arrive(RUN_NOTE)
+        await act(async () => { await Promise.resolve() })
+        expect(ack).not.toHaveBeenCalled()
+        expect(store.getState().notifications.items[0].acked).toBeFalsy()
+      } finally {
+        closeCrewWindow()
+      }
+    })
+
+    it('leaves it unread behind a remote Crew', async () => {
+      const { store, ack, arrive } = setupCron(true)
+      arrive(RUN_NOTE)
+      await act(async () => { await Promise.resolve() })
+      expect(ack).not.toHaveBeenCalled()
+      expect(store.getState().notifications.items[0].acked).toBeFalsy()
+    })
   })
 
   it('opens the sheet in place when the local Crew is already showing', () => {

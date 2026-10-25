@@ -206,7 +206,7 @@ describe('ChatPage – session tab strip', () => {
     act(() => open?.('chat-2'))
     // Foreground open is a user gesture on a session reference: it dispatches
     // the ANNOUNCED form, so a deleted session explains itself (#6372).
-    expect(switchSlotMock).toHaveBeenCalledWith({ key: 'chat-2', announceOnMissing: true })
+    expect(switchSlotMock).toHaveBeenCalledWith({ key: 'chat-2', announceOnMissing: true, gesture: true })
   })
 
   it('restores a persisted working set on the next visit', () => {

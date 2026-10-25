@@ -169,7 +169,7 @@ export default function NotificationDetailPanel({ n, onClose }: { n: Notificatio
           <button className="px-3 py-1.5 rounded-md border border-border text-[13px] font-medium cursor-pointer bg-transparent text-muted hover:text-text hover:border-border-strong transition-all font-body" onClick={() => leave(() => navigate('/schedule'))}><Clock className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.view_cron_jobs')}</button>
         )}
         {n.kind === 'cron' && n.job_id && n.slot && (
-          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(() => { dispatch(switchSlot({ key: n.slot!, announceOnMissing: true })); navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.go_to_chat')}</button>
+          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(() => { dispatch(switchSlot({ key: n.slot!, announceOnMissing: true, gesture: true })); navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.go_to_chat')}</button>
         )}
         {n.kind === 'cron' && n.job_id && !n.slot && (<>
           {/* The switch is deliberately NOT awaited into this notice. The
@@ -184,7 +184,7 @@ export default function NotificationDetailPanel({ n, onClose }: { n: Notificatio
           {handoffNotice}
         </>)}
         {directSlot && !(n.kind === 'cron' && n.job_id && n.slot) && (
-          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(() => { if (memberPage) { navigate(memberPage); return } dispatch(switchSlot({ key: directSlot.key, announceOnMissing: true })); navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.go_to_chat')}</button>
+          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(() => { if (memberPage) { navigate(memberPage); return } dispatch(switchSlot({ key: directSlot.key, announceOnMissing: true, gesture: true })); navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.go_to_chat')}</button>
         )}
         {!directSlot && n.slot && !(n.kind === 'cron' && n.job_id && n.slot) && (
           /* `.unwrap()` is load-bearing for the diagnostic: a thunk dispatch
@@ -197,7 +197,7 @@ export default function NotificationDetailPanel({ n, onClose }: { n: Notificatio
           <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(async () => { if (memberPage) { navigate(memberPage); return } try { await dispatch(resumeFromHistory({ key: n.history_key ?? n.slot!, title: n.title })).unwrap() } catch (e) { logError('Resume failed', e) } navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.resume_chat')}</button>
         )}
         {!directSlot && !n.slot && relatedSlot && (
-          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(() => { dispatch(switchSlot({ key: relatedSlot.key, announceOnMissing: true })); navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.go_to_chat')}</button>
+          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(() => { dispatch(switchSlot({ key: relatedSlot.key, announceOnMissing: true, gesture: true })); navigate('/chat') })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.go_to_chat')}</button>
         )}
         {safeHttpUrl(n.slack_link ?? '') && (
           <a href={safeHttpUrl(n.slack_link ?? '')!} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-md border border-border text-[13px] font-medium cursor-pointer bg-transparent text-muted hover:text-text hover:border-border-strong transition-all font-body no-underline inline-flex items-center gap-1"><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.open_in_slack')}</a>
