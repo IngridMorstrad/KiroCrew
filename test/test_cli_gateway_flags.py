@@ -155,14 +155,6 @@ class TestStandaloneFlags:
         assert result["json_ready"] is True
         assert result["port_override"] is None  # not set by --json-ready
 
-    def test_approval_reads_alone(self):
-        result = _resolve_gateway_args(_ns(approval="reads"))
-        assert result["approval_mode"] == "reads"
-
-    def test_approval_interactive_alone(self):
-        result = _resolve_gateway_args(_ns(approval="interactive"))
-        assert result["approval_mode"] == "interactive"
-
 
 class TestPortValidation:
     """`--port` rejects garbage at parse time, not deep in startup."""
@@ -273,14 +265,22 @@ class TestApprovalYoloSafetyRail:
         assert result["approval_mode"] == "yolo"
         assert result["port_override"] == "auto"
 
-    def test_reads_mode_skips_safety_rail(self):
-        # Rail only applies to yolo; reads should pass with default home.
-        result = _resolve_gateway_args(_ns(approval="reads"))
-        assert result["approval_mode"] == "reads"
-
-    def test_interactive_mode_skips_safety_rail(self):
-        result = _resolve_gateway_args(_ns(approval="interactive"))
-        assert result["approval_mode"] == "interactive"
+    @pytest.mark.parametrize(
+        "approval, home_unset",
+        [
+            pytest.param("reads", False, id="test_approval_reads_alone"),
+            pytest.param("interactive", False, id="test_approval_interactive_alone"),
+            pytest.param("reads", True, id="test_reads_mode_skips_safety_rail"),
+            pytest.param("interactive", True, id="test_interactive_mode_skips_safety_rail"),
+        ],
+    )
+    def test_non_yolo_mode_passes_without_the_rail(self, approval, home_unset, monkeypatch):
+        # The rail only applies to yolo: with KIROCREW_HOME unset (the case the
+        # rail refuses for yolo) the other modes still pass through.
+        if home_unset:
+            monkeypatch.delenv("KIROCREW_HOME", raising=False)
+        result = _resolve_gateway_args(_ns(approval=approval))
+        assert result["approval_mode"] == approval
 
 
 # ─── _is_read_only_tool helper ───────────────────────────────────────────
