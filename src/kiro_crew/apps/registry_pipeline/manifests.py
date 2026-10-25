@@ -18,7 +18,12 @@ from typing import Any
 from kiro_crew import platform_compat
 from kiro_crew.apps import official_catalog
 from kiro_crew.apps.registry_pipeline import _FACADE
-from kiro_crew.apps.registry_pipeline.caches import _read_manifest_cache, _write_manifest_cache
+from kiro_crew.apps.registry_pipeline.caches import (
+    _read_manifest_cache,
+    _read_manifest_negative_cache,
+    _write_manifest_cache,
+    _write_manifest_negative_cache,
+)
 from kiro_crew.apps.registry_pipeline.checkout import (
     _CLONE_TIMEOUT,
     _HOOKS_NEUTRALIZER_ARGV,
@@ -331,6 +336,14 @@ async def _resolve_manifest(entry: dict[str, Any]) -> dict[str, Any]:
         logger.info("%s=1 — not fetching app.json for %s", official_catalog.SKIP_FETCH_ENV, name)
         return entry
 
+    # A fetch for these exact source coordinates failed within
+    # ``_MANIFEST_NEGATIVE_CACHE_TTL``: show the minimal row without cloning
+    # again. The marker shares the success cache's key, so another branch,
+    # repository or subdirectory still fetches. Only the listing consults it;
+    # the install path calls ``_fetch_app_manifest`` directly.
+    if await asyncio.to_thread(_read_manifest_negative_cache, entry):
+        return entry
+
     # Fetch from repo
     # Same-repo credential carve-out: if the entry's clone URL matches the
     # owner-configured registry repo, use owner credentials for the manifest
@@ -352,6 +365,8 @@ async def _resolve_manifest(entry: dict[str, Any]) -> dict[str, Any]:
     # fetch attaches NOTHING: the source-scoped cache read above already
     # missed, and there is deliberately no name-only fallback that could
     # attach a manifest cached for another branch or repository.
+    # The negative-cache marker stops the next listings from cloning again.
+    await asyncio.to_thread(_write_manifest_negative_cache, entry)
     logger.info("Could not fetch app.json for %s — showing minimal info", name)
     return entry
 
