@@ -319,6 +319,7 @@ class TestEndpointReadings:
             ("https://b\u00fccher.example/v1/metrics", "xn--bcher-*"),  # sent as xn--
             ("https://stra\u00dfe.example/v1/metrics", "strasse.example"),  # urllib's idna
             ("https://fa%C3%9F.example/v1/metrics", "fass.example"),  # decoded, then idna
+            ("https://clip+one.blocked.example/v1/metrics", "*.blocked.example"),  # odd ASCII
         ],
         ids=[
             "decimal",
@@ -329,6 +330,7 @@ class TestEndpointReadings:
             "unicode",
             "sharp-s",
             "pct-sharp-s",
+            "odd-ascii",
         ],
     )
     def test_a_deny_names_every_spelling_of_its_host(
