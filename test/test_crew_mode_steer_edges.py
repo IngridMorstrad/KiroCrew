@@ -333,6 +333,48 @@ def test_F5_the_drain_hook_runs_after_the_dequeue_and_before_dispatch():
     assert body.index("if next_msg is None:") < hook < body.index('broadcast_ws("chat_segment"')
 
 
+@pytest.mark.asyncio
+async def test_K8_a_requeued_steer_is_recorded_at_delivery_on_both_routes(monkeypatch):
+    """R5 K8: a steer the turn's teardown moved into the queue is still cancellable,
+    so neither route records it at once; the drain records it like a queued steer."""
+    from aiohttp import web
+
+    from kiro_crew.dashboard import chat_delivery, chat_handlers
+    from kiro_crew.dashboard.chat_api import chat_send
+    from kiro_crew.dashboard.handlers import crew_workers
+
+    async def boom(*_a, **_k):
+        raise AssertionError("a requeued steer must not be recorded before delivery")
+
+    async def requeued(*_a, **_k):
+        return chat_delivery.STEER_REQUEUED
+
+    monkeypatch.setattr(crew_workers, "person_steer", boom)
+    monkeypatch.setattr(chat_delivery, "steer_into_running_turn", requeued)
+    monkeypatch.setattr(
+        "kiro_crew.dashboard.session_control.containment_meta", lambda *_a, **_k: {}
+    )
+
+    # The worker's own composer: the receipt says queued, with no queue_id.
+    entry: dict[str, Any] = {"id": "q7", "content": "use main"}
+    state = SimpleNamespace(_slots={WORKER: SimpleNamespace(_queue=[entry])})
+
+    async def fake_send(request):
+        request[chat_send._CREW_PERSON_STEER] = (CONDUCTOR, WORKER, "use main")
+        return web.json_response({"ok": True, "queued": True})
+
+    monkeypatch.setattr(chat_handlers, "_api_chat_send", fake_send)
+    receipt = json.loads((await chat_handlers.api_chat(_Req(state))).text)  # type: ignore[arg-type]
+    assert receipt["ledger_pending"] is True and receipt["ledger_event"] is None
+    assert entry[chat_send.CREW_STEER_QUEUE_KEY] == (CONDUCTOR, WORKER)
+
+    # The side panel's route: the delivery names the requeued entry.
+    panel = {"id": "q8", "content": "use dev"}
+    slot = SimpleNamespace(turn_running=True, _queue=[panel])
+    got = await crew_workers._deliver_as_person(SimpleNamespace(), slot, "use dev")
+    assert got["queue_id"] == "q8" and got["queued"] is True and got["started"] is False
+
+
 # ── R2 Y2 / X5: no worker send while its conductor is closed ────────────────
 
 

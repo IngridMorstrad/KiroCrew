@@ -288,13 +288,19 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
             receipt = None
     state = request.app["state"]
     queue_id = receipt.get("queue_id") if isinstance(receipt, dict) else None
-    if isinstance(queue_id, str) and queue_id:
+    requeued = isinstance(receipt, dict) and receipt.get("queued") is True and not queue_id
+    if (isinstance(queue_id, str) and queue_id) or requeued:
         # Queued, not delivered: the steer is recorded when the drain hands the
         # entry to the worker (with its text as edited then), and never when the
-        # person cancels it first (edge review R2 F5).
+        # person cancels it first (edge review R2 F5). A steer the turn's teardown
+        # requeued has no queue_id; its entry carries the same text (R5 K8).
         slot = (getattr(state, "_slots", None) or {}).get(worker)
         entry = next(
-            (e for e in (getattr(slot, "_queue", None) or []) if e.get("id") == queue_id),
+            (
+                e
+                for e in (getattr(slot, "_queue", None) or [])
+                if (e.get("content") == message if requeued else e.get("id") == queue_id)
+            ),
             None,
         )
         if entry is not None:

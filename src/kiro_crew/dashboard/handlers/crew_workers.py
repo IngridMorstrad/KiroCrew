@@ -859,7 +859,20 @@ async def _deliver_as_person(state: Any, slot: Any, message: str) -> dict[str, A
         if outcome == STEER_STEERED:
             return {"ok": True, "steered": True, "queued": False, "started": False}
         if outcome == STEER_REQUEUED:
-            return {"ok": True, "steered": False, "queued": True, "started": False}
+            # The teardown moved the text into the queue: name that entry (the
+            # one-per-text guard makes it unique), so the route records the steer
+            # when it is delivered, like any queued steer.
+            requeued = next(
+                (e for e in (getattr(slot, "_queue", None) or []) if e.get("content") == message),
+                None,
+            )
+            return {
+                "ok": True,
+                "steered": False,
+                "queued": True,
+                "started": False,
+                "queue_id": str(requeued.get("id") or "") if requeued else "",
+            }
     queue_id = queue_for_next_turn(
         state, slot, message, directive_user_origin=True, steer_intent=True
     )
