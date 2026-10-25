@@ -26,6 +26,7 @@ from ai_review_workflows_helpers import (
     _workflow,
     _write_stub,
 )
+from git_maintenance_helpers import git_maintenance_off_entries
 
 #: The two FORK advisory lanes whose verdict capture runs under ``set -uo pipefail``,
 #: with the header each one reads. The same-repo ``design-review.yml`` and
@@ -1341,7 +1342,7 @@ class TestForkScopeGenerateStepsFailFast:
 
 
 class TestForkScopeGitFetchesAbortAStalledTransfer:
-    """Issue 23063: `Checkout base (trusted)` can open a connection to github.com
+    """`Checkout base (trusted)` can open a connection to github.com
     and then receive nothing until its 10-minute step timeout. Both git fetches in
     `generate` carry git's low-speed abort, so a stalled transfer fails in about two
     minutes and actions/checkout's own fetch retry gets a turn. The abort only ends
@@ -1353,7 +1354,7 @@ class TestForkScopeGitFetchesAbortAStalledTransfer:
         "Fetch authentic diff (data only — never applied to the tree)",
     )
 
-    def _env(self, name: str) -> "dict[str, str]":
+    def _env(self, name: str) -> dict[str, str]:
         doc = yaml.safe_load(_workflow("fork-security-scope-review.yml"))
         steps = {s.get("name"): s for s in doc["jobs"]["generate"]["steps"]}
         return {k: str(v) for k, v in (steps[name].get("env") or {}).items()}
@@ -1381,15 +1382,14 @@ class TestForkScopeGitFetchesAbortAStalledTransfer:
         import threading
 
         git = shutil.which("git")
-        if git is None:
-            pytest.skip("git is not installed")
+        assert git is not None, "git is required: this test runs the real git client"
         limit = self._env("Checkout base (trusted)")["GIT_HTTP_LOW_SPEED_LIMIT"]
 
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.bind(("127.0.0.1", 0))
         server.listen(4)
         port = server.getsockname()[1]
-        held: "list[socket.socket]" = []
+        held: list[socket.socket] = []
         stop = threading.Event()
 
         def _accept_and_stall() -> None:
@@ -1406,7 +1406,12 @@ class TestForkScopeGitFetchesAbortAStalledTransfer:
         try:
             env = dict(os.environ)
             for key in list(env):
-                if key.startswith("GIT_") or key in {"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"}:
+                if key.startswith("GIT_") or key in {
+                    "HTTP_PROXY",
+                    "HTTPS_PROXY",
+                    "http_proxy",
+                    "https_proxy",
+                }:
                     env.pop(key)
             env.update(
                 GIT_TERMINAL_PROMPT="0",
@@ -1416,12 +1421,14 @@ class TestForkScopeGitFetchesAbortAStalledTransfer:
                 GIT_HTTP_LOW_SPEED_LIMIT=limit,
                 GIT_HTTP_LOW_SPEED_TIME="2",
             )
+            env.update(git_maintenance_off_entries(env))
             try:
                 result = subprocess.run(
                     [git, "ls-remote", f"http://127.0.0.1:{port}/repo.git"],
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
                     env=env,
                     cwd=tmp_path,
                     timeout=30,

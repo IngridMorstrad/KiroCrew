@@ -346,7 +346,7 @@ jobs:
 
       # Trusted BASE tree for review CONTEXT only. NEVER the fork head.
       #
-      # STALLED FETCH (issue 23063). On some runs git opens one connection to
+      # STALLED FETCH. On some runs git opens one connection to
       # github.com:443 -- an allowed endpoint, with nothing blocked -- and then
       # receives nothing until the step timeout. GIT_HTTP_LOW_SPEED_LIMIT/_TIME
       # make git abort a transfer that stays under 1000 bytes/s for 120 s, so
