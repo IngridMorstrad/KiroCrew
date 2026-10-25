@@ -509,14 +509,12 @@ export function NotificationSheet({ sheet }: { sheet: ReturnType<typeof useNotif
         would land in the hidden root; wrap one in GlobalOverlayScope. */}
     {/* eslint-disable-next-line no-restricted-syntax */}
     {createPortal(
-      <>
-        <NotificationBanner
-          bellRef={bellRef}
-          popoverOpen={phase !== 'closed'}
-          onOpenNote={openPanelOn}
-        />
-        <FileMenuResultToast />
-      </>,
+      <NotificationBanner
+        bellRef={bellRef}
+        popoverOpen={phase !== 'closed'}
+        onOpenNote={openPanelOn}
+        after={<FileMenuResultToast />}
+      />,
       document.body
     )}
     </>

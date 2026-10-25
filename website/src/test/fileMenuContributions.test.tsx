@@ -52,7 +52,7 @@ import {
   type FileMenuAppRecord,
 } from '../apps/fileMenuContributions'
 import { RESERVED_APP_PATH_SEGMENTS } from '../apps/coreAppRoutes'
-import FileMenuResultToast from '../components/notifications/FileMenuResultToast'
+import FileMenuResultToast, { FileMenuResultToastFrame } from '../components/notifications/FileMenuResultToast'
 import { BANNER_AUTO_HIDE_MS } from '../hooks/notificationBanner'
 
 function item(over: Partial<ContributedFileMenuItem> = {}): ContributedFileMenuItem {
@@ -524,7 +524,10 @@ describe('FolderRowActions — folder-row surface', () => {
     renderRow([item()])
     fireEvent.click(screen.getByRole('button'))
     fireEvent.click(screen.getByRole('menuitem', { name: /^Send to store\b/ }))
-    const link = await screen.findByRole('link', { name: url })
+    // The link names its destination host, not the raw URL, which stays on the title.
+    const link = await screen.findByRole('link', { name: 'example.com' })
+    expect(link.getAttribute('title')).toBe(url)
+    expect(link.textContent).not.toContain('?view=1')
     expect(screen.getByRole('status').textContent).toContain(message)
     expect(screen.getByRole('status').querySelector('img')).toBeNull()
     expect(link.getAttribute('href')).toBe(url)
@@ -586,6 +589,23 @@ describe('FolderRowActions — folder-row surface', () => {
     fireEvent.blur(link, { relatedTarget: document.body })
     act(() => vi.advanceTimersByTime(BANNER_AUTO_HIDE_MS))
     expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('shows the Send result in its own fixed corner in a popout or embed frame', async () => {
+    invokeApi.mockResolvedValueOnce({ message: 'Uploaded', url: 'https://example.com/doc/42' })
+    render(
+      <>
+        <FileMenuResultToastFrame />
+        <FolderRowActions items={[item()]} node={{ path: 'notes/x.md', kind: 'file' }} onError={onError} />
+      </>,
+    )
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Send to store\b/ }))
+    const toast = await screen.findByRole('status')
+    const frame = screen.getByTestId('file-menu-result-toast-frame')
+    expect(frame.contains(toast)).toBe(true)
+    expect(frame.className).toContain('fixed')
+    expect(screen.getByRole('link', { name: 'example.com' })).toBeTruthy()
   })
 
   it('does not change notifications from other actions on the host bus', () => {
