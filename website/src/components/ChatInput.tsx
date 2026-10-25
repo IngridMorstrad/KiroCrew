@@ -823,7 +823,7 @@ function ChatInput({
     return () => ro.disconnect()
   }, [inlineToolbarWhileFits, showGhost, composerCollapsed])
   const sizerPinned = inlineToolbarWhileFits && manualHeight === null && box !== null
-  const activePlaceholder = !connected ? i18nT('components.chatInput.gateway_offline_message_will_not_send') : disabledProp ? (lockedPlaceholder || i18nT('components.chatInput.stopping')) : voiceRecording ? i18nT('components.chatInput.recording_click_mic_to_stop') : transcribingIsHonest ? i18nT('components.chatInput.transcribing_please_wait') : continuePlaceholder || voiceModePlaceholder || resolvedPlaceholder
+  const activePlaceholder = !connected ? i18nT('components.chatInput.gateway_offline_message_will_not_send') : disabledProp ? (lockedPlaceholder ?? i18nT('components.chatInput.stopping')) : voiceRecording ? i18nT('components.chatInput.recording_click_mic_to_stop') : transcribingIsHonest ? i18nT('components.chatInput.transcribing_please_wait') : continuePlaceholder || voiceModePlaceholder || resolvedPlaceholder
   // The sigil hint is a label and may be cut to one line. Every other
   // placeholder here is a sentence the user needs whole, so it still wraps —
   // including a caller's own `placeholder`, which `resolvedPlaceholder` carries.

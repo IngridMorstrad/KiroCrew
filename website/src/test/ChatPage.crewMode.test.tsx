@@ -271,7 +271,7 @@ describe('Crew Mode on ChatPage', () => {
     expect(box).toHaveAttribute('readonly')
     // R5 V2: the reopen sentence is said once, not again in the header or the box.
     expect(screen.getAllByText(/to keep working|Reopen it to keep steering/)).toHaveLength(1)
-    expect(box.getAttribute('placeholder') ?? '').not.toContain('to keep working')
+    expect(box.getAttribute('placeholder') ?? '').toBe('')
     // R4 H4: only the reopen line, no 'Starts a new turn' hint.
     expect(screen.queryByTestId('crew-steer-hint')).toBeNull()
   })

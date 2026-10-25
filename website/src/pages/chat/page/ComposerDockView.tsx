@@ -563,7 +563,7 @@ export default function ComposerDockView({
               // queue, so Enter queues a follow-up during the stop window). A memory-mode switch locks it, the reason as placeholder; a
               // worker of a closed conductor too, its reason said once by the gate's line above the composer.
               disabled={memorySwitching || steerRootClosed}
-              lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : undefined}
+              lockedPlaceholder={memorySwitching ? i18nT('components.welcomeView.switching_memory_mode') : steerRootClosed ? '' : undefined}
               // A worker's approval band (Allow once / Trust / Reject) is not drawn:
               // the conductor's approval card is the one place it is decided.
               slotApprovalChrome={crewApprovalDecidableHere({ crew_root: crewWorkerView ? steerWorkerRoot : '' }, 'worker_main_pane')}
