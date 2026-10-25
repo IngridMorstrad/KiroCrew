@@ -990,7 +990,7 @@ def test_the_candidate_listing_is_repo_wide_and_paginated() -> None:
     and never the repo-wide `/actions/runs?status=` call this asserts."""
     runs = [_run(i, minutes_ago=200 - i) for i in range(1, 131)]
     api = FakeApi({"in_progress": list(reversed(runs))}, {})
-    listed = wd.list_all_candidate_runs(api, REPO)
+    listed, _aborted, _truncated = wd.gather_all_candidate_runs(api, REPO)
     # Every watched run is examined -- all 130, not the newest 50 -- so the oldest
     # (the orphans) are never truncated away.
     assert sorted(int(r["id"]) for r in listed) == list(range(1, 131))
@@ -1346,27 +1346,29 @@ def test_candidate_threshold_includes_saturation_capable_band() -> None:
 
 def test_an_orphan_behind_young_runs_is_healed_on_a_bounded_reread() -> None:
     """Sweep and pre-cancel re-read are both bounded at ``now - saturation_wait``, and
-    a young band that fits the evidence page leaves nothing unread: the orphan is
-    cancelled and re-run."""
+    a young band that fits within YOUNG_BAND_MAX_PAGES leaves nothing unread: the
+    orphan is cancelled and re-run."""
     young = [_run(20_000 + i, minutes_ago=3, status="queued") for i in range(80)]
     api = FakeApi({"in_progress": [_run(1)]}, {1: [_job(11)]})
     api, queries = _ceilinged_listing(young, api)
     _verdicts, outcomes = _sweep(api)
     assert outcomes == {1: wd.OUTCOME_HEALED}
     queued = [query for query in queries if "status=queued" in query]
-    # Two gathers (sweep, re-read), each one bounded pass and one evidence page.
+    # Sweep: one bounded pass + one evidence page (EVIDENCE_LISTING_PAGES=1, stops at cap).
+    # Re-read: one bounded pass + two evidence queries (page 1 = 80 runs, page 2 = empty,
+    # confirms exhaustion before stopping; YOUNG_BAND_MAX_PAGES allows up to 5 pages).
     assert sum("created=%3C%3D" in query for query in queued) == 2
-    assert sum("created=%3E" in query for query in queued) == 2
+    assert sum("created=%3E" in query for query in queued) == 3
 
 
 def test_young_runs_past_the_evidence_page_hold_the_cancel() -> None:
     """The issue's repro: 1,200 runs three minutes old ahead of an orphan. Bounded,
     neither listing is truncated, so the tick is not failed for reach. But the
-    re-read's evidence page lists only the newest 100, and the unlisted ones sit
-    just under the line and cross it while the cancels are judged. They stand as
-    one unread candidate, so the partial-evidence hold holds the cancel, as it
-    would for any unread run old enough to hold a slow start. Negative control:
-    without that candidate the run is cancelled and re-run."""
+    re-read's young-band pass lists only the newest 500 (YOUNG_BAND_MAX_PAGES pages),
+    and the unlisted 700 sit just under the line and cross it while the cancels are
+    judged. They stand as one unread candidate, so the partial-evidence hold holds
+    the cancel, as it would for any unread run old enough to hold a slow start.
+    Negative control: without that candidate the run is cancelled and re-run."""
     burst = [_run(20_000 + i, minutes_ago=3, status="queued") for i in range(1200)]
     api = FakeApi({"in_progress": [_run(1)]}, {1: [_job(11)]})
     api, _ = _ceilinged_listing(burst, api)
@@ -1390,13 +1392,104 @@ def test_young_runs_past_the_evidence_page_hold_the_cancel() -> None:
     assert not (wd.FAILED_OUTCOMES & set(outcomes.values()))
 
 
+def test_young_burst_from_unwatched_workflow_does_not_hold_the_cancel() -> None:
+    """An exhausted young band of unwatched-workflow runs does not hold the cancel:
+    all runs were read, none are watched, nothing can hold a slow start.
+    The burst is small enough to fit within YOUNG_BAND_MAX_PAGES so the band is
+    fully exhausted and the exhausted-with-no-watched path is exercised."""
+    burst = [
+        _run(20_000 + i, minutes_ago=3, status="queued", workflow="not-watched.yml")
+        for i in range(100)
+    ]
+    api = FakeApi({"in_progress": [_run(1)]}, {1: [_job(11)]})
+    api, _ = _ceilinged_listing(burst, api)
+    clock = _Clock()
+    listing = api.get
+
+    def get(path: str) -> Any:
+        clock.sleep(0.05)
+        return listing(path)
+
+    api.get = get  # type: ignore[method-assign]
+    verdicts, outcomes = wd.run_watchdog(
+        api, _policy(), clock=clock.now, sleep=clock.sleep, log=lambda _l: None
+    )
+    # Band exhausted with no watched runs: no hold, cancel fires.
+    assert _verdict_of(verdicts, 1).verdict != wd.SKIPPED_PARTIAL_EVIDENCE
+    assert len(_posts(api, "/cancel")) == 1
+
+
+def test_watched_run_at_position_101_is_held() -> None:
+    """A watched run past the first young-band page is found when the pre-cancel
+    re-read uses YOUNG_BAND_MAX_PAGES. The band overflows the cap (501 total), so
+    the cancel is held fail-closed: we read the watched run at page 2 but there is
+    still one unlisted run, and we cannot know whether that unlisted run could hold
+    a slow start."""
+    # 100 unwatched young runs (page 1, newest) + 1 watched young run (page 2,
+    # position 101) + 400 more unwatched (pages 2-5) = 501 total. Cap at 5 pages
+    # lists 500; 1 unlisted run triggers the hold.
+    unwatched_newest = [
+        _run(20_000 + i, minutes_ago=1, status="queued", workflow="not-watched.yml")
+        for i in range(100)
+    ]
+    watched_101 = [_run(21_000, minutes_ago=2, status="queued")]
+    unwatched_rest = [
+        _run(22_000 + i, minutes_ago=3, status="queued", workflow="not-watched.yml")
+        for i in range(400)
+    ]
+    api = FakeApi({"in_progress": [_run(1)]}, {1: [_job(11)]})
+    api, _ = _ceilinged_listing(unwatched_newest + watched_101 + unwatched_rest, api)
+    clock = _Clock()
+    listing = api.get
+
+    def get(path: str) -> Any:
+        clock.sleep(0.05)
+        return listing(path)
+
+    api.get = get  # type: ignore[method-assign]
+    verdicts, outcomes = wd.run_watchdog(
+        api, _policy(), clock=clock.now, sleep=clock.sleep, log=lambda _l: None
+    )
+    # Cap hit: fail closed, cancel held even though the watched run at position 101
+    # IS listed within the 5-page cap.
+    assert _verdict_of(verdicts, 1).verdict == wd.SKIPPED_PARTIAL_EVIDENCE
+    assert not _posts(api, "/cancel")
+
+
+def test_young_band_page_cap_holds_the_cancel() -> None:
+    """When the young band overflows YOUNG_BAND_MAX_PAGES the pre-cancel re-read
+    cannot see the full band; the cancel is held fail-closed regardless of the
+    workflows in the listed portion."""
+    # PAGE_SIZE * YOUNG_BAND_MAX_PAGES + 1 young runs to guarantee the cap is hit.
+    cap_overflow = [
+        _run(20_000 + i, minutes_ago=3, status="queued", workflow="not-watched.yml")
+        for i in range(wd.PAGE_SIZE * wd.YOUNG_BAND_MAX_PAGES + 1)
+    ]
+    api = FakeApi({"in_progress": [_run(1)]}, {1: [_job(11)]})
+    api, _ = _ceilinged_listing(cap_overflow, api)
+    clock = _Clock()
+    listing = api.get
+
+    def get(path: str) -> Any:
+        clock.sleep(0.05)
+        return listing(path)
+
+    api.get = get  # type: ignore[method-assign]
+    verdicts, outcomes = wd.run_watchdog(
+        api, _policy(), clock=clock.now, sleep=clock.sleep, log=lambda _l: None
+    )
+    # Cap hit: fail closed, cancel held even though all listed runs are unwatched.
+    assert _verdict_of(verdicts, 1).verdict == wd.SKIPPED_PARTIAL_EVIDENCE
+    assert not _posts(api, "/cancel")
+
+
 def test_a_short_pre_cancel_reread_fails_closed_rather_than_cancelling() -> None:
     """Runs past the line that the re-read could not list may hold the slow start the
     hold exists to see, so a truncated re-read cancels nothing and reds the tick.
     The burst arrives between the sweep and the re-read: 1,200 runs created in one
     second ten minutes ago, past the line, so the bound cannot exclude them and the
     window cannot narrow past them. Negative control: dropping the truncation (as
-    ``list_all_candidate_runs`` does) cancels and re-runs the run here."""
+    ``gather_all_candidate_runs`` without the truncation check cancels and re-runs the run here."""
     queued: list[dict[str, Any]] = []
     api = FakeApi({"in_progress": [_run(1)]}, {1: [_job(11)]})
     api, _ = _ceilinged_listing(queued, api)

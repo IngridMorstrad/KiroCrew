@@ -142,7 +142,7 @@ def _iter_repo_runs(
     )
     if created_after is not None:
         log(f"{message}; best-effort evidence read, no orphan can sit in the unread runs")
-        if truncated is not None:
+        if (hit_cap or at_ceiling) and truncated is not None:
             truncated.append(message)
         return
     if hit_cap or at_ceiling:
@@ -255,6 +255,7 @@ def gather_all_candidate_runs(
     *,
     candidate_threshold: str | None = None,
     young_unread: list[str] | None = None,
+    young_band_max_pages: int | None = None,
     get: Callable[[str], Any] | None = None,
     log: Callable[[str], None] = print,
 ) -> tuple[list[dict[str, Any]], ApiError | None, list[str]]:
@@ -287,6 +288,14 @@ def gather_all_candidate_runs(
     ``young_unread`` when given, and the pre-cancel re-read turns it into an
     unread candidate. Without ``candidate_threshold`` every live run is listed.
 
+    ``young_band_max_pages``, when given, overrides ``EVIDENCE_LISTING_PAGES`` for
+    the young-band read. The pre-cancel re-read passes a larger value here so that
+    it can enumerate the full young band (up to the cap) before deciding whether to
+    hold the cancel. A shortfall after ``young_band_max_pages`` pages is still
+    appended to ``young_unread`` (hold the cancel); an exhausted band with no
+    shortfall leaves ``young_unread`` empty, and ``live_runs_within_read_bound``
+    tracks any listed young watched runs under their real creation time.
+
     An actionable status is read through ``_iter_actionable_runs``, which narrows
     by created window past the result ceiling. The third element names each
     ACTIONABLE status whose listing still did not reach its own ``total_count``. It is a tick-level failure rather than a note, because the
@@ -316,11 +325,16 @@ def gather_all_candidate_runs(
                             seen.setdefault(int(run["id"]), run)
                     # The young band the bounded pass left out: never actionable,
                     # but a prompt start in it is evidence the fleet dispatches.
+                    _ymax = (
+                        young_band_max_pages
+                        if young_band_max_pages is not None
+                        else EVIDENCE_LISTING_PAGES
+                    )
                     runs = _iter_repo_runs(
                         api,
                         repo,
                         status=status,
-                        max_pages=EVIDENCE_LISTING_PAGES,
+                        max_pages=_ymax,
                         get=get,
                         log=log,
                         created_after=candidate_threshold,
@@ -338,16 +352,6 @@ def gather_all_candidate_runs(
             raise
         return sorted(seen.values(), key=lambda run: run["created_at"]), exc, truncated
     return sorted(seen.values(), key=lambda run: run["created_at"]), None, truncated
-
-
-def list_all_candidate_runs(
-    api: Api, repo: str, *, log: Callable[[str], None] = print
-) -> list[dict[str, Any]]:
-    """Live runs of every watched workflow, deduplicated, oldest first."""
-    runs, aborted, _truncated = gather_all_candidate_runs(api, repo, log=log)
-    if aborted is not None:
-        raise aborted
-    return runs
 
 
 def _heal_eligible_shape(run: dict[str, Any], repo: str) -> bool:

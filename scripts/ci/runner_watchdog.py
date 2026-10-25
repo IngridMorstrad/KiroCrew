@@ -451,6 +451,11 @@ ACTIONABLE_CANDIDATE_STATUSES = ("in_progress", "queued")
 # pre-cancel re-read still counts its shortfall as an unread run
 # (``YOUNG_BAND_UNREAD_ID``), because those runs cross the line while it judges.
 EVIDENCE_LISTING_PAGES = 1
+# Pages used by the pre-cancel re-read's young-band pass. Larger than
+# EVIDENCE_LISTING_PAGES so a watched run past the first page is found before
+# the cancel is judged. If the band is not exhausted after this many pages the
+# cancel is held as if the band were not fully seen (fail closed).
+YOUNG_BAND_MAX_PAGES = 5
 
 # The jobs of ONE run, so the page count is bounded by the run's own matrix rather
 # than by fleet load: the widest watched workflow expands to a few hundred jobs, so
@@ -862,7 +867,6 @@ from runner_watchdog_parts.listing import (  # noqa: E402,F401
     _runs_path,
     drop_ghost_runs,
     gather_all_candidate_runs,
-    list_all_candidate_runs,
     list_jobs,
     list_recent_cancelled_runs,
     list_runs,
@@ -1205,6 +1209,7 @@ def run_watchdog(
                 policy.repo,
                 candidate_threshold=threshold,
                 young_unread=young_unread,
+                young_band_max_pages=YOUNG_BAND_MAX_PAGES,
                 log=log,
             )
             if fresh_abort is not None:
@@ -1216,19 +1221,16 @@ def run_watchdog(
                 fresh_runs, read_at, log
             )
             if young_unread:
-                # Runs the young-band page did not list sit just under the line, and
-                # cross it while the cancels are still being judged. One unread
-                # candidate stands for them, created a second after the bound: it is
-                # under the line at ``read_at`` (so the top-up does not try to read
-                # it) and over it from the next judgement on, so the partial-evidence
-                # hold sees them exactly as it would see a listed unread run.
+                # The young-band read hit its page cap before exhausting the band:
+                # fail closed. Cancel nothing when there might be more watched runs
+                # in the unread portion that could hold a slow start.
                 latest.unread_candidates[YOUNG_BAND_UNREAD_ID] = parse_timestamp(
                     threshold
                 ) + timedelta(seconds=1)
                 log(
-                    "::notice::the pre-cancel re-read did not list every run younger than "
-                    f"{_fmt_delta(policy.saturation_wait)} ({'; '.join(young_unread)}); they "
-                    "hold the cancels as unread runs once they cross that line"
+                    "::notice::the pre-cancel re-read young band overflowed its page cap "
+                    f"({YOUNG_BAND_MAX_PAGES} pages); the unread runs hold the cancel as "
+                    "unread candidates"
                 )
             for run in bounded_fresh:
                 latest.absorb(list_jobs(api, policy.repo, int(run["id"])), read_at)
