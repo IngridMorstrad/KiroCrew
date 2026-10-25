@@ -1394,6 +1394,9 @@ def _linux_power_source(sysfs_root: str = _LINUX_POWER_SUPPLY_ROOT) -> str:
     battery must never read as a laptop on battery. Battery also needs EVERY
     external supply read offline: one whose state cannot be read may be the
     charger, so the answer is unknown unless another supply reads online.
+    Battery also needs a system battery (``type == "Battery"``, ``scope`` not
+    ``Device``): a desktop whose only external supply is an idle USB-C port
+    has every external supply offline and no battery, and is unknown.
     """
     try:
         names = sorted(os.listdir(sysfs_root))
@@ -1401,9 +1404,14 @@ def _linux_power_source(sysfs_root: str = _LINUX_POWER_SUPPLY_ROOT) -> str:
         return POWER_UNKNOWN
     saw_offline = False
     saw_unreadable = False
+    saw_battery = False
     for name in names:
         base = os.path.join(sysfs_root, name)
         kind = _linux_supply_attr(base, "type")
+        if kind == "Battery":
+            if _linux_supply_attr(base, "scope") != "Device":
+                saw_battery = True
+            continue
         if kind not in ("Mains", "USB"):
             continue
         if kind == "USB" and _linux_supply_attr(base, "scope") == "Device":
@@ -1416,7 +1424,9 @@ def _linux_power_source(sysfs_root: str = _LINUX_POWER_SUPPLY_ROOT) -> str:
         if online == "1":
             return POWER_AC
         saw_offline = True
-    return POWER_BATTERY if saw_offline and not saw_unreadable else POWER_UNKNOWN
+    if saw_offline and saw_battery and not saw_unreadable:
+        return POWER_BATTERY
+    return POWER_UNKNOWN
 
 
 class _SystemPowerStatus(ctypes.Structure):

@@ -68,13 +68,28 @@ class TestLinuxPowerSource:
 
     def test_every_external_supply_offline_is_battery(self, tmp_path):
         _supply(tmp_path, "AC0", "Mains", online="0")
+        _supply(tmp_path, "BAT0", "Battery")
         _supply(tmp_path, "ucsi-source-psy-USBC000-001", "USB", online="0", scope="System")
         assert _linux_power_source(str(tmp_path)) == POWER_BATTERY
 
     def test_a_peripheral_usb_supply_is_not_external_power(self, tmp_path):
         _supply(tmp_path, "AC0", "Mains", online="0")
+        _supply(tmp_path, "BAT0", "Battery")
         _supply(tmp_path, "usb-peripheral", "USB", online="1", scope="Device")
         assert _linux_power_source(str(tmp_path)) == POWER_BATTERY
+
+    def test_an_idle_usb_c_port_with_no_battery_is_unknown(self, tmp_path):
+        # A desktop with a UCSI controller and no Mains supply: every external
+        # supply reads offline, but there is no battery to run on.
+        _supply(tmp_path, "ucsi-source-psy-USBC000-001", "USB", online="0", scope="System")
+        assert _linux_power_source(str(tmp_path)) == POWER_UNKNOWN
+
+    def test_every_external_supply_offline_with_only_a_peripheral_battery_is_unknown(
+        self, tmp_path
+    ):
+        _supply(tmp_path, "AC0", "Mains", online="0")
+        _supply(tmp_path, "hid-mouse-battery", "Battery", online="1", scope="Device")
+        assert _linux_power_source(str(tmp_path)) == POWER_UNKNOWN
 
     def test_an_unreadable_supply_is_skipped(self, tmp_path):
         _supply(tmp_path, "AC0", "Mains")  # no 'online' attribute
