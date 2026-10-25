@@ -92,3 +92,26 @@ class TestListKeys:
         assert resolve(None, None, scope, f"{key}:{no}").permitted is True
         ceiling = parse_policy(_policy(scope, {"enabled": True}))
         assert resolve(ceiling, None, scope, f"{key}:{no}").permitted is True
+
+
+class TestHostReadings:
+    """An ASCII host with a character a DNS name does not use is still asked as
+    read, so a deny glob over its domain refuses it."""
+
+    def test_an_odd_ascii_host_is_asked_as_read(self) -> None:
+        from kiro_crew.platform.governance import url_policy_hosts
+
+        hosts = url_policy_hosts("https://clip+one.blocked.example/v1")
+        assert "clip+one.blocked.example" in hosts
+        assert "" not in hosts
+
+    def test_a_deny_glob_refuses_an_odd_ascii_host(self) -> None:
+        from kiro_crew.platform.governance import url_policy_hosts
+
+        scope = "capabilities.decisions"
+        doc = _policy(
+            scope, {"scopes": {"endpoints": {"mode": "deny", "deny": ["*.blocked.example"]}}}
+        )
+        ceiling = parse_policy(doc)
+        hosts = url_policy_hosts("https://clip+one.blocked.example/v1")
+        assert any(not resolve(ceiling, None, scope, f"endpoints:{h}").permitted for h in hosts)
