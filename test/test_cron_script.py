@@ -1018,7 +1018,6 @@ def run(ctx):
 import os
 from kiro_crew.cron_script import Done
 def run(ctx):
-    # Verify we can import standard library
     assert os.path.exists("/")
 """,
         )
@@ -1322,7 +1321,6 @@ class TestScriptContextCallToolSuccess:
             "kiro_crew.cron_script.sel"
         ) as mock_sel:
             mock_sel().log_tool_invocation.side_effect = Exception("SEL down")
-            # Should not raise despite SEL failure
             result = ctx.call_tool("server", "tool", {})
         assert result == ""
 
@@ -1391,7 +1389,6 @@ class TestMcpToolClientInitFailures:
         agents_dir.mkdir(parents=True)
         config = {"mcpServers": {"test": {"command": "node", "args": ["nonexistent.js"]}}}
         (agents_dir / "kirocrew.json").write_text(json.dumps(config))
-        # Mock wrap_argv to return a cleanup file
         cleanup = tmp_path / "cleanup_marker"
         cleanup.write_text("x")
         with patch("pathlib.Path.home", return_value=tmp_path), patch(
