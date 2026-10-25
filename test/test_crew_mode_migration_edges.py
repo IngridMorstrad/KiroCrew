@@ -32,7 +32,6 @@ def _clean(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "data_home", lambda: tmp_path)
     monkeypatch.setattr(mig, "_pending", set())
     monkeypatch.setattr(mig, "_failed", {})
-    monkeypatch.setattr(mig, "_verdicts", {})
     monkeypatch.setattr(mig, "_lock", None)
     monkeypatch.setattr(mig, "_usable", lambda name: "")
     yield
@@ -135,7 +134,7 @@ async def test_E1_other_retryable_refusals_are_retried(switch, monkeypatch, code
     switch.refuse["r"] = (code, 503 if code == "history_unavailable" else 409)
     out = await switch.mig.reconcile(state)
     assert out["pending"] == ["r"]
-    assert switch.mig.failed() == {}
+    assert switch.mig._failed == {}
 
 
 @pytest.mark.asyncio
@@ -150,7 +149,7 @@ async def test_E1_a_permanent_refusal_never_advances_the_name_and_tells_the_pers
     switch.refuse["bad"] = ("agent_choice_unavailable", 409)
     out = await switch.mig.reconcile(state)
     assert out == {"moved": ["ok"], "pending": []}
-    assert switch.mig.failed() == {"bad": "agent_choice_unavailable"}
+    assert switch.mig._failed == {"bad": "agent_choice_unavailable"}
     assert switch.mig.read_applied() == "kirocrew-conductor"
     assert len(state.notices) == 1 and "bad (agent_choice_unavailable)" in state.notices[0][2]
     # The idle loop does not hammer a permanent refusal, nor repeat the notice.
@@ -233,7 +232,7 @@ async def test_E3_a_cancel_before_the_second_root_leaves_it_owed_and_the_loop_mo
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert switch.mig.pending() == frozenset({"r1", "r2"})
+    assert switch.mig._pending == {"r1", "r2"}
     assert switch.mig.read_applied() == "kirocrew-conductor"
     switch.gate.clear()
     await switch.mig.reconcile(state, retry_failed=False)
@@ -320,7 +319,7 @@ async def test_F3_a_name_changed_mid_pass_leaves_the_rest_pending_with_no_notice
     monkeypatch.setattr(switch.mig, "_move", move_then_change)
     out = await switch.mig.migrate(state, "a-conductor")
     # Neither root is failed and nobody is told a chat did not move.
-    assert switch.mig.failed() == {}
+    assert switch.mig._failed == {}
     assert state.notices == []
     assert set(out["pending"]) == {"r1", "r2"}
     # r2 was never switched onto the stale A.
@@ -342,35 +341,11 @@ async def test_F3_a_template_installed_later_heals_without_a_config_edit(switch,
     state = _State(root)
     assert await switch.mig.reconcile(state) is None
     assert "until it is installed" in state.notices[0][2]
-    # Installed now; the cached verdict alone would keep it unusable.
+    # Installed now; the next idle tick checks the name again and moves the root.
     verdict["why"] = ""
-    assert await switch.mig.reconcile(state, retry_failed=False) is None
-    # The idle loop's periodic re-check forgets it, and the next tick moves the root.
-    switch.mig.forget_unusable_verdicts()
     await switch.mig.reconcile(state, retry_failed=False)
     assert root.agent == "new-conductor"
     assert crew_mode.crew_mode_agent() == "new-conductor"
-
-
-@pytest.mark.asyncio
-async def test_F3_the_idle_loop_re_checks_unusable_verdicts(switch, monkeypatch):
-    monkeypatch.setattr(switch.mig, "RETRY_SECS", 0)
-    monkeypatch.setattr(switch.mig, "VERDICT_RECHECK_TICKS", 2)
-    switch.mig._verdicts["x"] = "agent_not_found"
-    switch.mig._verdicts["ok"] = ""
-
-    async def nothing(state, **_kw):
-        return None
-
-    monkeypatch.setattr(switch.mig, "on_start", nothing)
-    monkeypatch.setattr(switch.mig, "reconcile", nothing)
-    task = asyncio.create_task(switch.mig.run(_State(), start_delay=0))
-    for _ in range(50):
-        await asyncio.sleep(0.01)
-        if "x" not in switch.mig._verdicts:
-            break
-    task.cancel()
-    assert "x" not in switch.mig._verdicts and switch.mig._verdicts.get("ok") == ""
 
 
 def test_E6_usable_refuses_a_crewmate_and_an_unknown_template(monkeypatch):

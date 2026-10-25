@@ -431,7 +431,7 @@ are retried at the next idle point; any other refusal is audited, named in one
 dashboard notice and not retried by the loop (a config change or restart tries
 again). A pass that sees the configured name change stops there, leaving the rest
 for the task that owns the new name, so no false notice is posted. A name found
-unusable is re-checked by the idle loop every `VERDICT_RECHECK_TICKS` ticks, so a
+unusable is re-checked on every idle-loop tick, so a
 template installed later is picked up without a config edit. The recorded name
 advances only when every live root is on the target. A configured name that is not an agent template that resolves, or that
 names a crewmate, moves nothing: it is logged as an error, named in one notice, and

@@ -61,26 +61,10 @@ RETRYABLE: frozenset[str] = frozenset(
     }
 )
 
-#: Idle-loop ticks between re-checks of a configured name found unusable, so a
-#: template installed after the config named it is picked up without a config
-#: edit (4 x RETRY_SECS).
-VERDICT_RECHECK_TICKS = 4
-
 #: One migration at a time: the config watcher, the idle retry loop and the start
 #: pass all call :func:`migrate`, and two of them on one idle root would reset its
 #: fresh conductor session twice.
 _lock: asyncio.Lock | None = None
-
-
-#: ``{configured name: why it cannot run Crew Mode, "" when it can}``, so the idle
-#: loop does not re-read the config every tick. Cleared on every config change.
-_verdicts: dict[str, str] = {}
-
-
-def forget_unusable_verdicts() -> None:
-    """Drop every cached "cannot run Crew Mode" verdict so the next reconcile re-checks."""
-    for name in [n for n, why in _verdicts.items() if why]:
-        _verdicts.pop(name, None)
 
 
 def _migration_lock() -> asyncio.Lock:
@@ -115,11 +99,6 @@ def write_applied(agent: str) -> None:
     atomic_write(path, json.dumps({"applied": agent}) + "\n", mode=0o600)
 
 
-def pending() -> frozenset[str]:
-    """Roots still owed a move (busy when the migration ran)."""
-    return frozenset(_pending)
-
-
 def _roots(state: Any) -> list[Any]:
     from kiro_crew import crew_mode
 
@@ -144,11 +123,6 @@ def _audit(slot_key: str, before: str, after: str, outcome: str, error: str = ""
         )
     except Exception:
         logger.debug("crew mode migration audit failed", exc_info=True)
-
-
-def failed() -> dict[str, str]:
-    """Roots a permanent refusal kept off the configured conductor, with the code."""
-    return dict(_failed)
 
 
 def _notify(state: Any, title: str, body: str) -> None:
@@ -301,9 +275,7 @@ async def reconcile(state: Any, *, retry_failed: bool = True) -> dict[str, list[
     configured = crew_mode.configured_crew_mode_agent()
     applied = await asyncio.to_thread(read_applied)
     if configured != applied:
-        why = _verdicts.get(configured)
-        if why is None:
-            why = _verdicts[configured] = await asyncio.to_thread(_usable, configured)
+        why = await asyncio.to_thread(_usable, configured)
         if why:
             fallback = applied or crew_mode.DEFAULT_CREW_MODE_AGENT
             first = crew_mode.crew_mode_agent() == configured
@@ -351,7 +323,11 @@ def _stamp_live_roots(state: Any) -> list[str]:
 
 
 def history_slot_key(key: str) -> str:
-    """A saved session's stem (``dashboard_chat-3-1792...``) as its slot key (``chat-3-1792...``)."""
+    """A saved session's stem (``dashboard_chat-3-1792...``) as its slot key (``chat-3-1792...``).
+
+    A resume round-trip can stack the prefix (``dashboard_dashboard_<slot>``), so
+    every layer comes off.
+    """
     out = key
     while True:
         for prefix in ("dashboard_", "dashboard:"):
@@ -447,12 +423,8 @@ async def run(state: Any, *, start_delay: float = 2.0) -> None:
         await on_start(state)
     except Exception:
         logger.warning("crew mode start pass failed", exc_info=True)
-    ticks = 0
     while True:
         await asyncio.sleep(RETRY_SECS)
-        ticks += 1
-        if ticks % VERDICT_RECHECK_TICKS == 0:
-            forget_unusable_verdicts()
         try:
             # Roots still owed a move, and a recorded name that is not yet the
             # target (a migration cancelled before it visited every root).
@@ -471,7 +443,6 @@ async def on_config_change(state: Any, cfg: Any = None) -> None:
 
     if cfg is not None:
         crew_mode.remember(cfg)
-    _verdicts.clear()
     try:
         await reconcile(state)
     except Exception:

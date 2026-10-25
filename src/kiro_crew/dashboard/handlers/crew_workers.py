@@ -37,9 +37,8 @@ logger = logging.getLogger(__name__)
 STATUS_WORKING = "working"
 STATUS_IDLE = "idle"
 STATUS_NEEDS_APPROVAL = "needs_approval"
-#: A worker whose question card is open. Workers do not ask the person
-#: (``ask_question`` refuses a worker, see ``handlers/ask_question``), so this is a
-#: card from before that rule; it waits on its conductor like a question report.
+#: A worker whose question card is open (one from before it was adopted); it
+#: waits on its conductor like a question report.
 STATUS_ASKING = "asking"
 STATUS_CLOSED = "closed"
 

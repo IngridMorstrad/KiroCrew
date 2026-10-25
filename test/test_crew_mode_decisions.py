@@ -129,7 +129,6 @@ def _switch(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "data_home", lambda: tmp_path)
     monkeypatch.setattr(mig, "_pending", set())
     monkeypatch.setattr(mig, "_failed", {})
-    monkeypatch.setattr(mig, "_verdicts", {})
     monkeypatch.setattr(mig, "_lock", None)
     monkeypatch.setattr(mig, "_usable", lambda name: "")
     monkeypatch.setattr(crew_mode, "_unusable", {})

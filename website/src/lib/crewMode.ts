@@ -123,8 +123,7 @@ export function crewModeView<T extends { crew_root?: string; crew_mode_root?: bo
 export function agentCycleTarget<T extends { name: string; selection_kind?: string }>(
   agents: T[], current: string, currentKind: string | undefined, step: 1 | -1, crewStamp?: string,
 ): string | null {
-  // A Crew Mode chat has no picker to mirror, stamp included; another conductor's
-  // chat cycles over the conductor-free list like any chat.
+  // A Crew Mode chat (every conductor, stamp included) has no picker to mirror.
   if (runsCrewMode(current, currentKind, crewStamp)) return null
   const rows = withoutConductors(agents)
   if (rows.length === 0) return null
