@@ -250,7 +250,9 @@ class TestReaperJitterAllowance:
         reap = AsyncMock()
         with (
             patch.object(svc, "_force_reap", reap),
-            patch("asyncio.sleep", AsyncMock(side_effect=[None, asyncio.CancelledError])),
+            patch(  # flake-ok: stands in for the reaper's interval sleep so one sweep runs
+                "asyncio.sleep", AsyncMock(side_effect=[None, asyncio.CancelledError])
+            ),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await svc._reaper_loop()
