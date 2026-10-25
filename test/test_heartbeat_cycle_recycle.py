@@ -440,7 +440,7 @@ class TestHeartbeatAgentInstall:
         assert config["mcpServers"] == {}
         # tools must be derived from mcpServers — never reference a
         # namespace without a matching mcpServers entry, otherwise kiro-cli
-        # fails to load the agent. (review-bot finding on rev 6.)
+        # fails to load the agent.
         assert config["tools"] == []
 
     def test_tools_derived_from_resolved_mcp_servers(self, tmp_path, monkeypatch):
