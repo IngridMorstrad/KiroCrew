@@ -114,8 +114,6 @@ class DashboardState:
     _folders_generation: int
     #: Set lazily by ``push_lineage_patch``: key -> (parent, lineage_pending, crew stamps).
     _lineage_sent: dict[str, tuple[Any, bool, tuple[str, bool]]]
-    #: The Crew Mode roots the last full slot frame named (``serialize_slots``).
-    _crew_mode_roots: set[str]
 
     # Class-level defaults, NOT just __init__ assignments. push_slots_update and
     # _persist_open_slots read these on every call, and a partially-constructed

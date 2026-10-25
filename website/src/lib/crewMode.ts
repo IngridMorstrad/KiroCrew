@@ -6,8 +6,8 @@
  *  WHICH conductor is the gateway's `agent.crew_mode_agent`; the gateway moves
  *  every Crew Mode chat onto it when it changes, and refuses any other switch of
  *  a Crew Mode chat (`409 crew_mode_locked`). The conductor list is the gateway's
- *  one set (`kiro_crew.crew_mode.conductor_agents`, equal to `crew_mode_agents`);
- *  both arrive with the agent catalog (`GET /api/agents/catalog`, read by
+ *  one set (`kiro_crew.crew_mode.conductor_agents`);
+ *  it arrives with the agent catalog (`GET /api/agents/catalog`, read by
  *  `useAgents`), which records them here. Until the catalog lands the shipped
  *  conductors stand in.
  */
@@ -32,21 +32,13 @@ export const SHIPPED_CONDUCTORS: readonly string[] = [
 let configuredAgent = DEFAULT_CREW_MODE_AGENT
 let conductors: ReadonlySet<string> = new Set(SHIPPED_CONDUCTORS)
 
-/** Record the catalog's Crew Mode facts. Called by `useAgents` on every load.
- *  `conductorAgents` and `crewModeAgents` are one set on the gateway (every
- *  conductor is Crew Mode); both are read so an older gateway's two lists still
- *  join into the one this dashboard uses. */
+/** Record the catalog's Crew Mode facts. Called by `useAgents` on every load. */
 export function setCrewModeCatalog(
   agent: string | undefined,
   conductorAgents: readonly string[] | undefined,
-  crewModeAgents?: readonly string[],
 ): void {
   configuredAgent = agent || DEFAULT_CREW_MODE_AGENT
-  conductors = new Set([
-    ...(conductorAgents ?? SHIPPED_CONDUCTORS),
-    ...(crewModeAgents ?? []),
-    configuredAgent,
-  ])
+  conductors = new Set([...(conductorAgents ?? SHIPPED_CONDUCTORS), configuredAgent])
 }
 
 /** The agent a chat switches to when Crew Mode is turned on. */

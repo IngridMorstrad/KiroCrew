@@ -1,8 +1,7 @@
 """Crew Mode: which agents are conductors, which sessions are Crew Mode roots, and
 which sessions a root dispatched.
 
-Every conductor is Crew Mode. :func:`conductor_agents` and :func:`crew_mode_agents`
-are one set: every shipped conductor template (the Crew Mode conductor, the team
+Every conductor is Crew Mode. :func:`conductor_agents` is the one set: every shipped conductor template (the Crew Mode conductor, the team
 lead, the pipeline, security and ledger conductors), the configured
 ``agent.crew_mode_agent`` and the deprecated names that resolve to it. The dashboard
 keeps all of them out of a normal chat's agent picker, and a ROOT session on any of
@@ -160,17 +159,11 @@ def remember(cfg: Any) -> None:
 def conductor_agents(cfg: Any = None) -> frozenset[str]:
     """Every conductor: the shipped templates, the configured agent and its aliases.
 
-    The list a normal chat's agent picker leaves out, and the same set as
-    :func:`crew_mode_agents`: every conductor is Crew Mode.
+    The list a normal chat's agent picker leaves out: every conductor is Crew Mode.
     """
     agent = crew_mode_agent(cfg)
     aliases = {alias for alias, to in CONDUCTOR_ALIASES.items() if to == agent}
     return frozenset(CONDUCTOR_TEMPLATES | {agent} | aliases)
-
-
-def crew_mode_agents(cfg: Any = None) -> frozenset[str]:
-    """The agents a Crew Mode root runs on: every conductor (:func:`conductor_agents`)."""
-    return conductor_agents(cfg)
 
 
 def stamp_for_switch(agent: object, agent_kind: object) -> str:
@@ -181,7 +174,7 @@ def stamp_for_switch(agent: object, agent_kind: object) -> str:
     """
     if agent_kind == "member" or not isinstance(agent, str):
         return ""
-    return agent if agent in crew_mode_agents() else ""
+    return agent if agent in conductor_agents() else ""
 
 
 def runs_crew_mode(
@@ -197,7 +190,7 @@ def runs_crew_mode(
     """
     if agent_kind == "member" or mode == "member" or not isinstance(agent, str) or not agent:
         return False
-    return agent in crew_mode_agents() or (isinstance(stamp, str) and stamp == agent)
+    return agent in conductor_agents() or (isinstance(stamp, str) and stamp == agent)
 
 
 #: Slot keys known to be Crew Mode roots, live or closed. Every root a slot frame

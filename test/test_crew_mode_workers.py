@@ -74,15 +74,14 @@ def test_every_conductor_is_crew_mode(monkeypatch):
         "kirocrew-security-conductor",
         "kirocrew-team-lead",
     }
-    assert crew_mode.crew_mode_agents() == shipped
-    assert crew_mode.conductor_agents() == crew_mode.crew_mode_agents()
+    assert crew_mode.conductor_agents() == shipped
     for name in shipped:
         assert crew_mode.runs_crew_mode(name, "template")
         rows = _stamped(_row("p", agent=name), _row("w", created_by="p"))
         assert rows["p"][crew_mode.ROOT_FIELD] is True
         assert rows["w"][crew_mode.WORKER_FIELD] == "p"
     custom = SimpleNamespace(agent=SimpleNamespace(crew_mode_agent="better-conductor"))
-    assert crew_mode.crew_mode_agents(custom) == shipped | {"better-conductor"}
+    assert crew_mode.conductor_agents(custom) == shipped | {"better-conductor"}
 
 
 def test_the_stamp_marks_a_chat_crew_mode_until_it_is_migrated():

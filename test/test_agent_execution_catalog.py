@@ -570,8 +570,6 @@ async def test_catalog_names_the_configured_crew_mode_agent_and_the_conductor_fa
     async with TestClient(TestServer(catalog.app)) as client:
         body = await (await client.get("/api/agents/catalog")).json()
     assert body["crew_mode_agent"] == "better-conductor"
-    # Every conductor stays out of a normal chat's picker; Crew Mode itself is the
-    # configured agent alone once another one runs it.
+    # Every conductor stays out of a normal chat's picker.
     assert "better-conductor" in body["conductor_agents"]
     assert "kirocrew-pipeline-conductor" in body["conductor_agents"]
-    assert body["crew_mode_agents"] == ["better-conductor"]

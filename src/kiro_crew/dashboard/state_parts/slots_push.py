@@ -6,7 +6,7 @@ websocket fan-out delegations.
 
 Instance fields of ``DashboardState`` this module reads and writes:
 
-Writes: ``_crew_mode_roots``, ``_lineage_sent``, ``_serving_loop``, ``_slots_broadcast_interval``,
+Writes: ``_lineage_sent``, ``_serving_loop``, ``_slots_broadcast_interval``,
 ``_slots_broadcast_last``, ``_slots_broadcast_timer``, ``_slots_push_all_owed``,
 ``_slots_push_legacy_owed``, ``_slots_push_overlapped``, ``_slots_push_pending``,
 ``_slots_push_suspend``, ``_update_progress``.
@@ -689,34 +689,19 @@ def push_slot_removed(self: DashboardState, key: str) -> None:
         # slot the gateway ever hosted, for nothing. This is the only place that knows the
         # removal is definitive rather than a replacement.
         self._dynamic_cards.forget_retired(key)
-    # Read BEFORE the legacy push below, which re-serializes the remaining slots and
-    # so rebuilds the root cache without *key*.
-    roots = getattr(self, "_crew_mode_roots", None)
-    was_crew_root = isinstance(roots, set) and key in roots
-    if isinstance(roots, set):
-        roots.discard(key)
     if self._has_legacy_slots_audience():
         self.push_slots_update(legacy_only=True)
     if self._has_slot_patch_clients():
         rows = self._lineage_rows()
         _attach_slot_parents(rows, getattr(self, "spend_slot_by_session", None))
-        restated = {
-            row["key"]: {"key": row["key"], "parent": row["parent"]}
+        restated = [
+            {"key": row["key"], "parent": row["parent"]}
             for row in rows
             if isinstance(row.get("parent"), dict)
             and (row["parent"].get("key") is None or row["parent"].get("ancestor") is True)
             and not row.get("lineage_pending")
-        }
-        # A closed Crew Mode root has no workers: the full frame stamps no
-        # ``crew_root`` on the sessions it dispatched, so the patch restates both stamps on
-        # every live row, or the person's lists keep hiding them under a root that
-        # is gone. Only when *key* was a root; the client skips an unchanged row.
-        if was_crew_root:
-            for row_key, (crew_root, crew_mode_root) in _crew_stamps(self, rows).items():
-                entry = restated.setdefault(row_key, {"key": row_key})
-                entry["crew_root"] = crew_root
-                entry["crew_mode_root"] = crew_mode_root
-        self._send_slot_patch({"slots": list(restated.values()), "removed": [key]})
+        ]
+        self._send_slot_patch({"slots": restated, "removed": [key]})
     self._emit_member_slot_transitions()
 
 

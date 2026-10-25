@@ -775,7 +775,7 @@ async def switch_slot_agent(
         crew_turned_on = (
             bool(new_crew_stamp)
             and not caller.crew_mode_migration
-            and prior_agent not in crew_mode.crew_mode_agents()
+            and prior_agent not in crew_mode.conductor_agents()
             and str(prior_agent or "") != prior_crew_stamp
         )
         # The metadata line carries the stamp only when this switch moves one, so a

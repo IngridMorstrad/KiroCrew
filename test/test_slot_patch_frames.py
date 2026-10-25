@@ -255,8 +255,7 @@ class TestSlotRemoved:
 
         [frame] = [f for f in capable.frames() if f["type"] == "slot_patch"]
         assert frame["data"]["removed"] == ["root"]
-        patched = [r for r in frame["data"]["slots"] if r["key"] == "worker"]
-        assert all(r.get("crew_root", "root") == "root" for r in patched)
+        assert all("crew_root" not in r for r in frame["data"]["slots"])
         [after] = [r for r in state.serialize_slots() if r["key"] == "worker"]
         assert after["crew_root"] == "root"
         crew_mode._known_roots.discard("root")

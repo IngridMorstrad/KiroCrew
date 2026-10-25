@@ -303,7 +303,6 @@ export function createAgentsEndpoints({ post, put, del, j, jfetch: fetch, sessio
         crew_mode_agent?: string
         /** Every conductor template; a normal chat's picker leaves these out. */
         conductor_agents?: string[]
-        crew_mode_agents?: string[]
       }>,
     /** `extra` carries per-request headers (a guided create's `X-Guide-*`);
      *  it rides THIS request only, never the shared transport. */

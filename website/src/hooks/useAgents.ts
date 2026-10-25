@@ -120,7 +120,7 @@ export function useAgents(refreshTrigger: number, sessionKey?: string, projectDi
       // Recorded before the state update below re-renders, so every reader of
       // lib/crewMode (the Crew Mode switch, the picker filter) sees this catalog's
       // conductor on the same render as its rows.
-      setCrewModeCatalog(d.crew_mode_agent, d.conductor_agents, d.crew_mode_agents)
+      setCrewModeCatalog(d.crew_mode_agent, d.conductor_agents)
       setChoices(rows)
       setDisplayChoices(rows)
       setDefaultAgent(d.default_agent || '')

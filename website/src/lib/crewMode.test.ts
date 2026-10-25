@@ -86,8 +86,8 @@ describe('crewMode', () => {
 })
 
 describe('runsCrewMode', () => {
-  it('is every conductor: the two catalog lists are one set', () => {
-    setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor'], ['kirocrew-conductor', 'kirocrew-ledger-conductor'])
+  it('is every conductor in the catalog list', () => {
+    setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor', 'kirocrew-ledger-conductor'])
     expect(runsCrewMode('kirocrew-conductor', 'template')).toBe(true)
     expect(runsCrewMode('kirocrew-ledger-conductor', 'template')).toBe(true)
     expect(runsCrewMode('kirocrew-pipeline-conductor', 'template')).toBe(true)
@@ -102,7 +102,7 @@ describe('runsCrewMode', () => {
   })
 
   it('keeps a stamped chat in Crew Mode until the gateway moves it', () => {
-    setCrewModeCatalog('new-one', ['new-one'], ['new-one'])
+    setCrewModeCatalog('new-one', ['new-one'])
     expect(runsCrewMode('old-one', 'template', 'old-one')).toBe(true)
     expect(runsCrewMode('kirocrew', 'template', 'old-one')).toBe(false)
     expect(runsCrewMode('old-one', 'template', '')).toBe(false)
@@ -111,7 +111,7 @@ describe('runsCrewMode', () => {
 
 describe('agentCycleTarget and the Crew Mode stamp', () => {
   it('does not cycle a chat that stays in Crew Mode on its stamped conductor', () => {
-    setCrewModeCatalog('new-one', ['new-one'], ['new-one'])
+    setCrewModeCatalog('new-one', ['new-one'])
     const agents = [{ name: 'kirocrew' }, { name: 'old-one' }, { name: 'helper' }]
     expect(agentCycleTarget(agents, 'old-one', 'template', 1, 'old-one')).toBeNull()
     expect(agentCycleTarget(agents, 'old-one', 'template', -1, 'old-one')).toBeNull()

@@ -176,7 +176,6 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _report,
         api_work_brief,
         api_work_report,
-        record_person_steer,
         record_person_steer_result,
     )
 if TYPE_CHECKING:  # names it serves from outside the family, from their homes

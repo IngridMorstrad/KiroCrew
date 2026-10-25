@@ -88,7 +88,7 @@ def test_the_entry_type_admits_the_person_and_the_steer():
 
 @pytest.fixture
 def _route(monkeypatch):
-    """``_record_steer`` with the ledger read and the crew log stubbed."""
+    """``person_steer`` with the ledger read and the crew log stubbed."""
     from kiro_crew.crew_log import emit as crew_log_emit
     from kiro_crew.dashboard.handlers import crew_workers
     from kiro_crew.dashboard.handlers import work_ledger as wlh
@@ -113,7 +113,9 @@ async def test_a_steer_lands_on_the_workers_item_redacted(_route):
     facts = _route.cw.LedgerFacts(item_id, "", "")
     _route.monkeypatch.setattr(_route.cw, "_ledger_items", lambda _root: {WORKER: facts})
     secret = "AKIA" + "ABCDEFGHIJKLMNOP"
-    got = await _route.cw._record_steer(SimpleNamespace(), CONDUCTOR, WORKER, f"use {secret}")
+    got = (await _route.cw.person_steer(SimpleNamespace(), CONDUCTOR, WORKER, f"use {secret}"))[
+        "ledger_event"
+    ]
     assert got == item_id
     [entry] = _route.entries
     assert entry["actor"] == "person" and entry["action"] == "steer"
@@ -126,8 +128,8 @@ async def test_a_steer_lands_on_the_workers_item_redacted(_route):
 @pytest.mark.asyncio
 async def test_a_worker_with_no_item_gets_the_steer_and_nothing_is_written(_route):
     _route.monkeypatch.setattr(_route.cw, "_ledger_items", lambda _root: {})
-    got = await _route.cw._record_steer(SimpleNamespace(), CONDUCTOR, WORKER, "hi")
-    assert got == "" and _route.entries == []
+    got = (await _route.cw.person_steer(SimpleNamespace(), CONDUCTOR, WORKER, "hi"))["ledger_event"]
+    assert got is None and _route.entries == []
 
 
 @pytest.mark.asyncio
@@ -138,8 +140,8 @@ async def test_an_unrecorded_steer_is_undone(_route):
     facts = _route.cw.LedgerFacts(item_id, "", "")
     _route.monkeypatch.setattr(_route.cw, "_ledger_items", lambda _root: {WORKER: facts})
     _route.monkeypatch.setattr(crew_log_emit, "on_work_recorded", lambda *_a, **_k: False)
-    got = await _route.cw._record_steer(SimpleNamespace(), CONDUCTOR, WORKER, "hi")
-    assert got == ""
+    got = (await _route.cw.person_steer(SimpleNamespace(), CONDUCTOR, WORKER, "hi"))["ledger_event"]
+    assert got is None
     assert "steer" not in [e.kind for e in wl.read_events(CONDUCTOR, item_id)]
 
 
@@ -148,7 +150,7 @@ def test_the_steer_route_writes_the_event_after_delivery():
 
     source = open(crew_workers.__file__, encoding="utf-8").read()
     body = source.split("async def api_crew_worker_steer", 1)[1]
-    assert body.index("_deliver_as_person") < body.index("_record_steer")
+    assert body.index("_deliver_as_person") < body.index("person_steer(")
 
 
 def test_the_conductor_guidance_reads_steers_before_deciding_and_never_overrules():

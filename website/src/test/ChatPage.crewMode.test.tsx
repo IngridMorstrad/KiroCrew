@@ -189,7 +189,7 @@ describe('Crew Mode on ChatPage', () => {
   })
 
   it('shows the Crew Mode badge on every conductor, the pipeline conductor included', async () => {
-    setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor'], ['kirocrew-conductor', 'kirocrew-pipeline-conductor'])
+    setCrewModeCatalog('kirocrew-conductor', ['kirocrew-conductor', 'kirocrew-pipeline-conductor'])
     await renderWith({ messages: [{ role: 'user', content: 'hello' }], agent: 'kirocrew-pipeline-conductor', agentKind: 'template' })
     expect(screen.getByTestId('crew-mode-composer-chip')).toHaveTextContent('Crew Mode')
   })

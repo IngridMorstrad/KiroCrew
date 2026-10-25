@@ -259,6 +259,5 @@ async def api_agent_catalog(request: web.Request) -> web.Response:
             # normal chat's agent picker leaves out so Crew Mode is the way in.
             "crew_mode_agent": crew_mode.crew_mode_agent(config),
             "conductor_agents": sorted(crew_mode.conductor_agents(config)),
-            "crew_mode_agents": sorted(crew_mode.crew_mode_agents(config)),
         }
     )

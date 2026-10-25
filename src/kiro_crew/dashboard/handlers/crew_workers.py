@@ -750,16 +750,11 @@ async def api_crew_worker_steer(request: web.Request) -> web.Response:
     return web.json_response(delivered)
 
 
-#: The longest steer text one ledger event keeps (the store's event text cap).
-STEER_EVENT_MAX_CHARS = 500
-
-
 def _steer_text(message: str) -> str:
-    """*message* redacted, then cut to the event cap. Redaction runs first, so a cut
-    can never leave a credential's prefix that the patterns no longer match."""
+    """*message* redacted; the store cuts it to its event cap after redaction."""
     from kiro_crew.security import redact
 
-    return redact(message)[:STEER_EVENT_MAX_CHARS]
+    return redact(message)
 
 
 #: ``ledger_error`` when the worker holds no open item on any ledger under its root.
@@ -804,7 +799,7 @@ async def person_steer(
     Run after *message* reached *worker* (a session of Crew Mode root *root*) as
     the person's own text, by the side panel's steer route and by the worker's
     own composer (``POST /api/chat`` on a worker). The event lands on the ledger
-    that holds the worker's item (:func:`_worker_item`), redacted and cut
+    that holds the worker's item (:func:`_worker_item`), redacted
     (:func:`_steer_text`), into a crew-log unit that exists even when the root has
     no live session (``record_person_steer_result``). Returns
     ``{"ledger_event": item id or None, "ledger_error": why or None}``, so a
@@ -834,12 +829,6 @@ async def person_steer(
             landed, why = "", "not_recorded"
     crew_mode_metrics.record_steer(on_item=bool(landed))
     return {"ledger_event": landed or None, "ledger_error": None if landed else why}
-
-
-async def _record_steer(state: Any, root: str, worker: str, message: str) -> str:
-    """:func:`person_steer`'s item id alone, or ``""``."""
-    out = await person_steer(state, root, worker, message)
-    return str(out.get("ledger_event") or "")
 
 
 async def _deliver_as_person(state: Any, slot: Any, message: str) -> dict[str, Any]:

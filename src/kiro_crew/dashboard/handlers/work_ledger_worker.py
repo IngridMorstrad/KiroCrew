@@ -425,21 +425,6 @@ def _steer_unit(state: Any, keys: tuple[str, ...], board_key: str) -> str:
     return recorded[-1] if recorded else ""
 
 
-async def record_person_steer(
-    state: Any,
-    board_key: str,
-    item_id: str,
-    text: str,
-    *,
-    unit_keys: tuple[str, ...] = (),
-) -> str:
-    """:func:`record_person_steer_result`'s item id alone (``""`` when nothing landed)."""
-    landed, _code = await record_person_steer_result(
-        state, board_key, item_id, text, unit_keys=unit_keys
-    )
-    return landed
-
-
 async def record_person_steer_result(
     state: Any,
     board_key: str,
@@ -455,7 +440,7 @@ async def record_person_steer_result(
     ``crew_workers.person_steer``, after the text was delivered. Identity is
     server-resolved there: *board_key* is the ledger that holds the worker's item
     (its root's, or a sub-conductor's under that root), and *item_id* is that item.
-    *text* is already redacted and length-capped. *unit_keys* are the sessions whose
+    *text* is already redacted; the store caps it. *unit_keys* are the sessions whose
     live crew-log unit is preferred (the worker); see :func:`_steer_unit`.
 
     The write takes the board lock, commits the event (no item field moves),

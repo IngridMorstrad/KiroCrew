@@ -409,7 +409,7 @@ releases only the captured identity, preserving any replacement session carrier.
 **Crew Mode** has no field of its own. It is a UI over a conductor template
 (`kiro_crew/crew_mode.py`): a chat is in Crew Mode exactly when it is a root
 session on a conductor template, in the `template` namespace. Every conductor is Crew
-Mode: `crew_mode.conductor_agents` and `crew_mode.crew_mode_agents` are one set, every
+Mode: `crew_mode.conductor_agents` is the one set, every
 shipped conductor (the Crew Mode conductor, team lead, pipeline, security and ledger
 conductors) plus the configured `agent.crew_mode_agent` and `CONDUCTOR_ALIASES`. A
 chat on the agent its own stamp names is Crew Mode too (`crew_mode.runs_crew_mode`):
@@ -448,8 +448,7 @@ the page. A remote peer's `crew_root` and `crew_mode_root` stamps survive the pe
 row allowlist (`crew_mode_root` only as a real `true`). Switching a Crew Mode root to any other agent is refused `409
 crew_mode_locked` (`agent_switch._crew_mode_lock_refusal`), and a provider-side switch
 mid-turn is vetoed in `chat_runner`; the migration is the one exception. The agent
-catalog (`GET /api/agents/catalog`) carries `crew_mode_agent`, `conductor_agents` and
-`crew_mode_agents` (the same set), which the dashboard reads instead of naming a
+catalog (`GET /api/agents/catalog`) carries `crew_mode_agent` and `conductor_agents`, which the dashboard reads instead of naming a
 conductor itself (`runsCrewMode` adds the slot's stamp).
 The composer switch is one way: an ordinary
 `POST /api/chat/slots/{slot}/agent` naming the configured conductor in the `template`
