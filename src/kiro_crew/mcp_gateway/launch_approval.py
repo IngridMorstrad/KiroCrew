@@ -1257,6 +1257,29 @@ def refused_servers(path: Path | None = None) -> dict[str, dict[str, Any]]:
     return result
 
 
+def refused_shares(
+    asked: Iterable[str], refused: Mapping[str, Mapping[str, Any]]
+) -> dict[str, str]:
+    """Refusal reason per share-list name whose launch is refused, keyed as configured.
+
+    ``asked`` is ``mcp_gateway.stub_servers`` as config states it; ``refused`` is
+    :func:`refused_servers`. The rewriter admits a slash-named server under its
+    slash-free alias (``npm:@playwright/mcp`` is recorded as ``playwright-mcp``),
+    so each configured name is looked up under itself and then under its alias.
+    A refusal for a server that is not on the share list matches nothing here.
+    """
+    from kiro_crew.mcp_utils import mcp_server_alias
+
+    result: dict[str, str] = {}
+    for name in asked:
+        rec = refused.get(name)
+        if rec is None:
+            rec = refused.get(mcp_server_alias(name))
+        if rec is not None:
+            result[name] = str(rec.get("reason", ""))
+    return result
+
+
 def target_env_stem(key: str) -> str | None:
     """The target stem an env key names, or ``None`` if it names no target.
 
