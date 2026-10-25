@@ -176,17 +176,31 @@ short fixed mate opener ("Welcome back, let me catch you up on where we
 are."), picked by the script of the user's request. It starts
 one tool-free background model call. The fingerprint covers the original
 genuine user request, conversation task rows, session ledger, and work ledger.
-The model returns one JSON object: `asked` (at most 160 characters), `now`
-(240), and `needs_you` and `next` (at most three items of 120 each). The prompt
-words it to the user's `dashboard.verbosity` level. `now` is required; an older
-`{"message"}` reply is read as `now`, and a missing `asked` falls back to the
-quoted original request. Each field is redacted before and after whitespace is
+The prompt casts the model as a manager reporting to the owner who hired it,
+worded to the user's `dashboard.verbosity` level. It returns one JSON object:
+`status` (`on_track`, `needs_you`, `blocked` or `done`; anything else reads as
+`needs_you` when `needs_you` has items, else `on_track`, and `on_track` or
+`done` beside `needs_you` items reads as `needs_you`), `headline` (at most
+240 characters), `asked` (160), `remaining` (160), `done` (at most four items
+of 120), `needs_you` and `next` (at most three items of 120 each), and `extra`
+(at most two `{title, items}` sections of three items, empty ones dropped).
+`headline` is required; an older `now` or `{"message"}` reply is read as it,
+and a missing `asked` falls back to the quoted original request. `progress`
+is never the model's: the gateway stores `{accepted, total}` counted over the
+current goal's work items (the newest `goal_items_used` after a `new_goal`
+write; every item on a board that never recorded a goal), and leaves it out
+when there are none or the goal's items cannot be told apart. The snapshot
+the model reads carries the same count. Each text field is redacted before and after whitespace is
 collapsed and `**` dropped, then control markers (`[OPTIONS:`, `[STEERING`,
 `<!--`, any bracket form) are defanged so no reader of `content` turns a field
 into a live control, then the field is capped. The result is a second mate
 message: `meta.brief` holds the fields and `content` holds the same brief as
 labelled plain text. The transcript draws `meta.brief` as a fixed card
-(`WarmBriefCard`) that renders every field as a plain text node; a row without a
+(`WarmBriefCard`) that renders every field as a plain text node, in the order
+status and headline, Needs you, Progress (an `accepted of total` bar only when
+`progress` exists, plus `remaining`), What you asked, Done, Next, then the
+`extra` sections. An older `meta.brief` (`asked`, `now`, `needs_you`, `next`)
+draws with `now` as the headline and no status chip; a row without a
 valid `meta.brief` keeps the ordinary bubble. The card is the body of the
 ordinary assistant bubble, so the row keeps its timestamp and row actions, and
 Copy takes the plain-text `content`; chat search reads the card's own visible
@@ -1133,7 +1147,9 @@ against sweep completeness, and are torn down at `close_all`.
   such a turn: no notice card, no synthetic continuation, no recovery budget
   spent. The tool card's applied outcome (`QUIET_END_OUTCOME_PREFIX` plus the
   model's optional `note`) is the low-key, inspectable record that the turn
-  ended on purpose; nothing is rendered as an assistant bubble. A refused
+  ended on purpose; nothing is rendered as an assistant bubble. A linked Slack
+  thread has no tool card, so the reply leg posts that outcome line there as the
+  turn's reply (see [slack-gateway](slack-gateway.md), "Linked Thread Sync"). A refused
   directive leaves the flag unset so the model
   falls back to a plain-text reply. The turn-end contract the base prompt states
   — a closing text, or `nothing_to_do`, never a bare stop after an ordinary tool

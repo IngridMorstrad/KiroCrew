@@ -520,8 +520,10 @@ ordinary `assistant` rows. `warm_task_brief_claim` contains only the fingerprint
 and is suppressed by transcript renderers. Its `ts` also counts as owner
 presence when the next return measures time away. The deterministic opener row and
 the model-written result carry normal mate message roles and classes. The
-result row's `meta.brief` holds the validated, redacted fields (`asked`, `now`,
-`needs_you`, `next`) that the transcript draws as a fixed plain-text card; its
+result row's `meta.brief` holds the validated, redacted fields (`status`,
+`headline`, `asked`, `remaining`, `done`, `needs_you`, `next`, `extra`, and the
+gateway-counted `progress`; an older row holds `asked`, `now`, `needs_you` and
+`next`) that the transcript draws as a fixed plain-text card; its
 `content` is the same brief as plain text, for export and any reader without
 the card.
 Their metadata marks them only for fingerprint and model-input
@@ -2205,7 +2207,13 @@ kiro-cli terminate plus the guarded `sessions/cli/<sid>` unlink). When the
 provider has no `new_conversation` or it raises, the key is `reset` instead,
 so the next job starts on a new process with no history. INFO names the path
 taken, once per job, and the context-driven recycle does not run for this key.
-A failed turn's warning names the served model and the prompt size.
+A failed turn's warning names the served model and the prompt size. A reply
+with no usable JSON object logs those two facts and the reason its attempt is
+charged with, `unparsable reply (<n> chars[, no closing brace])`, and none of
+the reply's text, which can quote the chat being consolidated. An empty reply
+is free only on a backend in `ACP_BACKENDS_REPORT_USAGE` whose turn billed
+nothing; an empty reply that billed, or any empty reply from a backend outside
+that set, is charged as `empty reply`.
 Private V2 extraction retains its per-store `memory-consolidation:` session and
 cleanup path. Acquisition timing includes startup and semaphore acquisition;
 it is not a measurement of queue wait alone.

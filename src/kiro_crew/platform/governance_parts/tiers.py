@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Dict, Mapping, Optional, Tuple
 
+from kiro_crew import edition
 from kiro_crew.config.paths import config_dir
 from kiro_crew.platform.context import PlatformCompositionError
 from kiro_crew.platform.governance_parts.archetypes import _compose_controls
@@ -28,11 +29,13 @@ from kiro_crew.platform.governance_parts.carriers import (
     GovernanceCeiling,
     PolicyDistribution,
     UpdatePins,
+    _is_enterprise,
     _version_tuple,
 )
 from kiro_crew.platform.governance_parts.parsing import (
     _SANDBOX_FLAGS_SCOPE,
     _read_json_file,
+    baseline_controls,
     parse_policy,
 )
 from kiro_crew.platform.governance_parts.signature import _verify_policy_signature
@@ -389,11 +392,15 @@ def compose_tier_ladder(
     Extracted so that boot and a live central refresh cannot drift: a refresh that
     installed the fetched document alone would silently drop every local restriction
     below it.
+
+    In an enterprise build the authority's unnamed scopes are first filled from the
+    built-in baseline (:func:`_with_enterprise_baseline`), so a lower tier that names
+    such a scope narrows the baseline instead of supplying the scope's whole answer.
     """
     present = [tier for tier in tiers if tier is not None]
     if not present:
         return None
-    ceiling = present[0]
+    ceiling = _with_enterprise_baseline(present[0])
     # The distribution pins ride OUTSIDE ``controls`` (they are values the core
     # consumes, not a governed scope), so they are not carried by the per-scope
     # compose the rest of this fold uses -- every path that REBUILDS a ceiling has
@@ -410,9 +417,14 @@ def compose_tier_ladder(
     # authority chose.  When nothing above expressed a choice there is no choice to
     # redirect away from -- the "absence means no choice" class in
     # :func:`_intersect_ceilings`.
+    #
+    # An enterprise build never takes them from a lower tier (RFC D2): its source is a
+    # build-time constant and its cadence and staleness bound come from the fetched
+    # document alone, so a local block must not fill the gap a central one left.
     distribution = ceiling.distribution
+    adopt_lower = not _is_enterprise()
     for lower in present[1:]:
-        if not distribution.declared and lower.distribution.declared:
+        if adopt_lower and not distribution.declared and lower.distribution.declared:
             distribution = lower.distribution
         if lower.tier == TIER_ENV and ceiling.tier == TIER_CENTRAL:
             _warn_env_beneath_central_once(ceiling.tier)
@@ -424,6 +436,39 @@ def compose_tier_ladder(
         # single document was installed untouched.
         return replace(ceiling, distribution=distribution)
     return ceiling
+
+
+def _with_enterprise_baseline(authority: GovernanceCeiling) -> GovernanceCeiling:
+    """*authority* with every scope it does not name filled from the baseline.
+
+    RFC D3 (``docs/request-for-change/rfc-crew-enterprise-edition.md``): in an
+    enterprise build only the remote policy may turn a control on, and a scope it
+    does not name holds its minimal set. :func:`_intersect_ceilings` lets a lower
+    tier supply a scope its authority left out, which is a tightening only while an
+    unnamed scope means "unrestricted". Filling the authority first keeps that fold
+    tighten-only in an enterprise build too: a local tier composes WITH the baseline
+    and can narrow it, never replace it. Only a central authority's named scopes
+    replace the baseline; a local authority (no central document present) is
+    intersected with it scope by scope. The ``oss`` edition returns *authority*
+    unchanged (the same object).
+    """
+    if not edition.is_enterprise():
+        return authority
+    baseline = baseline_controls()
+    if authority.tier != TIER_CENTRAL:
+        # No central document above it: the authority is itself a LOCAL tier, so
+        # its named scopes may only narrow the baseline, never replace it.
+        merged: Dict[str, object] = dict(authority.controls)
+        for scope, control in baseline.items():
+            named = merged.get(scope)
+            merged[scope] = control if named is None else _compose_controls(control, named)
+        return replace(authority, controls=merged)
+    missing = {
+        scope: control for scope, control in baseline.items() if scope not in authority.controls
+    }
+    if not missing:
+        return authority
+    return replace(authority, controls={**authority.controls, **missing})
 
 
 def _subordinate_ceiling(
@@ -716,7 +761,14 @@ def _load_security_policy(
     # in the chain: it is the tier directly beneath central, above bundled and home.
     # Leaving it out meant an env-declared ``distribution.source`` was silently
     # ignored and the central tier never loaded from it.
-    declared = _declared_distribution(env_data) or _declared_distribution(bundled)
+    #
+    # An enterprise build skips the peek and always enters the tier (RFC D2): its source
+    # is the build-time constant, no local block may tune it, and a missing or
+    # unreachable central policy aborts boot.
+    enterprise = _is_enterprise()
+    declared = (
+        None if enterprise else _declared_distribution(env_data) or _declared_distribution(bundled)
+    )
     # The home peek is a LOOKUP for a declared source, not a ruling on the home file:
     # a malformed home ``distribution`` block declares no source, so the peek moves on.
     # Whether that file is then skipped or fatal is decided once, by
@@ -729,13 +781,14 @@ def _load_security_policy(
     # where its ceiling lives must find out from a log line, not from nothing. Same
     # once-per-process warning as the skip in ``_subordinate_ceiling`` (it latches, so
     # a home file that is then also skipped there warns once, not twice).
-    if declared is None:
+    if declared is None and not enterprise:
         try:
             declared = _declared_distribution(home_data)
         except PlatformCompositionError as exc:
             _warn_home_unreadable_beneath_authority_once(home_path, exc)
     if (
-        declared is not None
+        enterprise
+        or declared is not None
         or os.environ.get(_POLICY_DISTRIBUTION_URL_ENV, "").strip()
         or os.environ.get(_POLICY_DISTRIBUTION_CACHE_ONLY_ENV, "").strip()
     ):
