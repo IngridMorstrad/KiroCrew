@@ -22,7 +22,7 @@ import { setHostModel, type HostModel } from '../store/instancesSlice'
 import { isEmbeddedPane } from '../lib/embedded'
 import { setFocusModeEnabled } from '../hooks/useFocusMode'
 import { noteClipboardRelayHost, PANE_CLIPBOARD_VERSION } from '../lib/paneClipboardRelay'
-import { noteHostOrigin } from '../lib/hostRelay'
+import { noteHostElectron, noteHostOrigin } from '../lib/hostRelay'
 
 const MAC_INSET_CLASS = 'embedded-mac-inset'
 const WIN_INSET_CLASS = 'embedded-win-inset'
@@ -181,6 +181,9 @@ export default function EmbeddedHostBridge() {
       // Where the tab bar's switch / pin / stable-order relays go: exactly the
       // origin this model came from, never '*'.
       noteHostOrigin(e.origin)
+      // A desktop-app hub cannot open a window on this pane's origin, so the
+      // pop-out controls refuse with that reason instead of trying.
+      noteHostElectron(model.electron)
       // Whether this host performs image copies for us, and where to ask. Read
       // off the raw payload: it is a pane-side capability, not header state.
       noteClipboardRelayHost(
@@ -225,6 +228,7 @@ export default function EmbeddedHostBridge() {
       document.documentElement.style.removeProperty(WIN_CAPTION_RESERVE_PROP)
       setFocusModeEnabled(false, { echo: false })
       noteClipboardRelayHost(null, false)
+      noteHostElectron(false)
       dispatch(setHostModel(null))
     }
   }, [dispatch])

@@ -15,6 +15,28 @@ export function noteHostOrigin(origin: string | null): void {
   hostOrigin = typeof origin === 'string' && isEmbeddableHubOrigin(origin) ? origin : null
 }
 
+// Whether the hub that last sent this pane its model runs in the desktop app.
+let hostElectron = false
+
+/**
+ * Record whether the embedding hub is the desktop app, from the `electron`
+ * field of the model EmbeddedHostBridge accepted (`false` clears it).
+ */
+export function noteHostElectron(electron: boolean): void {
+  hostElectron = electron === true
+}
+
+/**
+ * True when this dashboard is a crew's pane inside the desktop app. The pane is
+ * served from the crew's tunnel port, so its origin is never the window's own;
+ * the desktop window-open handler sends such a `window.open` to the system
+ * browser and returns no window. Callers that would open a same-origin window
+ * use this to refuse up front with the real reason.
+ */
+export function isDesktopAppPane(): boolean {
+  return hostElectron && isEmbeddedPane()
+}
+
 /**
  * Pane side: post `payload` up to the embedding Instances hub.
  *
