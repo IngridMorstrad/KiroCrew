@@ -1230,9 +1230,7 @@ class TestRestart:
             ),
         ):
             _restart(8089)
-        # Service short-circuit must NOT have been called.
         mock_restart_service.assert_not_called()
-        # And we should have fallen through to the spawn path.
         mock_spawn.assert_called_once()
         assert "Started detached gateway" in capsys.readouterr().out
 

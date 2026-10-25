@@ -604,7 +604,10 @@ class TestOwnerVerifiedSecretTransport:
     @pytest.mark.parametrize(
         "scenario",
         [
-            pytest.param("resolved foreign peer", id="test_posix_tcp_fallback_refuses_a_resolved_foreign_peer"),
+            pytest.param(
+                "resolved foreign peer",
+                id="test_posix_tcp_fallback_refuses_a_resolved_foreign_peer",
+            ),
             pytest.param(
                 "unresolvable peer",
                 id="test_posix_tcp_fallback_refuses_when_the_peer_is_unresolvable",

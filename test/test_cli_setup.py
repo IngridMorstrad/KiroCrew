@@ -242,7 +242,6 @@ class TestSetupTimezone:
 
         _setup_timezone()
 
-        # File should be unchanged
         assert cfg_file.read_text(encoding="utf-8") == "not json {{{"
         output = capsys.readouterr().out
         assert "Could not read" in output
@@ -520,7 +519,6 @@ class TestConfigDirOverride:
 
         from kiro_crew.cli_setup import _setup_slack_tokens
 
-        # Simulate user providing all tokens
         inputs = iter(["y", "xapp-test", "xoxb-test", "U12345"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 

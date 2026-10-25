@@ -63,7 +63,6 @@ class TestNoFlags:
         assert result["no_dashboard"] is True
         assert result["no_crons"] is True
         assert result["no_open"] is True
-        # New flags untouched.
         assert result["no_tunnel"] is False
         assert result["port_override"] is None
         assert result["json_ready"] is False
