@@ -286,9 +286,10 @@ def url_policy_hosts(url: object) -> Tuple[str, ...]:
     Each reading is lower-cased and loses any IPv6 zone and terminal DNS root
     dot, so entries are written without the dot. An IP literal is asked in canonical form only
     (dotted IPv4, compressed IPv6), so an IP entry names a host in that form. A
-    reading that is not a plain ASCII name is not asked, because no client sends
-    it as written; the clients that encode it supply the ``xn--`` or decoded form
-    they do send. A URL with no plain reading at all is asked as ``""``, which
+    non-ASCII reading is not asked, because no client sends it as written; the
+    clients that encode it supply the ``xn--`` form they do send. Every other
+    ASCII reading is asked as read, even one with characters a DNS name does not
+    use, so a deny glob still sees it. A URL with no ASCII reading is asked as ``""``, which
     matches no entry: an allow list refuses it and a deny list does not. So, as
     for ``network.egress``, an allow list is the hard bound, entries name ASCII
     (``xn--``) hosts, and a deny list refuses the spellings it can name.
@@ -351,10 +352,13 @@ def url_policy_hosts(url: object) -> Tuple[str, ...]:
             # resolver accepts (``167772165``, ``0x0a000005``, ``::ffff:10.0.0.5``).
             _keep(ip)
             continue
-        if not _PLAIN_HOST_RE.fullmatch(bare):
-            # Not a plain ASCII name: no client sends it as written. The clients
-            # that IDNA-encode or percent-decode it contribute their own reading.
+        if not bare.isascii():
+            # Not ASCII: no client sends it as written. The clients that
+            # IDNA-encode it contribute their own reading.
             continue
+        # Any other ASCII reading is asked as read, even an odd one
+        # (``clip+one.blocked.example``): a resolver may still answer for it, so
+        # a deny glob must see it, and an allow list refuses it.
         _keep(bare)
     if not hosts:
         # No reading is a host a client would send: ``""``, which an allow list

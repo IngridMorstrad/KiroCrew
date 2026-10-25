@@ -417,9 +417,11 @@ def _refuse_unmatchable_host_entries(scope_name: str, ruleset: "ScopedRuleset") 
 
     A capability's ``host`` lists are asked about hosts as clients send them
     (``matching.url_policy_hosts``): ASCII, no root dot, an IP literal in canonical
-    form. An entry in another spelling would match nothing, so a deny would refuse
-    nothing and an allow would admit nothing, silently. It fails to load instead,
-    and the message says which form to write. Top-level ``network.egress`` keeps its
+    form. An exact entry in another spelling would match nothing, so a deny would
+    refuse nothing and an allow would admit nothing, silently. It fails to load
+    instead, and the message says which form to write. A glob gets a character
+    check only (``_unmatchable_glob``); how it spells IP numbers is not checked.
+    Top-level ``network.egress`` keeps its
     own parsing; this applies only to lists inside a capability.
     """
     from kiro_crew.platform.governance_parts.matching import _PLAIN_HOST_RE, _canonical_ip

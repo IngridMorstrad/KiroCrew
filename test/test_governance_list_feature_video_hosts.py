@@ -227,6 +227,20 @@ class TestUrlReadings:
         _install_policy(monkeypatch, doc)
         assert fvm.host_denied("https://%65vil.example/manifest.json") is True
 
+    def test_an_odd_ascii_redirect_target_is_refused_by_a_deny_glob(
+        self, isolated_home, fake_sel, monkeypatch
+    ) -> None:
+        """A ``+`` is no DNS name character, but a resolver may still answer for it,
+        so the host is asked as read rather than dropped."""
+        from kiro_crew import feature_videos_manifest as fvm
+
+        doc = _policy(
+            self._SCOPE, {"scopes": {"hosts": {"mode": "deny", "deny": ["*.blocked.example"]}}}
+        )
+        _install_policy(monkeypatch, doc)
+        assert fvm.host_denied("https://clip+one.blocked.example/manifest.json") is True
+        assert fvm.host_denied("https://mirror.corp.example/manifest.json") is False
+
     def test_a_probe_error_logs_no_url(self, isolated_home, fake_sel, monkeypatch, caplog) -> None:
         import logging
 
