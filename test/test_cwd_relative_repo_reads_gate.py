@@ -77,6 +77,83 @@ class TestWhatCountsAsReachingTheRepoThroughTheCwd:
         source = 'from pathlib import Path\n(Path("src") / "kiro_crew" / "x.py").read_text()\n'
         assert _flagged(source)
 
+    def test_a_name_bound_to_a_join_is_caught(self) -> None:
+        """Binding the join to a name first is the same CWD-rooted read, so following
+        the name has to walk back through the join exactly as the inline form does."""
+        source = 'from pathlib import Path\nP = Path("src/kiro_crew") / "x.py"\nP.read_text()\n'
+        assert _flagged(source)
+
+    def test_a_name_bound_to_a_resolve_chain_is_caught(self) -> None:
+        """``.resolve()`` on a relative literal is still CWD-rooted (it resolves against
+        the process CWD), so a name bound to it must be followed too."""
+        source = (
+            'from pathlib import Path\nP = Path("src/kiro_crew/x.py").resolve()\nP.read_text()\n'
+        )
+        assert _flagged(source)
+
+    def test_a_module_constant_defined_below_the_reading_function_is_followed(self) -> None:
+        """Function bodies run after module init, so a read inside a function sees a
+        module constant assigned below the function. The file-wide binding scan follows
+        it; narrowing to a source-ordered view would stop catching this shape."""
+        source = (
+            "from pathlib import Path\n"
+            "def test_source():\n"
+            "    SOURCE.read_text()\n"
+            'SOURCE = Path("src/kiro_crew/__init__.py")\n'
+        )
+        assert [line for line, _, _ in _flagged(source)] == [3]
+
+    def test_a_name_bound_inside_a_conditional_block_is_followed(self) -> None:
+        """A constant assigned in an ``if``/``try``/``with`` block is still a binding the
+        gate must follow -- the file-wide scan sees it; collecting only direct module
+        children would miss the platform-guarded constants common in this suite."""
+        source = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            'if sys.platform != "win32":\n'
+            '    SRC = Path("src/kiro_crew/x.py")\n'
+            "def test():\n"
+            "    SRC.read_text()\n"
+        )
+        assert [line for line, _, _ in _flagged(source)] == [6]
+
+    def test_a_name_bound_in_an_outer_function_and_read_in_an_inner_one_is_followed(self) -> None:
+        """A name bound in an enclosing function and read from a nested ``def`` is the
+        same CWD-rooted read; the scope chain follows it across the nesting."""
+        source = (
+            "from pathlib import Path\n"
+            "def test():\n"
+            '    p = Path("src/kiro_crew/x.py")\n'
+            "    def inner():\n"
+            "        return p.read_text()\n"
+        )
+        assert [line for line, _, _ in _flagged(source)] == [5]
+
+    def test_a_sibling_function_reusing_the_name_does_not_erase_the_binding(self) -> None:
+        """Each function is its own binding scope, so a second test reusing a local name
+        (here rebinding ``p`` to a non-repo join) must not clear the repo-relative
+        binding the first test's read depends on. A file-wide binding map would."""
+        source = (
+            "from pathlib import Path\n"
+            "def test_a():\n"
+            '    p = Path("src/kiro_crew/x.py")\n'
+            "    p.read_text()\n"
+            "def test_b(tmp_path):\n"
+            '    p = tmp_path / "y"\n'
+        )
+        assert [line for line, _, _ in _flagged(source)] == [4]
+
+    def test_a_parameter_reassigned_to_a_relative_literal_is_still_caught(self) -> None:
+        """Stripping parameter names must not hide a read of a parameter that the body
+        rebinds to a relative literal -- the body assignment re-adds the binding."""
+        source = (
+            "from pathlib import Path\n"
+            "def t(p):\n"
+            '    p = Path("src/kiro_crew/x.py")\n'
+            "    return p.read_text()\n"
+        )
+        assert [line for line, _, _ in _flagged(source)] == [4]
+
     def test_a_relative_write_into_the_checkout_is_caught(self) -> None:
         source = 'from pathlib import Path\nPath("src/kiro_crew/x.py").write_text("")\n'
         assert _flagged(source)
@@ -112,6 +189,54 @@ class TestWhatIsNotAViolation:
             "from pathlib import Path\n"
             "_REPO = Path(__file__).resolve().parents[1]\n"
             '(_REPO / "src/kiro_crew/x.py").read_text()\n'
+        )
+        assert _flagged(source) == []
+
+    def test_a_name_bound_to_a_repo_rooted_join_stays_clean(self) -> None:
+        """Following a bound join must not start flagging the rooted idiom: a name bound
+        to ``_REPO / "src/..."`` is working-directory-independent and must stay clean."""
+        source = (
+            "from pathlib import Path\n"
+            "_REPO = Path(__file__).resolve().parents[1]\n"
+            'P = _REPO / "src/kiro_crew/x.py"\n'
+            "P.read_text()\n"
+        )
+        assert _flagged(source) == []
+
+    def test_a_read_after_the_name_is_rebound_to_a_non_repo_path_stays_clean(self) -> None:
+        """The binding in effect at the read is the most recent EARLIER one. A name
+        rebound to a non-repository path before it is read is not a repo read, so
+        resolving at the use site must leave it clean, as a file-wide last-write-wins
+        resolution already did."""
+        source = (
+            "from pathlib import Path\n"
+            'path = Path("src/kiro_crew/x.py")\n'
+            'path = Path("out.json")\n'
+            "path.read_text()\n"
+        )
+        assert _flagged(source) == []
+
+    def test_a_rebind_to_a_repo_rooted_join_clears_the_relative_binding(self) -> None:
+        """Rebinding a relative name to a repo-rooted expression makes the later read
+        working-directory-independent. The rooted value resolves to no literal, so it
+        must CLEAR the earlier relative binding rather than leave it standing and flag a
+        read that never touches the relative path."""
+        source = (
+            "from pathlib import Path\n"
+            'path = Path("src") / "kiro_crew/x.py"\n'
+            'path = Path(__file__).resolve().parents[1] / "src/kiro_crew/x.py"\n'
+            "path.read_text()\n"
+        )
+        assert _flagged(source) == []
+
+    def test_a_parameter_shadowing_a_module_name_is_not_flagged(self) -> None:
+        """A parameter is a fresh local, so a helper reading its own argument must not
+        inherit a module-level binding of the same name and be flagged for it."""
+        source = (
+            "from pathlib import Path\n"
+            'p = Path("src") / "kiro_crew/x.py"\n'
+            "def read_source(p):\n"
+            "    return p.read_text()\n"
         )
         assert _flagged(source) == []
 

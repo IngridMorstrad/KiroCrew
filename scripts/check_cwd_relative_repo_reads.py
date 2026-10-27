@@ -225,20 +225,121 @@ def _rooted_literal(node: ast.AST, bound: dict[str, str]) -> str | None:
     return None
 
 
-def names_bound_to_relative_paths(tree: ast.AST) -> dict[str, str]:
-    """``P = Path("src/x")`` -> ``{"P": "src/x"}``, so a later ``P.read_text()`` is seen.
+#: The node types that open a new binding scope for a name.
+_SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
-    File-wide rather than per-scope: a module-level constant accessed inside a
-    method is the shape this pattern actually takes.
+
+def _scope_own_assigns(scope: ast.AST) -> list[ast.Assign]:
+    """The ``name = <expr>`` assignments that belong to *scope* itself, in source order.
+
+    Descends into ``if``/``try``/``with``/``for`` blocks -- a constant guarded by
+    ``if sys.platform`` still belongs to the scope it is written in -- but stops at a
+    nested function or lambda, whose assignments belong to that child scope.
     """
-    bound: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and len(node.targets) == 1:
-            target = node.targets[0]
-            literal = _path_literal(node.value)
-            if isinstance(target, ast.Name) and literal is not None:
-                bound[target.id] = literal
+    assigns: list[ast.Assign] = []
+
+    def walk(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _SCOPE_TYPES):
+                continue
+            if (
+                isinstance(child, ast.Assign)
+                and len(child.targets) == 1
+                and isinstance(child.targets[0], ast.Name)
+            ):
+                assigns.append(child)
+            walk(child)
+
+    walk(scope)
+    assigns.sort(key=lambda node: (node.lineno, node.col_offset))
+    return assigns
+
+
+def _resolve_scope(
+    scope: ast.AST,
+    parent: dict[int, ast.AST | None],
+    own: dict[int, list[ast.Assign]],
+    cache: dict[int, dict[str, str]],
+) -> dict[str, str]:
+    """The relative-path bindings visible in *scope*: the enclosing chain, then its own.
+
+    Each scope runs last-write-wins over its OWN assignments, resolving each value with
+    the inline walk-back (``_rooted_literal``) so a name bound to a ``/`` join or a
+    ``.resolve()`` chain is followed exactly as the inline form is. A rebind that
+    resolves to no relative literal CLEARS the name -- but only within this scope, so a
+    sibling test rebinding the same local name cannot erase another test's binding.
+
+    A function's or lambda's PARAMETER names are dropped from the inherited bindings
+    first: a parameter is a fresh local, so ``def read(p): p.read_text()`` must not
+    inherit a module-level ``p`` bound to a relative literal and be flagged for reading
+    its own argument. A parameter re-bound to a relative literal inside the body is then
+    re-added by the body walk below, so a real relative read is still caught.
+    """
+    if id(scope) in cache:
+        return cache[id(scope)]
+    enclosing = parent[id(scope)]
+    bound = dict(_resolve_scope(enclosing, parent, own, cache)) if enclosing is not None else {}
+    for param in _scope_params(scope):
+        bound.pop(param, None)
+    for node in own[id(scope)]:
+        name = node.targets[0].id  # type: ignore[attr-defined]
+        literal = _rooted_literal(node.value, bound)
+        if literal is None:
+            bound.pop(name, None)
+        else:
+            bound[name] = literal
+    cache[id(scope)] = bound
     return bound
+
+
+def _scope_params(scope: ast.AST) -> set[str]:
+    """The parameter names a function or lambda scope introduces (empty for the module)."""
+    if not isinstance(scope, _SCOPE_TYPES):
+        return set()
+    args = scope.args
+    names = {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
+    if args.vararg:
+        names.add(args.vararg.arg)
+    if args.kwarg:
+        names.add(args.kwarg.arg)
+    return names
+
+
+class _Scopes(ast.NodeVisitor):
+    """Resolves, per scope, the bindings in effect, and maps each call to its scope.
+
+    Scopes are nested by Python's rules: a read sees its own scope's bindings over the
+    enclosing chain out to the module. A read inside a function therefore sees the
+    completed module bindings (so a module constant defined below the function is still
+    followed), plus any binding from an enclosing function and its own.
+    """
+
+    def __init__(self, module: ast.Module) -> None:
+        self._parent: dict[int, ast.AST | None] = {id(module): None}
+        self._own: dict[int, list[ast.Assign]] = {id(module): _scope_own_assigns(module)}
+        self._scope_of: dict[int, ast.AST] = {}
+        self._cache: dict[int, dict[str, str]] = {}
+        self._stack: list[ast.AST] = [module]
+        self.visit(module)
+
+    def _enter_scope(self, node: ast.AST) -> None:
+        self._parent[id(node)] = self._stack[-1]
+        self._own[id(node)] = _scope_own_assigns(node)
+        self._stack.append(node)
+        self.generic_visit(node)
+        self._stack.pop()
+
+    visit_FunctionDef = _enter_scope  # type: ignore[assignment]
+    visit_AsyncFunctionDef = _enter_scope  # type: ignore[assignment]
+    visit_Lambda = _enter_scope  # type: ignore[assignment]
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self._scope_of[id(node)] = self._stack[-1]
+        self.generic_visit(node)
+
+    def bindings_for(self, call: ast.Call) -> dict[str, str]:
+        scope = self._scope_of.get(id(call), self._stack[0])
+        return _resolve_scope(scope, self._parent, self._own, self._cache)
 
 
 def is_repo_relative(literal: str, top_level: set[str]) -> bool:
@@ -278,7 +379,7 @@ def find_violations(source: str, top_level: set[str]) -> list[tuple[int, str, st
         return []
     if changes_directory(tree):
         return []
-    bound = names_bound_to_relative_paths(tree)
+    scopes = _Scopes(tree)
     exempt = _exempt_lines(source)
     violations: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
@@ -286,9 +387,11 @@ def find_violations(source: str, top_level: set[str]) -> list[tuple[int, str, st
             continue
         func = node.func
         if isinstance(func, ast.Name) and func.id == "open" and node.args:
+            bound = scopes.bindings_for(node)
             literal = _string(node.args[0]) or _rooted_literal(node.args[0], bound)
             verb = "open()"
         elif isinstance(func, ast.Attribute) and func.attr in ACCESS_VERBS:
+            bound = scopes.bindings_for(node)
             literal = _rooted_literal(func.value, bound)
             verb = f".{func.attr}()"
         else:
@@ -325,6 +428,11 @@ _PROBES: tuple[tuple[str, str, bool], ...] = (
     (
         "a relative path bound to a name first",
         'from pathlib import Path\nP = Path("src/kiro_crew/x.py")\nP.read_text()\n',
+        True,
+    ),
+    (
+        "a name bound to a join, then read",
+        'from pathlib import Path\nP = Path("src/kiro_crew") / "x.py"\nP.read_text()\n',
         True,
     ),
     (
