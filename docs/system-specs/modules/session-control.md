@@ -928,7 +928,7 @@ that is out of bounds is visible after the fact even though nothing happened.
 
 | Refusal | Status | Why |
 |---------|--------|-----|
-| Config switch off (`agent.session_control` explicitly `false`) | 403 | Operator withdrew the capability from every agent at once. Defaults to true — the agent's `kirocrew-dashboard` mount is the grant. **Exception:** a crew member bypasses this switch while `agent.member_dispatch` is true (its default) — recognised either as a `member-*` DM caller key OR as a chat slot bound to that member's private V2 store; see "Member callers" below |
+| Config switch off (`agent.session_control` explicitly `false`) | 403 | Operator withdrew the capability from every agent at once. Defaults to true — the agent's `kirocrew-dashboard` mount is the grant. **Exception:** a crew member bypasses this switch while `agent.member_dispatch` is true (its default) — recognised either as a `member-*` DM caller key OR as a chat slot bound to that member's private V2 store; see "Member callers" below. The Conductor in the owner's own dashboard tab bypasses it under the same ceiling; see "The owner's Conductor" below |
 | Caller session cannot be identified | 403 | An unidentifiable caller makes the self-target guard blind |
 | Caller is an unattended session (`workflow-*`) | 403 | A `workflow-<run_id>` slot exists only once its originating tab is gone, so there is no owning session to fence it to. **Exception:** a cron slot (`cron-*` caller key) is admitted and fenced by creator ownership instead — see "Cron callers" below |
 | Caller is itself incognito, temporary, or app-scoped | 403 | Caller-side isolation — the direction the target-side checks cannot see |
@@ -1063,11 +1063,49 @@ Two rules give a member caller its shape:
   Every other refusal in the table above still applies to member callers
   unchanged.
 
-Ordinary (non-member) callers are untouched: they still require the switch.
+Ordinary (non-member) callers other than the owner's Conductor (next section)
+are untouched: they still require the switch.
 The exceptions are `session_end_wait`, whose own creator fence (below, "Ending
 a wait early") binds every caller class, owner sessions included,
 `session_reload`, whose creator fence binds every caller class the same way,
 and `session_set_color`, whose creator fence also binds every caller class.
+
+#### The owner's Conductor: the same bypass, the same fence
+
+The shipped Conductor (`kirocrew-conductor`, and its deprecated alias
+`kirocrew-ledger-conductor`) exists to open and drive worker sessions. When the
+person starts it in their own dashboard tab, it gets the member bypass on the
+member's terms, so Crew Mode works on an install whose stored
+`agent.session_control` is `false`:
+
+- **Who.** `_owner_tab_conductor` reads positive identity off the caller's own
+  slot: a `chat-` key; an agent in `CONDUCTOR_AGENTS`; no `_created_by` (only
+  `create_session` writes it, so an empty value means a person opened the tab);
+  no channel or cron link and not channel-born; not app-scoped and no non-user
+  origin; and not a crew member, which keeps its own bypass. A cron tab, a
+  channel-linked or channel-born session, a member's chat, and every session any
+  agent created (the Conductor's own workers included) answer false at any depth.
+- **The ceiling.** `_conductor_bypass` is that predicate AND
+  `member_dispatch_enabled()`. One ceiling covers both dispatching callers, so an
+  operator who sets `agent.member_dispatch` to `false` withdraws the Conductor's
+  bypass too, and an unreadable or degraded `agent` section withdraws it exactly
+  as it does a member's. `_dispatch_bypass` (member OR Conductor) is what the
+  `session_create`, `session_fork` and `authorize_target` switch gates read.
+- **The fence.** While the bypass is what admits it (`agent.session_control`
+  off, read through `session_control_enabled()`, so an unreadable config counts
+  as off), the Conductor is creator-fenced (`_conductor_fenced`, one more
+  population of `_caller_is_ownership_fenced`). It reaches the sessions it created
+  and nothing else: the person's other tabs and another Conductor's workers
+  answer `not_creator`. `_delegation_lineage_fenced` treats it as fenced too, so
+  neither it nor anything rooted in it binds a private-member store. With the
+  switch on it is an ordinary owner caller, with the owner's reach, as before.
+- **Its children.** A worker it creates carries `_created_by`, so the worker gets
+  no bypass of its own and stays fenced whatever agent it inherits.
+
+This narrows what an explicit `agent.session_control: false` withdraws, in the
+same way the member bypass already does: the switch still refuses every ordinary
+caller, and `agent.member_dispatch: false` is the operator's way to refuse
+dispatching callers as well.
 
 #### The strict-internal surface admits a crew member in either spelling, not every scoped caller
 
@@ -2374,7 +2412,8 @@ today's behaviour, so installing this key changes nothing until it is set. Set i
 `false` and a member caller stops bypassing: it falls back under
 `agent.session_control` like any ordinary caller, which lets an operator who
 withdrew session control keep member DM threads chat-only without disabling the
-member. Read at the switch gate via `member_dispatch_enabled()`, and **fails
+member. The same ceiling gates the owner's Conductor bypass ("The owner's
+Conductor" above). Read at the switch gate via `member_dispatch_enabled()`, and **fails
 closed** everywhere it can go wrong. (1) An unreadable config withdraws the member
 bypass (`member_dispatch_enabled()` returns false on a raising read). (2) A config
 that loads but *discarded the `agent` section* (or the whole file) also withdraws

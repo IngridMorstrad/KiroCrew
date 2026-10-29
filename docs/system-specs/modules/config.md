@@ -730,7 +730,7 @@ names that test; every other report-only row gives its plain reason:
 | `stt.model` | "turbo" -> "base", 0.5.0 | reports | a picker value; adopting changes transcription accuracy |
 | `instances.warm_set_cap` | 5 -> 0, #7248 | reports | 5 is an ordinary deliberate cap |
 | `agent.subagent_max_turns` | 100 -> 1000, #12203 | reports | an explicitly stored 100 is a supported cost/turn cap |
-| `agent.session_control` | false -> true, #8375 | reports | false is the supported global withdrawal of peer-session tools |
+| `agent.session_control` | false -> true, #8375 | reports | false is the supported withdrawal of peer-session tools from ordinary agents; crew members and the owner-tab Conductor keep a creator-fenced dispatch bypass unless `agent.member_dispatch` is also false |
 | `skills.lazy_load` | false -> true, #12131 | reports | false is the supported switch to the short skill entry; its `note` reaches the load line too (`meaning_moved`, above) |
 | `agent.subagent_spawn_stagger_secs` | 2.0 -> 0.25, #12203 | reports | the knob to raise when the host or provider is the bottleneck |
 | `session.watchdog_rss_max_mb` | 1536 -> 0, #16393 | reports | 1536 is an ordinary deliberate ceiling; holding it only recycles idle sessions, which keep their history |

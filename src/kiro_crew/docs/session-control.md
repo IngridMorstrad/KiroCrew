@@ -1063,9 +1063,9 @@ retry.
 
 | Knob | Default | Effect |
 |---|---|---|
-| `agent.session_control` | `true` | The whole surface. Turn it off to withdraw the capability from every agent at once without editing a spec |
+| `agent.session_control` | `true` | The whole surface. Turn it off to withdraw the capability from every agent at once without editing a spec, except crew member DM sessions and the owner's own-tab Conductor, which keep driving workers they created unless `agent.member_dispatch` is also off |
 | `agent.session_manager_chain` | `false` | Let a session reach the whole line of sessions under it through `session_handoff`, and hand a closed manager's sessions up |
-| `agent.member_dispatch` | `true` | A crew member's DM session drives workers it created even when session control is off. Turn it off to put member callers back under the switch |
+| `agent.member_dispatch` | `true` | A crew member's DM session, and the Conductor in the owner's own dashboard tab, drive workers they created even when session control is off. Turn it off to put both back under the switch |
 | `agent.crew_panel` | `true` | A crew member publishes its own webview, shown in that member's drawer on the Crew page. Its own mount and its own switch, so withdrawing session control leaves the drawer alone and withdrawing the drawer leaves session control alone |
 
 Rate limits are per caller, per verb, over a 300-second window: **20** session

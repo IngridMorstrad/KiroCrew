@@ -352,11 +352,11 @@ SUPERSEDED_DEFAULTS: tuple[SupersededDefault, ...] = (
         changed_in="#7248",
         new_default_display="0 (automatic: as many as are registered)",
     ),
-    # A stored False keeps every peer-session tool disabled, including a
-    # conductor whose agent spec deliberately mounts the dashboard server. False
-    # is also the supported global withdrawal, so this stays report-only: Doctor
-    # can name the stale-default possibility without overriding an operator's
-    # explicit security choice.
+    # A stored False withdraws session control from every ordinary agent. Crew
+    # members and the owner-tab Conductor keep a creator-fenced dispatch bypass
+    # unless agent.member_dispatch is also False. False is a supported operator
+    # withdrawal, so this stays report-only: Doctor can name the stale-default
+    # possibility without overriding an operator's explicit security choice.
     SupersededDefault(
         dotted_key="agent.session_control",
         old_default=False,
