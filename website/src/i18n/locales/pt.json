@@ -7694,7 +7694,10 @@
       "agent_recheck_failed": "A verificação de {{name}} falhou. Pressione \"Verificar novamente\".",
       "configured_agent_not_ready": "O {{productName}} está configurado para usar o {{name}}, que ainda não está pronto neste host.",
       "use_kiro_cli_instead": "Usar o Kiro CLI no lugar",
-      "switch_agent_later_in_settings": "Você pode trocar de agente a qualquer momento em Configurações > Harness do agente."
+      "switch_agent_later_in_settings": "Você pode trocar de agente a qualquer momento em Configurações > Harness do agente.",
+      "remote_only_question": "Suas Crews rodam em outro computador?",
+      "remote_only_skip": "Conectar a uma Crew em outra máquina",
+      "remote_only_failed": "Não foi possível abrir o formulário de conexão. Tente de novo."
     },
     "linkPreview": {
       "copied": "Copiado",

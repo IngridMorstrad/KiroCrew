@@ -33,6 +33,7 @@ import { Btn, Card, SendBtn } from './ui'
 import ErrorNotice from './ErrorNotice'
 import RelockNotice, { BARE_LOGIN_COMMAND } from './KiroPrerequisiteRelockNotice'
 import { KiroUnzipPrerequisite } from './KiroUnzipPrerequisite'
+import RemoteCrewSetupSkip from './RemoteCrewSetupSkip'
 import {
   AgentDetailActions,
   AgentInstallDetail,
@@ -262,10 +263,12 @@ function SetupStatusError({
   message,
   retrying,
   onRetry,
+  allowRemoteSetup = false,
 }: {
   message: string
   retrying: boolean
   onRetry: () => void
+  allowRemoteSetup?: boolean
 }) {
   return (
     <SetupShell>
@@ -295,6 +298,7 @@ function SetupStatusError({
             {i18nT('components.kiroPrerequisiteGate.try_again')}
           </SendBtn>
         </div>
+        {allowRemoteSetup && <RemoteCrewSetupSkip />}
       </>
     </SetupShell>
   )
@@ -558,12 +562,14 @@ function SandboxUnavailable({
   remedy,
   retrying,
   onRetry,
+  allowRemoteSetup,
 }: {
   failureKind: string
   detail: string
   remedy: string
   retrying: boolean
   onRetry: () => void
+  allowRemoteSetup: boolean
 }) {
   // One honest title for every kind — the CLI is installed, verification is
   // what failed — with the body carrying the mechanism, because the remedies
@@ -633,6 +639,7 @@ function SandboxUnavailable({
             </pre>
           </div>
         ) : null}
+        {allowRemoteSetup && <RemoteCrewSetupSkip />}
       </>
     </SetupShell>
   )
@@ -646,6 +653,7 @@ function CliOutdated({
   retrying,
   onUpdate,
   onRetry,
+  allowRemoteSetup,
 }: {
   updateCommand: string
   /** The desktop app's own copy, which the gateway refuses to self-update. */
@@ -655,6 +663,7 @@ function CliOutdated({
   retrying: boolean
   onUpdate: () => void
   onRetry: () => void
+  allowRemoteSetup: boolean
 }) {
   // The CLI is installed but too old to expose the `acp` subcommand Kiro Crew
   // launches every session through — so it would fail at session-create rather
@@ -742,6 +751,7 @@ function CliOutdated({
             {i18nT('components.kiroPrerequisiteGate.attempt_failed_remedy', { action: i18nT('components.kiroPrerequisiteGate.update_kiro_cli') })}
           </p>
         ) : null}
+        {allowRemoteSetup && <RemoteCrewSetupSkip />}
       </>
     </SetupShell>
   )
@@ -1792,6 +1802,7 @@ export default function KiroPrerequisiteGate({ children }: { children: ReactNode
         retrying={retrying}
         onUpdate={() => updateCliMutation.mutate()}
         onRetry={retryStatus}
+        allowRemoteSetup={!enterpriseLocked && !status.initial_setup_complete && status.setup_allowed !== false}
       />
     )
   }
@@ -1818,7 +1829,7 @@ export default function KiroPrerequisiteGate({ children }: { children: ReactNode
       ? `${status.probe_error} (exit ${status.probe_status})`
       : status.probe_error
     return unlessRelocked(
-      <SetupStatusError message={withStatus} retrying={retrying} onRetry={retryStatus} />
+      <SetupStatusError message={withStatus} retrying={retrying} onRetry={retryStatus} allowRemoteSetup={!enterpriseLocked} />
     )
   }
   // The CLI is present and executable, but verification runs it INSIDE the
@@ -1837,6 +1848,7 @@ export default function KiroPrerequisiteGate({ children }: { children: ReactNode
         remedy={status.sandbox_remedy}
         retrying={retrying}
         onRetry={retryStatus}
+        allowRemoteSetup={!enterpriseLocked}
       />
     )
   }
@@ -1969,6 +1981,10 @@ export default function KiroPrerequisiteGate({ children }: { children: ReactNode
             onRetryBackends={() => { void backendsQuery.refetch() }}
           />
           )}
+          {/* A desktop user who will only use crews on other machines needs no
+              agent here. The closed enterprise login gate keeps its one way
+              through, as for the other agents above. */}
+          {!enterpriseLocked && <RemoteCrewSetupSkip />}
         </>
     </SetupShell>
   )
