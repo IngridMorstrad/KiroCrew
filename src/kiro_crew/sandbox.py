@@ -590,6 +590,7 @@ if TYPE_CHECKING:  # the forwarded names, visible to type checkers and IDEs
         _agents_slice_cgroup_dir,
         _check_slice_memory_pressure,
         _default_max_total_memory_mb,
+        _default_max_total_tasks,
         _default_slice_memory_high_mb,
         _disarm_slice_reclaim,
         _ensure_agent_slice_memory_high,
