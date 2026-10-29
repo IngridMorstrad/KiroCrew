@@ -753,6 +753,19 @@ manifest file, so an explicit refresh always retries, and the marker lives in
 `by-source/`, so the GC sweep reclaims it. A missing, expired or unreadable
 marker reads as absent and the listing fetches.
 
+An installed app's own `app.json` is cached apart. When `_fetch_app_manifest`
+answers from the installed checkout (it reports that through its `provenance`
+argument), `_resolve_manifest` writes the answer to
+`<stem>-<digest>.installed.json` (`_installed_manifest_cache_path`), not to the
+source's manifest file. That copy names the INSTALLED version, while the source
+file is what the listing's `version`, `update_status` and the owner-tier
+prewarm's warm check read as what the branch publishes; stored there, an
+installed app read as current for the cache's life and the prewarm never renewed
+it. The listing reads the source file first and the installed copy second, the
+prewarm clones rows that have an installed copy ahead of every other row, and the
+registry-refresh sweep expires the installed copy with the others, so a Sync
+shows after the next refresh.
+
 The client
 (`isVerified`/`sourceLabel` in `website/src/components/appstore/types.ts`)
 reads the server fields, still rejects a `_registry`-tagged row first (so
