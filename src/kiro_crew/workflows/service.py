@@ -132,8 +132,9 @@ not invent one.
 BUDGET — ctx.budget is a host-owned Budget object, NOT a number or a timeout.
 Never assign to or delete ctx.budget. The caller sets the run's token ceiling
 with budget_total when starting the workflow. Read ctx.budget.total,
-ctx.budget.spent(), or ctx.budget.remaining() to inspect it. Keep any script-local
-limit in a local variable instead of replacing the runtime object.
+ctx.budget.spent(), or ctx.budget.remaining() to inspect it; remaining() is
+float('inf') when total is None, so do not return or log it raw. Keep any
+script-local limit in a local variable instead of replacing the runtime object.
 
 ASYNC vs SYNC — get this right or the script crashes at runtime:
   * AWAIT these (they are async): ctx.agent(...), ctx.parallel(...),

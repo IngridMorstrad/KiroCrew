@@ -300,6 +300,9 @@ class Budget(Protocol):
 `would_exceed(cost=0)` and `charge(cost)`:
 
 - `remaining()` is `math.inf` when `total is None`, else `max(0, total - spent)`.
+  A script that returns or records that value gets `null` in the run record
+  (see the strict-JSON note under `registry.py`), and the authoring prompt tells the
+  model not to emit it raw.
 - `charge(cost)` raises `BudgetExceeded` the moment cumulative spend **reaches**
   the ceiling (the comparison is `>=`, so a run cannot exceed the target), and
   clamps the stored counter to `total` so it never reads above it. The message
@@ -721,6 +724,16 @@ is still executing.
 records: all mutation happens on the gateway event loop, so no locks are needed,
 and snapshots handed to callers are plain JSON-serializable dicts, never the live
 objects (in particular never the `asyncio.Task`).
+
+Strict JSON, not just Python-serializable: `kiro_crew.strict_json.json_portable` replaces
+every non-finite float (`inf`, `-inf`, `nan`) with `None` where script or agent
+values enter the record -- `EventStream._emit` event data, the terminal
+`result`, per-call `agent_results`, and the terminal merge of the runner's
+returned per-call results -- and on `from_store_json`, so a run stored
+by an older build loads clean. Python's `json` writes those floats as the bare
+tokens `Infinity`/`NaN` and reads them back, but the dashboard's `JSON.parse`
+rejects the whole snapshot ("Could not load snapshot") while the run itself
+succeeds. `None` matches what a browser's `JSON.stringify` writes.
 
 `RunHandle` holds `run_id`, `name`, `status`, the growing `events` list, `result`,
 `error`, `author`, `session_key`, `source`, `args`, `agent_results`,
