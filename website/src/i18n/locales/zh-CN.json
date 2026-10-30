@@ -8453,6 +8453,7 @@
       "mark_as_read": "标记为已读",
       "mark_as_unread": "标记为未读",
       "move_to_folder": "移动到文件夹…",
+      "new_folder": "新建文件夹…",
       "open_in_new_tab": "在会话标签页中打开",
       "pin": "置顶",
       "pop_out_to_window": "弹出为独立窗口",
@@ -8472,6 +8473,17 @@
       "unmute": "取消静音此会话",
       "mute_failed": "无法静音此会话",
       "unmute_failed": "无法取消静音此会话"
+    },
+    "newFolderMoveDialog": {
+      "cancel": "取消",
+      "create_and_move": "创建并移动",
+      "inside_current": "在“{{name}}”内创建",
+      "move_failed": "已创建“{{name}}”，但会话未能移入其中：{{error}}",
+      "move_failed_inside": "已在“{{parent}}”内创建“{{name}}”，但会话未能移入其中：{{error}}",
+      "name_label": "文件夹名称",
+      "retry_move": "重试移动",
+      "session_closed": "此会话已关闭，没有可移动的内容。",
+      "title": "新建文件夹"
     },
     "sessionTurnLimit": {
       "all_sessions": "所有会话：打开设置",
@@ -19540,6 +19552,7 @@
       "hide_folders": "隐藏文件夹",
       "menu_reason": "网关离线 — 变暗的操作需要连接",
       "move_folders": "移动文件夹",
+      "move_sessions": "移动会话",
       "name_not_saved_keep_field_open": "网关离线 — 尚未保存。请保持此输入框打开并重新连接。关闭后名称将被丢弃。",
       "optimize": "优化",
       "rename_folders": "重命名文件夹",
