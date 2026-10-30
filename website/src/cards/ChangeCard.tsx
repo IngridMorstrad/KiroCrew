@@ -385,6 +385,8 @@ export default function ChangeCard({ card, store, refresh, remove }: ChangeCardP
               </div>
             )}
 
+            {spec?.Option && <spec.Option card={card} disabled={busy || expired} preview={preview} />}
+
             {/* No hand-off: a typed secret may be unsaved here. */}
             <ErrorNotice
               className="mt-3"
