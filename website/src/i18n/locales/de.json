@@ -16156,6 +16156,7 @@
         "collapse_folder": "Ordner einklappen",
         "confirm_delete_folder": "„{{name}}“ löschen? Jobs werden nicht mehr gruppiert.",
         "create": "Erstellen",
+        "creating": "Wird erstellt…",
         "delete_folder": "Ordner löschen",
         "delete_folder_named": "\"{{name}}\" löschen",
         "expand_folder": "Ordner aufklappen",
